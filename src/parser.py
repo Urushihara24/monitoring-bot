@@ -33,6 +33,10 @@ class CompetitorParser:
     def __init__(self):
         self.session = requests.Session()
         self.cookie_string = ''
+        self.selenium_use_real_profile = False
+        self.selenium_chrome_user_data_dir = ''
+        self.selenium_chrome_profile_dir = 'Default'
+        self.selenium_headless = True
         # Обновлённый User-Agent для обхода блокировок
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -55,6 +59,19 @@ class CompetitorParser:
             self.session.headers['Cookie'] = value
         else:
             self.session.headers.pop('Cookie', None)
+
+    def set_browser_config(
+        self,
+        use_real_profile: bool = False,
+        chrome_user_data_dir: str = '',
+        chrome_profile_dir: str = 'Default',
+        selenium_headless: bool = True,
+    ):
+        """Настройки browser fallback для selenium."""
+        self.selenium_use_real_profile = bool(use_real_profile)
+        self.selenium_chrome_user_data_dir = (chrome_user_data_dir or '').strip()
+        self.selenium_chrome_profile_dir = (chrome_profile_dir or 'Default').strip()
+        self.selenium_headless = bool(selenium_headless)
 
     def parse_url(
         self,
@@ -153,9 +170,16 @@ class CompetitorParser:
 
     def _fetch_html_with_browser(self, url: str, timeout: int = 15) -> Optional[str]:
         """
-        Headless browser fallback для сайтов с anti-bot защитой.
-        Требует установленный playwright и браузер chromium.
+        Browser fallback для сайтов с anti-bot защитой.
+        Сначала Playwright, затем Selenium.
         """
+        html = self._fetch_html_with_playwright(url, timeout=timeout)
+        if html:
+            return html
+        return self._fetch_html_with_selenium(url, timeout=timeout)
+
+    def _fetch_html_with_playwright(self, url: str, timeout: int = 15) -> Optional[str]:
+        """Playwright fallback."""
         try:
             from playwright.sync_api import sync_playwright
         except Exception:
@@ -185,8 +209,71 @@ class CompetitorParser:
                 browser.close()
                 return html
         except Exception as e:
-            logger.warning(f'Browser fallback не сработал для {url}: {type(e).__name__}')
+            logger.warning(f'Playwright fallback не сработал для {url}: {type(e).__name__}')
             return None
+
+    def _fetch_html_with_selenium(self, url: str, timeout: int = 15) -> Optional[str]:
+        """
+        Selenium fallback (эмуляция реального браузера через Chrome).
+        Требует установленный selenium и локальный Chrome/Chromium.
+        """
+        try:
+            from selenium import webdriver
+            from selenium.webdriver.chrome.options import Options
+        except Exception:
+            logger.debug('Selenium не установлен, fallback недоступен')
+            return None
+
+        driver = None
+        try:
+            options = Options()
+            if self.selenium_headless:
+                # Новый headless более похож на реальный Chrome.
+                options.add_argument('--headless=new')
+            options.add_argument('--disable-blink-features=AutomationControlled')
+            options.add_argument('--no-sandbox')
+            options.add_argument('--disable-dev-shm-usage')
+            options.add_argument('--window-size=1366,768')
+            options.add_argument(
+                '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/131.0.0.0 Safari/537.36'
+            )
+            options.add_experimental_option('excludeSwitches', ['enable-automation'])
+            options.add_experimental_option('useAutomationExtension', False)
+
+            if self.selenium_use_real_profile and self.selenium_chrome_user_data_dir:
+                options.add_argument(
+                    f'--user-data-dir={self.selenium_chrome_user_data_dir}'
+                )
+                if self.selenium_chrome_profile_dir:
+                    options.add_argument(
+                        f'--profile-directory={self.selenium_chrome_profile_dir}'
+                    )
+
+            driver = webdriver.Chrome(options=options)
+            driver.set_page_load_timeout(max(5, timeout))
+            driver.get(url)
+            time.sleep(3)
+
+            # Пытаемся убрать webdriver fingerprint.
+            try:
+                driver.execute_script(
+                    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+                )
+            except Exception:
+                pass
+
+            return driver.page_source
+        except Exception as e:
+            logger.warning(f'Selenium fallback не сработал для {url}: {type(e).__name__}')
+            return None
+        finally:
+            if driver is not None:
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
 
     def _cookie_header_to_playwright(self, url: str, cookie_header: str) -> List[dict]:
         """Преобразует 'name=value; name2=value2' в playwright cookies"""
@@ -266,6 +353,11 @@ class CompetitorParser:
 
         # Селекторы для поиска цены (приоритетные)
         selectors = [
+            (
+                'body > div.Product-module-scss-module__Cv4Lqa__page > div > '
+                'div.Product-module-scss-module__Cv4Lqa__wrapper > aside > div > '
+                'div.ProductBuyBlock-module-scss-module__Tn6mfa__amountContainer > span'
+            ),  # Точный селектор карточки товара GGSEL
             '[data-testid="product-price"]',  # GGSEL product card/block
             '[data-test="productPrice"]',  # GGSEL fallback атрибут
             '.price',  # Стандартный

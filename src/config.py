@@ -41,6 +41,11 @@ class Config:
     # Cookies для доступа к защищенным страницам конкурента
     # Формат: "name1=value1; name2=value2"
     COMPETITOR_COOKIES: str = os.getenv('COMPETITOR_COOKIES', '')
+    # Selenium/Chrome profile mode (для обхода anti-bot без proxy)
+    SELENIUM_USE_REAL_PROFILE: bool = _env_bool('SELENIUM_USE_REAL_PROFILE', False)
+    SELENIUM_CHROME_USER_DATA_DIR: str = os.getenv('SELENIUM_CHROME_USER_DATA_DIR', '')
+    SELENIUM_CHROME_PROFILE_DIR: str = os.getenv('SELENIUM_CHROME_PROFILE_DIR', 'Default')
+    SELENIUM_HEADLESS: bool = _env_bool('SELENIUM_HEADLESS', True)
     
     # Основные настройки цен
     MIN_PRICE: float = float(os.getenv('MIN_PRICE', '0.25'))

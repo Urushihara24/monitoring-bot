@@ -1,4 +1,4 @@
-.PHONY: run test compile up down logs restart backup health smoke check-apilogin issue-token
+.PHONY: run test compile up down logs restart backup health smoke check-apilogin issue-token systemd-install
 
 run:
 	python3 -m src.main
@@ -34,3 +34,6 @@ check-apilogin:
 
 issue-token:
 	PYTHONPATH=. python3 scripts/issue_access_token.py
+
+systemd-install:
+	./scripts/install_systemd.sh

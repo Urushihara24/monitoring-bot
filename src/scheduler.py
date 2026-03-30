@@ -110,6 +110,12 @@ class Scheduler:
             runtime = storage.get_runtime_config(config)
             state = storage.get_state()
             parser.set_cookie_string(getattr(runtime, 'COMPETITOR_COOKIES', ''))
+            parser.set_browser_config(
+                use_real_profile=getattr(runtime, 'SELENIUM_USE_REAL_PROFILE', False),
+                chrome_user_data_dir=getattr(runtime, 'SELENIUM_CHROME_USER_DATA_DIR', ''),
+                chrome_profile_dir=getattr(runtime, 'SELENIUM_CHROME_PROFILE_DIR', 'Default'),
+                selenium_headless=getattr(runtime, 'SELENIUM_HEADLESS', True),
+            )
 
             is_valid, errors = validate_runtime_config(runtime)
             if not is_valid:
