@@ -41,9 +41,9 @@ logs/
 *.log
 
 # Runtime data
-data/
-*.sqlite
-*.db
+data/*.db
+data/cookies_backup.json
+data/backups/
 
 # IDE
 .idea/
