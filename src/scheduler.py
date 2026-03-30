@@ -6,6 +6,7 @@ Scheduler - циклический обработчик auto-pricing
 import asyncio
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 from .config import config
@@ -109,7 +110,17 @@ class Scheduler:
             storage.update_state(last_cycle=datetime.now())
             runtime = storage.get_runtime_config(config)
             state = storage.get_state()
-            parser.set_cookie_string(getattr(runtime, 'COMPETITOR_COOKIES', ''))
+
+            # Загружаем cookies из env или backup файла
+            cookies_str = getattr(runtime, 'COMPETITOR_COOKIES', '')
+            parser.set_cookie_string(cookies_str)
+
+            # Пытаемся загрузить из backup если env пустой
+            if not cookies_str:
+                backup_path = Path('data/cookies_backup.json')
+                if backup_path.exists():
+                    parser.set_cookies_backup_file(str(backup_path))
+
             parser.set_browser_config(
                 use_real_profile=getattr(runtime, 'SELENIUM_USE_REAL_PROFILE', False),
                 chrome_user_data_dir=getattr(runtime, 'SELENIUM_CHROME_USER_DATA_DIR', ''),

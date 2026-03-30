@@ -230,15 +230,61 @@ make systemd-install  # установка systemd service + watchdog timer (Lin
 1. В `GGSEL_API_KEY` указан не тот ключ (обычно туда попал JWT/access token).
 2. Неверный `GGSEL_SELLER_ID` для этого key.
 
-Для конкурентов с anti-bot защитой (например QRATOR) можно задать
-`COMPETITOR_COOKIES` из браузера (DevTools -> Application -> Cookies),
-чтобы парсер смог получить HTML карточки товара.
+---
 
-Также доступен Selenium-режим с реальным Chrome-профилем:
-1. На сервере подготовьте user-data-dir Chrome.
-2. Укажите `SELENIUM_USE_REAL_PROFILE=true`.
-3. Задайте `SELENIUM_CHROME_USER_DATA_DIR` и при необходимости `SELENIUM_CHROME_PROFILE_DIR`.
-4. Если сервер без GUI, используйте `SELENIUM_HEADLESS=true` или запуск через `xvfb-run`.
+## 🍪 Обход QRATOR (anti-bot защита конкурента)
+
+Для парсинга цен конкурента с защитой QRATOR используется один из методов:
+
+### Метод 1: Cookies backup (рекомендуется)
+
+1. **Первичная настройка (интерактивно):**
+   ```bash
+   # На локальной машине с браузером
+   python3 scripts/update_competitor_cookies.py --interactive
+   ```
+   - Откроется браузер, пройдите капчу если нужно
+   - Cookies сохранятся в `data/cookies_backup.json`
+
+2. **Копирование на сервер:**
+   ```bash
+   # Скопируйте файл на сервер
+   scp data/cookies_backup.json user@server:/path/to/Monitoring/data/
+   ```
+
+3. **Автоматическое обновление (cron):**
+   ```bash
+   # Добавь в crontab (обновление каждые 6 часов)
+   0 */6 * * * /path/to/Monitoring/scripts/cron_update_cookies.sh
+   ```
+
+### Метод 2: Selenium с реальным профилем
+
+1. **Подготовка профиля на сервере:**
+   ```bash
+   # Создать профиль (первый раз с GUI или xvfb)
+   google-chrome --user-data-dir=/opt/chrome-profile --remote-debugging-port=9222
+   ```
+
+2. **Настройка .env:**
+   ```bash
+   SELENIUM_USE_REAL_PROFILE=true
+   SELENIUM_CHROME_USER_DATA_DIR=/opt/chrome-profile
+   SELENIUM_CHROME_PROFILE_DIR=Default
+   SELENIUM_HEADLESS=false  # или true если профиль работает
+   ```
+
+### Метод 3: Ручные cookies
+
+1. Открыть https://ggsel.net в браузере
+2. DevTools → Application → Cookies → ggsel.net
+3. Скопировать значения ключевых cookies
+4. В `.env`:
+   ```bash
+   COMPETITOR_COOKIES=_ga=GA1.2.xxx; _gid=xxx; session=xxx
+   ```
+
+---
 
 ## 🔁 Автоперезапуск на сервере (systemd)
 
