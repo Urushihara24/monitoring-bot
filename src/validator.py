@@ -24,6 +24,12 @@ def validate_runtime_config(cfg) -> Tuple[bool, List[str]]:
         errors.append('COOLDOWN_SECONDS не может быть отрицательным')
     if cfg.IGNORE_DELTA < 0:
         errors.append('IGNORE_DELTA не может быть отрицательным')
+    if cfg.NOTIFY_SKIP_COOLDOWN_SECONDS < 0:
+        errors.append('NOTIFY_SKIP_COOLDOWN_SECONDS не может быть отрицательным')
+    if cfg.COMPETITOR_CHANGE_DELTA < 0:
+        errors.append('COMPETITOR_CHANGE_DELTA не может быть отрицательным')
+    if cfg.COMPETITOR_CHANGE_COOLDOWN_SECONDS < 0:
+        errors.append('COMPETITOR_CHANGE_COOLDOWN_SECONDS не может быть отрицательным')
     if cfg.WEAK_POSITION_THRESHOLD < 1:
         errors.append('WEAK_POSITION_THRESHOLD должен быть >= 1')
     if not cfg.COMPETITOR_URLS:

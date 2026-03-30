@@ -52,6 +52,53 @@ class Scheduler:
         else:
             logger.info(f'Уведомление подавлено throttling: key={key}')
 
+    async def _notify_skip_throttled(self, runtime, current_price: float, target_price: float,
+                                     competitor_price: float, reason: str):
+        """Уведомление о пропуске с ограничением частоты и runtime-флагом"""
+        if not runtime.NOTIFY_SKIP:
+            return
+        if storage.should_send_alert(
+            key='skip_notification',
+            cooldown_seconds=runtime.NOTIFY_SKIP_COOLDOWN_SECONDS,
+        ):
+            await self.telegram_bot.notify_skip(
+                current_price=current_price,
+                target_price=target_price,
+                competitor_price=competitor_price,
+                reason=reason,
+            )
+        else:
+            logger.info('Skip-уведомление подавлено throttling')
+
+    async def _notify_competitor_change_if_needed(
+        self,
+        runtime,
+        old_price: Optional[float],
+        new_price: float,
+        rank: Optional[int],
+    ):
+        """Уведомление об изменении минимальной цены конкурента"""
+        if not runtime.NOTIFY_COMPETITOR_CHANGE:
+            return
+        if old_price is None:
+            return
+        delta = abs(new_price - old_price)
+        if delta < runtime.COMPETITOR_CHANGE_DELTA:
+            return
+
+        if storage.should_send_alert(
+            key='competitor_price_change',
+            cooldown_seconds=runtime.COMPETITOR_CHANGE_COOLDOWN_SECONDS,
+        ):
+            await self.telegram_bot.notify_competitor_price_changed(
+                old_price=old_price,
+                new_price=new_price,
+                delta=delta,
+                rank=rank,
+            )
+        else:
+            logger.info('Уведомление об изменении цены конкурента подавлено throttling')
+
     async def run_cycle(self):
         """
         Один цикл работы планировщика
@@ -61,6 +108,9 @@ class Scheduler:
         try:
             storage.update_state(last_cycle=datetime.now())
             runtime = storage.get_runtime_config(config)
+            state = storage.get_state()
+            parser.set_cookie_string(getattr(runtime, 'COMPETITOR_COOKIES', ''))
+
             is_valid, errors = validate_runtime_config(runtime)
             if not is_valid:
                 message = 'Некорректные runtime-настройки: ' + '; '.join(errors[:5])
@@ -124,6 +174,13 @@ class Scheduler:
             if selected_rank is not None:
                 logger.info(f'Позиция целевого конкурента: #{selected_rank}')
 
+            await self._notify_competitor_change_if_needed(
+                runtime=runtime,
+                old_price=state.get('last_competitor_min'),
+                new_price=min_price,
+                rank=selected_rank,
+            )
+
             # Сохраняем цену конкурента
             storage.update_state(
                 last_competitor_price=min_price,
@@ -136,7 +193,6 @@ class Scheduler:
 
             if current_price is None:
                 # Используем цену из хранилища
-                state = storage.get_state()
                 current_price = state.get('last_price')
 
                 if current_price is None:
@@ -146,12 +202,12 @@ class Scheduler:
                         message='Не удалось получить текущую цену',
                         cooldown_seconds=180,
                     )
+                    storage.increment_skip_count()
                     return
 
             logger.info(f'Текущая цена: {current_price}')
 
             # === ШАГ 3: Получить состояние ===
-            state = storage.get_state()
             last_update = state.get('last_update')
 
             # === ШАГ 4: Рассчитать решение ===
@@ -193,7 +249,8 @@ class Scheduler:
             else:
                 # Пропуск
                 storage.increment_skip_count()
-                await self.telegram_bot.notify_skip(
+                await self._notify_skip_throttled(
+                    runtime=runtime,
                     current_price=decision.old_price or current_price,
                     target_price=decision.price or current_price,
                     competitor_price=decision.competitor_price or min_price,

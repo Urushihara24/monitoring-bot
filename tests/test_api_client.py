@@ -28,6 +28,7 @@ def make_client() -> GGSELClient:
         seller_id=8175,
         base_url='https://seller.ggsel.com/api_sellers/api',
         lang='ru-RU',
+        access_token='token-123',
     )
 
 
@@ -324,3 +325,70 @@ def test_request_with_retry_timeout_exhausted(monkeypatch):
     response = client._request_with_retry('GET', 'https://x.test', max_retries=3)
     assert response is None
     assert calls['n'] == 3
+
+
+def test_refresh_access_token_via_apilogin(monkeypatch):
+    client = GGSELClient(
+        api_key='secret-abc',
+        seller_id=8175,
+        base_url='https://seller.ggsel.com/api_sellers/api',
+        lang='ru-RU',
+    )
+    captured: dict[str, Any] = {}
+
+    def fake_request(method, url, **kwargs):
+        captured['method'] = method
+        captured['url'] = url
+        captured.update(kwargs)
+        return FakeResponse(
+            200,
+            {
+                'retval': 0,
+                'token': 'issued-token-1',
+                'valid_thru': '2030-01-01T00:00:00Z',
+            },
+        )
+
+    monkeypatch.setattr(client, '_request_with_retry', fake_request)
+
+    ok = client._refresh_access_token()
+    assert ok is True
+    assert client.access_token == 'issued-token-1'
+    assert captured['method'] == 'POST'
+    assert captured['url'].endswith('/apilogin')
+    assert captured['json']['seller_id'] == 8175
+    assert 'timestamp' in captured['json']
+    assert len(captured['json']['sign']) == 64
+
+
+def test_authorized_request_retries_once_after_401(monkeypatch):
+    client = GGSELClient(
+        api_key='secret-abc',
+        seller_id=8175,
+        base_url='https://seller.ggsel.com/api_sellers/api',
+        lang='ru-RU',
+    )
+    monkeypatch.setattr(
+        client,
+        '_get_access_token',
+        lambda force_refresh=False, timeout=10: 'token-2' if force_refresh else 'token-1',
+    )
+
+    calls = {'n': 0}
+
+    def fake_request(method, url, **kwargs):
+        calls['n'] += 1
+        if calls['n'] == 1:
+            return FakeResponse(401, {'retval': -1})
+        return FakeResponse(200, {'retval': 0})
+
+    monkeypatch.setattr(client, '_request_with_retry', fake_request)
+
+    resp = client._authorized_request(
+        'GET',
+        'https://seller.ggsel.com/api_sellers/api/products/list',
+        params={'page': 1, 'count': 1},
+    )
+    assert resp is not None
+    assert resp.status_code == 200
+    assert calls['n'] == 2

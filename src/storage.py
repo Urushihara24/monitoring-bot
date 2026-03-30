@@ -258,6 +258,24 @@ class Storage:
             'COOLDOWN_SECONDS': self._get_int('COOLDOWN_SECONDS', base_config.COOLDOWN_SECONDS),
             'IGNORE_DELTA': self._get_float('IGNORE_DELTA', base_config.IGNORE_DELTA),
             'CHECK_INTERVAL': self._get_int('CHECK_INTERVAL', base_config.CHECK_INTERVAL),
+            'COMPETITOR_COOKIES': self._get_str('COMPETITOR_COOKIES', base_config.COMPETITOR_COOKIES),
+            'NOTIFY_SKIP': self._get_bool('NOTIFY_SKIP', base_config.NOTIFY_SKIP),
+            'NOTIFY_SKIP_COOLDOWN_SECONDS': self._get_int(
+                'NOTIFY_SKIP_COOLDOWN_SECONDS',
+                base_config.NOTIFY_SKIP_COOLDOWN_SECONDS,
+            ),
+            'NOTIFY_COMPETITOR_CHANGE': self._get_bool(
+                'NOTIFY_COMPETITOR_CHANGE',
+                base_config.NOTIFY_COMPETITOR_CHANGE,
+            ),
+            'COMPETITOR_CHANGE_DELTA': self._get_float(
+                'COMPETITOR_CHANGE_DELTA',
+                base_config.COMPETITOR_CHANGE_DELTA,
+            ),
+            'COMPETITOR_CHANGE_COOLDOWN_SECONDS': self._get_int(
+                'COMPETITOR_CHANGE_COOLDOWN_SECONDS',
+                base_config.COMPETITOR_CHANGE_COOLDOWN_SECONDS,
+            ),
         }
         runtime['COMPETITOR_URLS'] = self.get_competitor_urls(base_config.COMPETITOR_URLS)
         return SimpleNamespace(**runtime)

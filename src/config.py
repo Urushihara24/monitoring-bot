@@ -26,14 +26,21 @@ class Config:
     TELEGRAM_ADMIN_IDS: List[int] = None
     
     # GGSEL API
+    # Секретный API key (используется для получения access token через /apilogin)
     GGSEL_API_KEY: str = os.getenv('GGSEL_API_KEY', '')
+    # Опционально: можно явно передать готовый access token
+    GGSEL_ACCESS_TOKEN: str = os.getenv('GGSEL_ACCESS_TOKEN', '')
     GGSEL_SELLER_ID: int = int(os.getenv('GGSEL_SELLER_ID', '8175'))
     GGSEL_PRODUCT_ID: int = int(os.getenv('GGSEL_PRODUCT_ID', '0'))
     GGSEL_BASE_URL: str = 'https://seller.ggsel.com/api_sellers/api'
     GGSEL_LANG: str = os.getenv('GGSEL_LANG', 'ru-RU')
+    GGSEL_REQUIRE_API_ON_START: bool = _env_bool('GGSEL_REQUIRE_API_ON_START', False)
     
     # Конкуренты (список URL)
     COMPETITOR_URLS: List[str] = None
+    # Cookies для доступа к защищенным страницам конкурента
+    # Формат: "name1=value1; name2=value2"
+    COMPETITOR_COOKIES: str = os.getenv('COMPETITOR_COOKIES', '')
     
     # Основные настройки цен
     MIN_PRICE: float = float(os.getenv('MIN_PRICE', '0.25'))
@@ -63,6 +70,13 @@ class Config:
     
     # Интервал проверки (секунды)
     CHECK_INTERVAL: int = int(os.getenv('CHECK_INTERVAL', '30'))
+
+    # Уведомления
+    NOTIFY_SKIP: bool = _env_bool('NOTIFY_SKIP', False)
+    NOTIFY_SKIP_COOLDOWN_SECONDS: int = int(os.getenv('NOTIFY_SKIP_COOLDOWN_SECONDS', '300'))
+    NOTIFY_COMPETITOR_CHANGE: bool = _env_bool('NOTIFY_COMPETITOR_CHANGE', True)
+    COMPETITOR_CHANGE_DELTA: float = float(os.getenv('COMPETITOR_CHANGE_DELTA', '0.0001'))
+    COMPETITOR_CHANGE_COOLDOWN_SECONDS: int = int(os.getenv('COMPETITOR_CHANGE_COOLDOWN_SECONDS', '60'))
     
     # Логирование
     LOG_LEVEL: str = os.getenv('LOG_LEVEL', 'INFO')

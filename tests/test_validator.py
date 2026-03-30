@@ -23,6 +23,11 @@ def _cfg(**kwargs):
         'COOLDOWN_SECONDS': 30,
         'IGNORE_DELTA': 0.001,
         'CHECK_INTERVAL': 30,
+        'NOTIFY_SKIP': False,
+        'NOTIFY_SKIP_COOLDOWN_SECONDS': 300,
+        'NOTIFY_COMPETITOR_CHANGE': True,
+        'COMPETITOR_CHANGE_DELTA': 0.0001,
+        'COMPETITOR_CHANGE_COOLDOWN_SECONDS': 60,
         'COMPETITOR_URLS': ['https://example.com'],
     }
     base.update(kwargs)
