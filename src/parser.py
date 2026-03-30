@@ -462,6 +462,9 @@ class CompetitorParser:
         """
         Если на странице найдено количество V-Bucks, возвращает цену за 1 штуку.
         Иначе возвращает исходную total_price.
+        
+        ВАЖНО: Для товаров типа "Предметы / Скины / Эмоции" цена указывается ЗА 1 единицу,
+        а не за пачку. Не делим цену если это не опт.
         """
         amount = self._extract_vbucks_amount(soup.get_text(' ', strip=True))
         if amount is None:
@@ -470,10 +473,20 @@ class CompetitorParser:
             return total_price
         if amount == 1:
             return round(total_price, 4)
-
+        
+        # Для GGSEL: если цена < 1₽, это уже цена за 1 V-Buck (не делим)
+        # Делим только если цена > 10₽ (оптовая продажа)
+        if total_price < 10:
+            logger.debug(
+                'Цена за V-Bucks < 10₽, считаем что это розница: total=%s, amount=%s',
+                total_price,
+                amount,
+            )
+            return round(total_price, 4)
+        
         unit_price = round(total_price / amount, 4)
         logger.info(
-            'Определена цена за 1 V-Bucks: total=%s, amount=%s, unit=%s',
+            'Определена цена за 1 V-Bucks (опт): total=%s, amount=%s, unit=%s',
             total_price,
             amount,
             unit_price,
