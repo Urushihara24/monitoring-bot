@@ -141,7 +141,8 @@ class Scheduler:
                 return
 
             # === PRE-CHECK: авто-режим ===
-            if not self.telegram_bot.auto_mode:
+            state = storage.get_state()
+            if not state.get('auto_mode', True):
                 logger.info('Авто-режим выключен, цикл пропущен')
                 storage.increment_skip_count()
                 return
