@@ -1,11 +1,11 @@
 """
 Telegram бот с Reply Keyboard (кнопки внизу)
+Чистая структура с полным функционалом
 """
 
 import logging
 import re
 import asyncio
-import unicodedata
 from datetime import datetime
 from typing import Optional
 
@@ -26,8 +26,32 @@ from .validator import validate_runtime_config
 logger = logging.getLogger(__name__)
 
 
+# ===== КНОПКИ: ГЛАВНОЕ МЕНЮ =====
+BTN_STATUS = '📊 Статус'
+BTN_UP = '⬆️ +0.01₽'
+BTN_DOWN = '⬇️ -0.01₽'
+BTN_AUTO_ON = '🔔 Авто: ВКЛ'
+BTN_AUTO_OFF = '🔕 Авто: ВЫКЛ'
+BTN_SETTINGS = '⚙️ Настройки'
+BTN_DIAGNOSTICS = '🩺 Диагностика'
+BTN_BACK = '🔙 Назад'
+
+# ===== КНОПКИ: НАСТРОЙКИ =====
+BTN_PRICE = '🎯 Цена'
+BTN_STEP = '➖ Шаг'
+BTN_MIN = '📉 Мин'
+BTN_MAX = '📈 Макс'
+BTN_MODE = '🔀 Режим'
+BTN_POSITION = '📍 Позиция'
+BTN_ADD_URL = '🔗 Добавить URL'
+BTN_REMOVE_URL = '🗑 Удалить URL'
+BTN_EXPORT = '📤 Экспорт'
+BTN_IMPORT = '📥 Импорт'
+BTN_HISTORY = '🧾 История'
+
+
 class TelegramBot:
-    """Telegram бот с кнопками внизу"""
+    """Telegram бот с Reply Keyboard"""
 
     def __init__(self, api_client=None):
         self.bot_token = config.TELEGRAM_BOT_TOKEN
@@ -37,593 +61,339 @@ class TelegramBot:
         self.auto_mode = bool(storage.get_state().get('auto_mode', True))
         self.pending_actions = {}
 
-        # Главное меню
-        self.main_keyboard = ReplyKeyboardMarkup([
-            ['📊 Статус'],
-            ['⬆️ +0.01₽', '⬇️ -0.01₽'],
-            ['🔔 Авто: ВКЛ' if self.auto_mode else '🔕 Авто: ВЫКЛ'],
-            ['⚙️ Настройки', '🩺 Диагностика'],
-        ], resize_keyboard=True, one_time_keyboard=False)
+    # ===== КЛАВИАТУРЫ =====
+    def get_main_keyboard(self):
+        return ReplyKeyboardMarkup([
+            [BTN_STATUS],
+            [BTN_UP, BTN_DOWN],
+            [BTN_AUTO_ON if self.auto_mode else BTN_AUTO_OFF],
+            [BTN_SETTINGS, BTN_DIAGNOSTICS],
+        ], resize_keyboard=True)
 
-        # Меню настроек
-        self.settings_keyboard = ReplyKeyboardMarkup([
-            ['🎯 Цена', '➖ Шаг'],
-            ['📉 Мин', '📈 Макс'],
-            ['🔀 Режим', '📍 Позиция'],
-            ['🔗 Добавить URL', '🗑 Удалить URL'],
-            ['📤 Экспорт', '📥 Импорт'],
-            ['🧾 История'],
-            ['🔙 Назад'],
-        ], resize_keyboard=True, one_time_keyboard=False)
+    def get_settings_keyboard(self):
+        return ReplyKeyboardMarkup([
+            [BTN_PRICE, BTN_STEP],
+            [BTN_MIN, BTN_MAX],
+            [BTN_MODE, BTN_POSITION],
+            [BTN_ADD_URL, BTN_REMOVE_URL],
+            [BTN_EXPORT, BTN_IMPORT],
+            [BTN_HISTORY],
+            [BTN_BACK],
+        ], resize_keyboard=True)
 
+    # ===== INIT APP =====
     @property
-    def app(self) -> Application:
-        """Ленивая инициализация приложения"""
+    def app(self):
         if self._app is None:
             self._app = Application.builder().token(self.bot_token).build()
             self._setup_handlers()
         return self._app
 
     def _setup_handlers(self):
-        """Настройка обработчиков"""
         self.app.add_handler(CommandHandler('start', self.cmd_start))
         self.app.add_handler(CommandHandler('status', self.cmd_status))
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
 
+    # ===== ACCESS =====
     def _check_access(self, user_id: int) -> bool:
-        """Проверка доступа"""
         if user_id not in self.admin_ids:
             logger.warning(f'Доступ запрещён для user_id={user_id}')
             return False
         return True
 
-    async def _reply_with_main_keyboard(self, update: Update, text: str):
-        """Ответ в текущий чат с основной Reply клавиатурой"""
-        if update.message:
-            await update.message.reply_text(text, reply_markup=self.main_keyboard)
-
-    async def _send_with_main_keyboard(self, chat_id: int, text: str, update: Optional[Update] = None):
-        """Отправка в чат с основной Reply клавиатурой"""
-        if update and update.message:
-            await update.message.reply_text(text, reply_markup=self.main_keyboard)
-        else:
-            await self.app.bot.send_message(chat_id=chat_id, text=text, reply_markup=self.main_keyboard)
-
-    async def _send_with_settings_keyboard(self, chat_id: int, text: str, update: Optional[Update] = None):
-        """Отправка в чат с клавиатурой настроек"""
-        if update and update.message:
-            await update.message.reply_text(text, reply_markup=self.settings_keyboard)
-        else:
-            await self.app.bot.send_message(chat_id=chat_id, text=text, reply_markup=self.settings_keyboard)
-
     def _runtime(self):
         return storage.get_runtime_config(config)
 
-    def _known_buttons(self) -> set:
-        return {
-            '📊 Статус', '⬆️ +0.01₽', '⬇️ -0.01₽',
-            '🔔 Авто: ВКЛ', '🔕 Авто: ВЫКЛ',
-            '⚙️ Настройки', '🩺 Диагностика', '🔙 Назад',
-            '🎯 Цена', '➖ Шаг', '📉 Мин', '📈 Макс',
-            '🔀 Режим', '📍 Позиция',
-            '🔗 Добавить URL', '🗑 Удалить URL',
-            '📤 Экспорт', '📥 Импорт', '🧾 История',
-        }
-
-    def _normalize_button_text(self, text: str) -> str:
-        """Нормализация текста кнопок (emoji variants, пробелы, регистр)"""
-        normalized = unicodedata.normalize('NFKC', text or '')
-        # Убираем variation selectors / zero-width символы
-        for ch in ('\ufe0f', '\ufe0e', '\u200d', '\u200b', '\u2060'):
-            normalized = normalized.replace(ch, '')
-        normalized = normalized.replace('\xa0', ' ')
-        normalized = ' '.join(normalized.split())
-        return normalized.strip().lower()
-
-    def _is_button(self, text: str, button_label: str) -> bool:
-        return self._normalize_button_text(text) == self._normalize_button_text(button_label)
-
+    # ===== COMMANDS =====
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /start"""
-        user_id = update.effective_user.id
-
-        if not self._check_access(user_id):
-            await self._reply_with_main_keyboard(update, '❌ У вас нет доступа к этому боту')
+        if not self._check_access(update.effective_user.id):
+            await update.message.reply_text("❌ Нет доступа", reply_markup=self.get_main_keyboard())
             return
-
         await update.message.reply_text(
-            '👋 Бот управления ценой GGSEL\n\nВыберите действие:',
-            reply_markup=self.main_keyboard,
+            "👋 Бот запущен\nВыбери действие:",
+            reply_markup=self.get_main_keyboard()
         )
 
     async def cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /status"""
-        user_id = update.effective_user.id
+        await self.send_status(update.effective_chat.id, update)
 
-        if not self._check_access(user_id):
-            await self._reply_with_main_keyboard(update, '❌ У вас нет доступа к этому боту')
-            return
-
-        await self.send_status(update.message.chat_id)
-
+    # ===== MESSAGE HANDLER =====
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработчик текстовых сообщений"""
         user_id = update.effective_user.id
         chat_id = update.effective_chat.id
-        text = update.message.text.strip()
-        text_norm = self._normalize_button_text(text)
+        text = update.message.text
+        
+        # Нормализация текста (убираем variation selectors из emoji)
+        import unicodedata
+        text_clean = unicodedata.normalize('NFKC', text)
+        for ch in ('\ufe0f', '\ufe0e', '\u200d', '\u200b'):
+            text_clean = text_clean.replace(ch, '')
+        
+        logger.info(f'Получено: {text!r} → {text_clean!r}')
 
         if not self._check_access(user_id):
-            await self._send_with_main_keyboard(chat_id, '❌ У вас нет доступа к этому боту')
+            await update.message.reply_text("❌ Нет доступа", reply_markup=self.get_main_keyboard())
             return
 
-        known_normalized = {self._normalize_button_text(x) for x in self._known_buttons()}
-        if chat_id in self.pending_actions and text_norm not in known_normalized:
-            handled = await self._handle_pending_action(chat_id, user_id, text)
-            if handled:
-                return
-
-        logger.info(f'Получено сообщение: {text!r} (normalized={text_norm!r})')
-
-        if self._is_button(text, '📊 Статус'):
+        # ===== ГЛАВНОЕ МЕНЮ =====
+        if text_clean == BTN_STATUS or text == BTN_STATUS:
             await self.send_status(chat_id, update)
 
-        elif self._is_button(text, '⬆️ +0.01₽'):
+        elif text_clean == BTN_UP or text == BTN_UP:
             await self.handle_price_change(chat_id, 0.01, update)
 
-        elif self._is_button(text, '⬇️ -0.01₽'):
+        elif text_clean == BTN_DOWN or text == BTN_DOWN:
             await self.handle_price_change(chat_id, -0.01, update)
 
-        elif self._is_button(text, '🔔 Авто: ВКЛ') or self._is_button(text, '🔕 Авто: ВЫКЛ'):
-            await self.handle_toggle_auto(chat_id, update)
+        elif text_clean in (BTN_AUTO_ON, BTN_AUTO_OFF) or text in (BTN_AUTO_ON, BTN_AUTO_OFF):
+            await self.toggle_auto(update)
 
-        elif self._is_button(text, '⚙️ Настройки'):
+        elif text_clean == BTN_SETTINGS or text == BTN_SETTINGS:
             await self.send_settings(chat_id, update)
 
-        elif self._is_button(text, '🩺 Диагностика'):
+        elif text_clean == BTN_DIAGNOSTICS or text == BTN_DIAGNOSTICS:
             await self.send_diagnostics(chat_id, update)
 
-        elif self._is_button(text, '🎯 Цена'):
+        # ===== НАСТРОЙКИ =====
+        elif text_clean == BTN_PRICE or text == BTN_PRICE:
             self.pending_actions[chat_id] = 'DESIRED_PRICE'
-            await update.message.reply_text('Введите желаемую цену (например 0.35):', reply_markup=self.settings_keyboard)
+            await update.message.reply_text('Введи желаемую цену (например 0.35):', reply_markup=self.get_settings_keyboard())
 
-        elif self._is_button(text, '➖ Шаг'):
+        elif text_clean == BTN_STEP or text == BTN_STEP:
             self.pending_actions[chat_id] = 'UNDERCUT_VALUE'
-            await update.message.reply_text('Введите шаг снижения (например 0.0051):', reply_markup=self.settings_keyboard)
+            await update.message.reply_text('Введи шаг снижения (например 0.0051):', reply_markup=self.get_settings_keyboard())
 
-        elif self._is_button(text, '📉 Мин'):
+        elif text_clean == BTN_MIN or text == BTN_MIN:
             self.pending_actions[chat_id] = 'MIN_PRICE'
-            await update.message.reply_text('Введите минимальную цену:', reply_markup=self.settings_keyboard)
+            await update.message.reply_text('Введи минимальную цену:', reply_markup=self.get_settings_keyboard())
 
-        elif self._is_button(text, '📈 Макс'):
+        elif text_clean == BTN_MAX or text == BTN_MAX:
             self.pending_actions[chat_id] = 'MAX_PRICE'
-            await update.message.reply_text('Введите максимальную цену:', reply_markup=self.settings_keyboard)
+            await update.message.reply_text('Введи максимальную цену:', reply_markup=self.get_settings_keyboard())
 
-        elif self._is_button(text, '🔀 Режим'):
-            await self._toggle_mode(chat_id, user_id, update)
+        elif text_clean == BTN_MODE or text == BTN_MODE:
+            await self.toggle_mode(chat_id, user_id, update)
 
-        elif self._is_button(text, '📍 Позиция'):
-            await self._toggle_position_filter(chat_id, user_id, update)
+        elif text_clean == BTN_POSITION or text == BTN_POSITION:
+            await self.toggle_position_filter(chat_id, user_id, update)
 
-        elif self._is_button(text, '🔗 Добавить URL'):
+        elif text_clean == BTN_ADD_URL or text == BTN_ADD_URL:
             self.pending_actions[chat_id] = 'ADD_URL'
-            await update.message.reply_text('Отправьте URL конкурента:', reply_markup=self.settings_keyboard)
+            await update.message.reply_text('Отправь URL конкурента:', reply_markup=self.get_settings_keyboard())
 
-        elif self._is_button(text, '🗑 Удалить URL'):
-            await self._start_remove_url(chat_id, update)
+        elif text_clean == BTN_REMOVE_URL or text == BTN_REMOVE_URL:
+            await self.start_remove_url(chat_id, update)
 
-        elif self._is_button(text, '📤 Экспорт'):
-            await self._export_runtime_settings(chat_id, update)
+        elif text_clean == BTN_EXPORT or text == BTN_EXPORT:
+            await self.export_settings(chat_id, update)
 
-        elif self._is_button(text, '📥 Импорт'):
+        elif text_clean == BTN_IMPORT or text == BTN_IMPORT:
             self.pending_actions[chat_id] = 'IMPORT_SETTINGS'
             await update.message.reply_text(
-                'Отправьте настройки в формате key=value, по одной на строку.\n'
-                'Пример:\nMIN_PRICE=0.25\nMAX_PRICE=10\nMODE=FIXED',
-                reply_markup=self.settings_keyboard,
+                'Отправь настройки в формате key=value\nПример:\nMIN_PRICE=0.25\nMAX_PRICE=10',
+                reply_markup=self.get_settings_keyboard()
             )
 
-        elif self._is_button(text, '🧾 История'):
-            await self._show_settings_history(chat_id, update)
+        elif text_clean == BTN_HISTORY or text == BTN_HISTORY:
+            await self.show_settings_history(chat_id, update)
 
-        elif self._is_button(text, '🔙 Назад'):
+        elif text_clean == BTN_BACK or text == BTN_BACK:
             self.pending_actions.pop(chat_id, None)
-            await update.message.reply_text(
-                '📋 Главное меню:',
-                reply_markup=self.main_keyboard,
-            )
-        else:
-            logger.warning(f'Нераспознанная кнопка: {text!r} (normalized={text_norm!r})')
-            logger.warning(f'Известные кнопки: {self._known_buttons()}')
-            await self._send_with_main_keyboard(chat_id, 'Выберите действие кнопками ниже 👇')
+            await update.message.reply_text('📋 Главное меню', reply_markup=self.get_main_keyboard())
 
-    async def send_status(self, chat_id: int, update: Optional[Update] = None):
-        """Отправка статуса"""
+        # ===== PENDING ACTIONS =====
+        elif chat_id in self.pending_actions:
+            await self.handle_pending_action(chat_id, user_id, text, update)
+
+        else:
+            await update.message.reply_text(
+                "Используй кнопки 👇",
+                reply_markup=self.get_main_keyboard()
+            )
+
+    # ===== STATUS =====
+    async def send_status(self, chat_id: int, update: Update):
         state = storage.get_state()
         runtime = self._runtime()
 
         competitor_info = 'N/A'
         if state.get('last_competitor_min'):
             rank = state.get('last_competitor_rank')
-            if rank:
-                competitor_info = f'#{rank}'
-            else:
-                competitor_info = 'N/A'
+            competitor_info = f'#{rank}' if rank else 'N/A'
 
         text = f"""📊 Статус
 
 💰 Моя цена: {state.get('last_price') or 'N/A'}₽
 📈 Цена конкурента: {state.get('last_competitor_min') or 'N/A'}₽
-🔍 Позиция конкурента: {competitor_info}
+🔍 Позиция: {competitor_info}
 
-🔔 Авто-режим: {'ВКЛ' if self.auto_mode else 'ВЫКЛ'}
+🔔 Авто: {'ВКЛ' if self.auto_mode else 'ВЫКЛ'}
 🎯 Режим: {runtime.MODE}
-🕐 Последнее обновление: {state.get('last_update').strftime('%Y-%m-%d %H:%M') if state.get('last_update') else 'Никогда'}
+🕐 Обновление: {state.get('last_update').strftime('%Y-%m-%d %H:%M') if state.get('last_update') else 'Никогда'}
 
 📊 Обновлений: {state.get('update_count', 0)}
 ⏭️ Пропусков: {state.get('skip_count', 0)}
 """
+        await update.message.reply_text(text, reply_markup=self.get_main_keyboard())
 
-        if update and update.message:
-            await update.message.reply_text(text, reply_markup=self.main_keyboard)
-        else:
-            await self.app.bot.send_message(chat_id=chat_id, text=text, reply_markup=self.main_keyboard)
+    # ===== SETTINGS =====
+    async def send_settings(self, chat_id: int, update: Update):
+        runtime = self._runtime()
+        text = f"""⚙️ Настройки
 
-    async def send_diagnostics(self, chat_id: int, update: Optional[Update] = None):
-        """Быстрая диагностика состояния бота и окружения"""
+📉 MIN: {runtime.MIN_PRICE}₽
+📈 MAX: {runtime.MAX_PRICE}₽
+🎯 Желаемая: {runtime.DESIRED_PRICE}₽
+↘️ Шаг: {runtime.UNDERCUT_VALUE}
+
+🔹 Режим: {runtime.MODE}
+   - FIXED: {runtime.FIXED_PRICE}₽
+   - STEP_UP: {runtime.STEP_UP_VALUE}₽
+
+🚫 Слабый конкурент: {runtime.LOW_PRICE_THRESHOLD or 'Выкл'}
+📍 Фильтр позиции: {'Вкл' if runtime.POSITION_FILTER_ENABLED else 'Выкл'}
+⏱️ Cooldown: {runtime.COOLDOWN_SECONDS}с
+🔗 Конкурентов: {len(runtime.COMPETITOR_URLS)}
+"""
+        await update.message.reply_text(text, reply_markup=self.get_settings_keyboard())
+
+    # ===== DIAGNOSTICS =====
+    async def send_diagnostics(self, chat_id: int, update: Update):
         state = storage.get_state()
         runtime = self._runtime()
-
         is_valid, errors = validate_runtime_config(runtime)
-        config_status = 'OK' if is_valid else 'INVALID'
 
         api_ok = False
-        product_ok = False
         product_price = None
         if self.api_client:
             api_ok = await asyncio.to_thread(self.api_client.check_api_access)
             if api_ok:
-                product = await asyncio.to_thread(
-                    self.api_client.get_product,
-                    config.GGSEL_PRODUCT_ID,
-                )
-                product_ok = product is not None
+                product = await asyncio.to_thread(self.api_client.get_product, config.GGSEL_PRODUCT_ID)
                 product_price = product.price if product else None
 
         now = datetime.now()
         last_cycle = state.get('last_cycle')
-        if last_cycle:
-            age_seconds = int((now - last_cycle).total_seconds())
-            heartbeat_text = f'OK ({age_seconds}s)'
-        else:
-            heartbeat_text = 'NO_DATA'
+        age = int((now - last_cycle).total_seconds()) if last_cycle else 0
 
         lines = [
             '🩺 Диагностика',
             '',
             f'API: {"OK" if api_ok else "FAIL"}',
-            f'Product: {"OK" if product_ok else "FAIL"} (id={config.GGSEL_PRODUCT_ID})',
-            f'Current price API: {product_price if product_price is not None else "N/A"}',
-            f'Runtime config: {config_status}',
-            f'Heartbeat: {heartbeat_text}',
-            f'Auto mode: {"ON" if self.auto_mode else "OFF"}',
-            f'Competitors configured: {len(runtime.COMPETITOR_URLS)}',
-            f'DB path: {storage.db_path}',
+            f'Product: {"OK" if product_price else "FAIL"} ({product_price}₽)',
+            f'Config: {"OK" if is_valid else "INVALID"}',
+            f'Heartbeat: {age}s',
+            f'Auto: {"ON" if self.auto_mode else "OFF"}',
+            f'Competitors: {len(runtime.COMPETITOR_URLS)}',
         ]
         if errors:
             lines.append('Errors: ' + '; '.join(errors[:3]))
 
-        if update and update.message:
-            await update.message.reply_text('\n'.join(lines), reply_markup=self.main_keyboard)
-        else:
-            await self._send_with_main_keyboard(chat_id, '\n'.join(lines))
+        text = '\n'.join(lines)
+        await update.message.reply_text(text, reply_markup=self.get_main_keyboard())
 
-    async def send_settings(self, chat_id: int, update: Optional[Update] = None):
-        """Отправка настроек"""
-        runtime = self._runtime()
-        competitor_urls = runtime.COMPETITOR_URLS
-        text = f"""⚙️ Настройки
-
-📉 MIN_PRICE: {runtime.MIN_PRICE}₽
-📈 MAX_PRICE: {runtime.MAX_PRICE}₽
-🎯 Желаемая цена: {runtime.DESIRED_PRICE}₽
-↘️ Шаг снижения: {runtime.UNDERCUT_VALUE}
-
-🔹 Режим: {runtime.MODE}
-   - FIXED_PRICE: {runtime.FIXED_PRICE}₽
-   - STEP_UP_VALUE: {runtime.STEP_UP_VALUE}₽
-
-🚫 Порог "слабого" конкурента: {runtime.LOW_PRICE_THRESHOLD or 'Выкл'}
-📐 Граница ceil-логики: {runtime.WEAK_PRICE_CEIL_LIMIT}
-📍 Фильтр позиции: {'Вкл' if runtime.POSITION_FILTER_ENABLED else 'Выкл'}
-🔢 Слабая позиция: > {runtime.WEAK_POSITION_THRESHOLD}
-⏱️ Cooldown: {runtime.COOLDOWN_SECONDS} сек
-📏 Ignore delta: {runtime.IGNORE_DELTA}
-🔄 Интервал: {runtime.CHECK_INTERVAL} сек
-🔕 Notify skip: {'Вкл' if runtime.NOTIFY_SKIP else 'Выкл'} ({runtime.NOTIFY_SKIP_COOLDOWN_SECONDS}с)
-📡 Notify competitor change: {'Вкл' if runtime.NOTIFY_COMPETITOR_CHANGE else 'Выкл'} (Δ>={runtime.COMPETITOR_CHANGE_DELTA}, {runtime.COMPETITOR_CHANGE_COOLDOWN_SECONDS}с)
-🔗 Конкурентов: {len(competitor_urls)}
-"""
-
-        if update and update.message:
-            await update.message.reply_text(text, reply_markup=self.settings_keyboard)
-        else:
-            await self.app.bot.send_message(chat_id=chat_id, text=text, reply_markup=self.settings_keyboard)
-
-    async def handle_price_change(self, chat_id: int, delta: float, update: Optional[Update] = None):
-        """Изменение цены"""
+    # ===== PRICE CHANGE =====
+    async def handle_price_change(self, chat_id: int, delta: float, update: Update):
         runtime = self._runtime()
         state = storage.get_state()
         current_price = state.get('last_price')
 
-        if not current_price:
-            # Пробуем получить из API
-            current_price = self.api_client.get_my_price(config.GGSEL_PRODUCT_ID) if self.api_client else None
+        if not current_price and self.api_client:
+            current_price = await asyncio.to_thread(self.api_client.get_my_price, config.GGSEL_PRODUCT_ID)
 
         if not current_price:
-            if update and update.message:
-                await update.message.reply_text('❌ Не удалось получить текущую цену', reply_markup=self.main_keyboard)
-            else:
-                await self._send_with_main_keyboard(chat_id, '❌ Не удалось получить текущую цену')
+            await update.message.reply_text("❌ Нет цены", reply_markup=self.get_main_keyboard())
             return
 
         new_price = round(max(current_price + delta, runtime.MIN_PRICE), 4)
 
         if new_price == current_price:
-            if update and update.message:
-                await update.message.reply_text(f'⚠️ Нельзя изменить цену (минимум {runtime.MIN_PRICE}₽)', reply_markup=self.main_keyboard)
-            else:
-                await self._send_with_main_keyboard(chat_id, f'⚠️ Нельзя изменить цену (минимум {runtime.MIN_PRICE}₽)')
+            await update.message.reply_text(f"⚠️ Минимум {runtime.MIN_PRICE}₽", reply_markup=self.get_main_keyboard())
             return
 
-        # Обновляем через API
         if self.api_client:
-            success = self.api_client.update_price(config.GGSEL_PRODUCT_ID, new_price)
-
+            success = await asyncio.to_thread(self.api_client.update_price, config.GGSEL_PRODUCT_ID, new_price)
             if success:
-                storage.update_state(
-                    last_price=new_price,
-                    last_update=__import__('datetime').datetime.now(),
-                )
-                if update and update.message:
-                    await update.message.reply_text(f'✅ Цена изменена: {current_price:.4f}₽ → {new_price:.4f}₽', reply_markup=self.main_keyboard)
-                else:
-                    await self._send_with_main_keyboard(chat_id, f'✅ Цена изменена: {current_price:.4f}₽ → {new_price:.4f}₽')
+                storage.update_state(last_price=new_price, last_update=datetime.now())
+                await update.message.reply_text(f"✅ {current_price:.4f}₽ → {new_price:.4f}₽", reply_markup=self.get_main_keyboard())
             else:
-                if update and update.message:
-                    await update.message.reply_text('❌ Ошибка обновления цены', reply_markup=self.main_keyboard)
-                else:
-                    await self._send_with_main_keyboard(chat_id, '❌ Ошибка обновления цены')
+                await update.message.reply_text("❌ Ошибка API", reply_markup=self.get_main_keyboard())
         else:
-            if update and update.message:
-                await update.message.reply_text('❌ API-клиент не инициализирован', reply_markup=self.main_keyboard)
-            else:
-                await self._send_with_main_keyboard(chat_id, '❌ API-клиент не инициализирован')
+            await update.message.reply_text("❌ Нет API клиента", reply_markup=self.get_main_keyboard())
 
-    async def _handle_pending_action(self, chat_id: int, user_id: int, text: str) -> bool:
-        action = self.pending_actions.get(chat_id)
-        if not action:
-            return False
-
-        if action in {'DESIRED_PRICE', 'UNDERCUT_VALUE', 'MIN_PRICE', 'MAX_PRICE'}:
-            try:
-                value = float(text.replace(',', '.'))
-            except ValueError:
-                await self._send_with_settings_keyboard(chat_id, 'Некорректное число. Попробуйте ещё раз.')
-                return True
-
-            if value <= 0:
-                await self._send_with_settings_keyboard(chat_id, 'Значение должно быть больше 0.')
-                return True
-
-            storage.set_runtime_setting(action, str(value), user_id=user_id, source='telegram')
-            self.pending_actions.pop(chat_id, None)
-            await self._send_with_settings_keyboard(chat_id, f'✅ {action} = {value}')
-            await self.send_settings(chat_id)
-            return True
-
-        if action == 'ADD_URL':
-            if not re.match(r'^https?://', text.strip(), re.IGNORECASE):
-                await self._send_with_settings_keyboard(chat_id, 'Нужен полный URL, начинающийся с http:// или https://')
-                return True
-            current = storage.get_competitor_urls(config.COMPETITOR_URLS)
-            url = text.strip()
-            if url not in current:
-                current.append(url)
-                storage.set_competitor_urls(current, user_id=user_id, source='telegram')
-            self.pending_actions.pop(chat_id, None)
-            await self._send_with_settings_keyboard(chat_id, '✅ URL добавлен')
-            await self.send_settings(chat_id)
-            return True
-
-        if action == 'REMOVE_URL':
-            current = storage.get_competitor_urls(config.COMPETITOR_URLS)
-            try:
-                index = int(text.strip())
-            except ValueError:
-                await self._send_with_settings_keyboard(chat_id, 'Введите номер URL из списка.')
-                return True
-            if index < 1 or index > len(current):
-                await self._send_with_settings_keyboard(chat_id, 'Номер вне диапазона.')
-                return True
-            removed = current.pop(index - 1)
-            storage.set_competitor_urls(current, user_id=user_id, source='telegram')
-            self.pending_actions.pop(chat_id, None)
-            await self._send_with_settings_keyboard(chat_id, f'✅ Удалён: {removed}')
-            await self.send_settings(chat_id)
-            return True
-
-        if action == 'IMPORT_SETTINGS':
-            await self._import_runtime_settings(chat_id, user_id, text)
-            self.pending_actions.pop(chat_id, None)
-            return True
-
-        return False
-
-    async def _start_remove_url(self, chat_id: int, update: Optional[Update] = None):
-        urls = storage.get_competitor_urls(config.COMPETITOR_URLS)
-        if not urls:
-            if update and update.message:
-                await update.message.reply_text('Список конкурентов пуст.', reply_markup=self.settings_keyboard)
-            else:
-                await self._send_with_settings_keyboard(chat_id, 'Список конкурентов пуст.')
-            return
-        lines = ['Выберите номер URL для удаления:']
-        for i, url in enumerate(urls, start=1):
-            lines.append(f'{i}. {url}')
-        self.pending_actions[chat_id] = 'REMOVE_URL'
-        if update and update.message:
-            await update.message.reply_text('\n'.join(lines), reply_markup=self.settings_keyboard)
-        else:
-            await self._send_with_settings_keyboard(chat_id, '\n'.join(lines))
-
-    async def _toggle_mode(self, chat_id: int, user_id: int, update: Optional[Update] = None):
-        runtime = self._runtime()
-        new_mode = 'STEP_UP' if runtime.MODE == 'FIXED' else 'FIXED'
-        storage.set_runtime_setting('MODE', new_mode, user_id=user_id, source='telegram')
-        if update and update.message:
-            await update.message.reply_text(f'✅ Режим переключен: {new_mode}', reply_markup=self.settings_keyboard)
-        else:
-            await self._send_with_settings_keyboard(chat_id, f'✅ Режим переключен: {new_mode}')
-        await self.send_settings(chat_id, update)
-
-    async def _toggle_position_filter(self, chat_id: int, user_id: int, update: Optional[Update] = None):
-        runtime = self._runtime()
-        new_value = not runtime.POSITION_FILTER_ENABLED
-        storage.set_runtime_setting(
-            'POSITION_FILTER_ENABLED',
-            'true' if new_value else 'false',
-            user_id=user_id,
-            source='telegram',
-        )
-        if update and update.message:
-            await update.message.reply_text(f'✅ Фильтр позиции: {"Вкл" if new_value else "Выкл"}', reply_markup=self.settings_keyboard)
-        else:
-            await self._send_with_settings_keyboard(chat_id, f'✅ Фильтр позиции: {"Вкл" if new_value else "Выкл"}')
-        await self.send_settings(chat_id, update)
-
-    async def _export_runtime_settings(self, chat_id: int, update: Optional[Update] = None):
-        settings = storage.get_all_runtime_settings()
-        if not settings:
-            if update and update.message:
-                await update.message.reply_text('Runtime-настройки пусты, используются значения из .env', reply_markup=self.settings_keyboard)
-            else:
-                await self._send_with_settings_keyboard(chat_id, 'Runtime-настройки пусты, используются значения из .env')
-            return
-        lines = ['Текущие runtime-настройки:']
-        for key, value in sorted(settings.items()):
-            lines.append(f'{key}={value}')
-        if update and update.message:
-            await update.message.reply_text('\n'.join(lines), reply_markup=self.settings_keyboard)
-        else:
-            await self._send_with_settings_keyboard(chat_id, '\n'.join(lines))
-
-    async def _show_settings_history(self, chat_id: int, update: Optional[Update] = None):
-        rows = storage.get_settings_history(limit=15)
-        if not rows:
-            if update and update.message:
-                await update.message.reply_text('История изменений пока пуста.', reply_markup=self.settings_keyboard)
-            else:
-                await self._send_with_settings_keyboard(chat_id, 'История изменений пока пуста.')
-            return
-        lines = ['Последние изменения:']
-        for row in rows:
-            user = row.get('user_id')
-            lines.append(
-                f"{row['timestamp']} | {row['key']}: "
-                f"{row['old_value']} -> {row['new_value']} "
-                f"(user={user}, src={row.get('source')})"
-            )
-        if update and update.message:
-            await update.message.reply_text('\n'.join(lines), reply_markup=self.settings_keyboard)
-        else:
-            await self._send_with_settings_keyboard(chat_id, '\n'.join(lines))
-
-    async def _import_runtime_settings(self, chat_id: int, user_id: int, text: str):
-        allowed_keys = {
-            'MIN_PRICE', 'MAX_PRICE', 'DESIRED_PRICE', 'UNDERCUT_VALUE',
-            'MODE', 'FIXED_PRICE', 'STEP_UP_VALUE', 'LOW_PRICE_THRESHOLD',
-            'WEAK_PRICE_CEIL_LIMIT', 'POSITION_FILTER_ENABLED',
-            'WEAK_POSITION_THRESHOLD', 'COOLDOWN_SECONDS',
-            'IGNORE_DELTA', 'CHECK_INTERVAL', 'COMPETITOR_COOKIES',
-            'SELENIUM_USE_REAL_PROFILE', 'SELENIUM_CHROME_USER_DATA_DIR',
-            'SELENIUM_CHROME_PROFILE_DIR', 'SELENIUM_HEADLESS',
-            'competitor_urls',
-            'NOTIFY_SKIP', 'NOTIFY_SKIP_COOLDOWN_SECONDS',
-            'NOTIFY_COMPETITOR_CHANGE', 'COMPETITOR_CHANGE_DELTA',
-            'COMPETITOR_CHANGE_COOLDOWN_SECONDS',
-        }
-        updated = 0
-        errors = []
-        for raw_line in text.splitlines():
-            line = raw_line.strip()
-            if not line:
-                continue
-            if '=' not in line:
-                errors.append(f'Пропущена "=": {line}')
-                continue
-            key, value = line.split('=', 1)
-            key = key.strip()
-            value = value.strip()
-            if key not in allowed_keys:
-                errors.append(f'Неизвестный ключ: {key}')
-                continue
-            if key == 'competitor_urls':
-                urls = [x.strip() for x in value.split(',') if x.strip()]
-                storage.set_competitor_urls(urls, user_id=user_id, source='telegram_import')
-            else:
-                storage.set_runtime_setting(key, value, user_id=user_id, source='telegram_import')
-            updated += 1
-
-        result_lines = [f'Импорт завершен. Обновлено: {updated}']
-        if errors:
-            result_lines.append('Ошибки:')
-            result_lines.extend(errors[:10])
-        await self._send_with_settings_keyboard(chat_id, '\n'.join(result_lines))
-        await self.send_settings(chat_id)
-
-    async def handle_toggle_auto(self, chat_id: int, update: Optional[Update] = None):
-        """Переключение авто-режима"""
+    # ===== AUTO MODE =====
+    async def toggle_auto(self, update: Update):
         self.auto_mode = not self.auto_mode
         storage.update_state(auto_mode=self.auto_mode)
         status = 'ВКЛ' if self.auto_mode else 'ВЫКЛ'
+        await update.message.reply_text(f"🔔 Авто {status}", reply_markup=self.get_main_keyboard())
 
-        # Обновляем клавиатуру
-        self.main_keyboard = ReplyKeyboardMarkup([
-            ['📊 Статус'],
-            ['⬆️ +0.01₽', '⬇️ -0.01₽'],
-            ['🔔 Авто: ВКЛ' if self.auto_mode else '🔕 Авто: ВЫКЛ'],
-            ['⚙️ Настройки', '🩺 Диагностика'],
-        ], resize_keyboard=True, one_time_keyboard=False)
+    # ===== MODE TOGGLE =====
+    async def toggle_mode(self, chat_id: int, user_id: int, update: Update):
+        runtime = self._runtime()
+        new_mode = 'STEP_UP' if runtime.MODE == 'FIXED' else 'FIXED'
+        storage.set_runtime_setting('MODE', new_mode, user_id=user_id, source='telegram')
+        await update.message.reply_text(f'✅ Режим: {new_mode}', reply_markup=self.get_settings_keyboard())
+        await self.send_settings(chat_id, update)
 
-        if update and update.message:
-            await update.message.reply_text(f'🔔 Авто-режим {status}', reply_markup=self.main_keyboard)
-        else:
-            await self.app.bot.send_message(
-                chat_id=chat_id,
-                text=f'🔔 Авто-режим {status}',
-                reply_markup=self.main_keyboard,
-            )
+    # ===== POSITION FILTER =====
+    async def toggle_position_filter(self, chat_id: int, user_id: int, update: Update):
+        runtime = self._runtime()
+        new_value = not runtime.POSITION_FILTER_ENABLED
+        storage.set_runtime_setting('POSITION_FILTER_ENABLED', 'true' if new_value else 'false', user_id=user_id, source='telegram')
+        await update.message.reply_text(f'✅ Позиция: {"Вкл" if new_value else "Выкл"}', reply_markup=self.get_settings_keyboard())
+        await self.send_settings(chat_id, update)
 
+    # ===== REMOVE URL =====
+    async def start_remove_url(self, chat_id: int, update: Update):
+        urls = storage.get_competitor_urls(config.COMPETITOR_URLS)
+        if not urls:
+            await update.message.reply_text('Список пуст', reply_markup=self.get_settings_keyboard())
+            return
+        lines = ['Удали номер URL:'] + [f'{i}. {u}' for i, u in enumerate(urls, 1)]
+        self.pending_actions[chat_id] = 'REMOVE_URL'
+        await update.message.reply_text('\n'.join(lines), reply_markup=self.get_settings_keyboard())
+
+    # ===== EXPORT =====
+    async def export_settings(self, chat_id: int, update: Update):
+        settings = storage.get_all_runtime_settings()
+        if not settings:
+            await update.message.reply_text('Настройки пусты (используется .env)', reply_markup=self.get_settings_keyboard())
+            return
+        lines = ['Настройки:'] + [f'{k}={v}' for k, v in sorted(settings.items())]
+        await update.message.reply_text('\n'.join(lines), reply_markup=self.get_settings_keyboard())
+
+    # ===== HISTORY =====
+    async def show_settings_history(self, chat_id: int, update: Update):
+        rows = storage.get_settings_history(limit=15)
+        if not rows:
+            await update.message.reply_text('История пуста', reply_markup=self.get_settings_keyboard())
+            return
+        lines = ['История:'] + [f"{r['timestamp']} | {r['key']}: {r['old_value']} → {r['new_value']}" for r in rows]
+        await update.message.reply_text('\n'.join(lines), reply_markup=self.get_settings_keyboard())
+
+    # ===== NOTIFICATIONS =====
     async def notify(self, message: str):
-        """Отправка уведомления всем админам"""
-        for chat_id in self.admin_ids:
+        """Уведомление всем администраторам"""
+        for admin_id in self.admin_ids:
             try:
                 await self.app.bot.send_message(
-                    chat_id=chat_id,
+                    chat_id=admin_id,
                     text=message,
                     parse_mode=ParseMode.MARKDOWN,
-                    reply_markup=self.main_keyboard,
+                    reply_markup=self.get_main_keyboard(),
                 )
-                logger.debug(f'Уведомление отправлено chat_id={chat_id}')
             except Exception as e:
-                logger.error(f'Ошибка отправки уведомления: {e}')
+                logger.error(f'Ошибка отправки уведомления admin_id={admin_id}: {e}')
 
-    async def notify_price_updated(self, old_price: float, new_price: float,
-                                   competitor_price: float, reason: str):
-        """Уведомление об обновлении цены"""
+    async def notify_price_updated(
+        self,
+        old_price: float,
+        new_price: float,
+        competitor_price: float,
+        reason: str,
+    ):
         text = (
-            f"💰 *Цена обновлена*\n\n"
+            "💰 *Цена обновлена*\n\n"
             f"Старая: `{old_price:.4f}₽`\n"
             f"Новая: `{new_price:.4f}₽`\n"
             f"Конкурент: `{competitor_price:.4f}₽`\n"
@@ -631,11 +401,15 @@ class TelegramBot:
         )
         await self.notify(text)
 
-    async def notify_skip(self, current_price: float, target_price: float,
-                          competitor_price: float, reason: str):
-        """Уведомление о пропуске"""
+    async def notify_skip(
+        self,
+        current_price: float,
+        target_price: float,
+        competitor_price: float,
+        reason: str,
+    ):
         text = (
-            f"⏭️ *Пропуск обновления*\n\n"
+            "⏭️ *Пропуск обновления*\n\n"
             f"Текущая: `{current_price:.4f}₽`\n"
             f"Целевая: `{target_price:.4f}₽`\n"
             f"Конкурент: `{competitor_price:.4f}₽`\n"
@@ -644,9 +418,7 @@ class TelegramBot:
         await self.notify(text)
 
     async def notify_error(self, error: str):
-        """Уведомление об ошибке"""
-        text = f"❌ *Ошибка*\n\n`{error}`"
-        await self.notify(text)
+        await self.notify(f"❌ *Ошибка*\n\n`{error}`")
 
     async def notify_competitor_price_changed(
         self,
@@ -655,10 +427,9 @@ class TelegramBot:
         delta: float,
         rank: Optional[int] = None,
     ):
-        """Уведомление об изменении цены конкурента"""
         rank_text = f'`#{rank}`' if rank is not None else '`N/A`'
         text = (
-            f"📡 *Изменение цены конкурента*\n\n"
+            "📡 *Изменение цены конкурента*\n\n"
             f"Было: `{old_price:.4f}₽`\n"
             f"Стало: `{new_price:.4f}₽`\n"
             f"Δ: `{delta:.4f}₽`\n"
@@ -667,39 +438,90 @@ class TelegramBot:
         await self.notify(text)
 
     async def notify_startup(self):
-        """Уведомление о запуске"""
-        competitor_urls = storage.get_competitor_urls(config.COMPETITOR_URLS)
         runtime = self._runtime()
         text = (
-            f"🚀 *Auto-Pricing Bot запущен*\n\n"
+            "🚀 *Auto-Pricing Bot запущен*\n\n"
             f"Товар: `{config.GGSEL_PRODUCT_ID}`\n"
-            f"Конкурентов: `{len(competitor_urls)}`\n"
+            f"Конкурентов: `{len(runtime.COMPETITOR_URLS)}`\n"
             f"Интервал: `{runtime.CHECK_INTERVAL}s`"
         )
         await self.notify(text)
 
+    # ===== PENDING ACTIONS =====
+    async def handle_pending_action(self, chat_id: int, user_id: int, text: str, update: Update):
+        action = self.pending_actions.get(chat_id)
+        if not action:
+            return
+
+        if action in {'DESIRED_PRICE', 'UNDERCUT_VALUE', 'MIN_PRICE', 'MAX_PRICE'}:
+            try:
+                value = float(text.replace(',', '.'))
+            except ValueError:
+                await update.message.reply_text('❌ Введи число', reply_markup=self.get_settings_keyboard())
+                return
+            if value <= 0:
+                await update.message.reply_text('❌ > 0', reply_markup=self.get_settings_keyboard())
+                return
+            storage.set_runtime_setting(action, str(value), user_id=user_id, source='telegram')
+            self.pending_actions.pop(chat_id, None)
+            await update.message.reply_text(f'✅ {action} = {value}', reply_markup=self.get_settings_keyboard())
+            await self.send_settings(chat_id, update)
+
+        elif action == 'ADD_URL':
+            if not text.startswith('http'):
+                await update.message.reply_text('❌ Нужен URL', reply_markup=self.get_settings_keyboard())
+                return
+            urls = storage.get_competitor_urls(config.COMPETITOR_URLS)
+            if text not in urls:
+                urls.append(text)
+                storage.set_competitor_urls(urls, user_id=user_id, source='telegram')
+            self.pending_actions.pop(chat_id, None)
+            await update.message.reply_text('✅ URL добавлен', reply_markup=self.get_settings_keyboard())
+            await self.send_settings(chat_id, update)
+
+        elif action == 'REMOVE_URL':
+            try:
+                idx = int(text) - 1
+            except ValueError:
+                await update.message.reply_text('❌ Введи номер', reply_markup=self.get_settings_keyboard())
+                return
+            urls = storage.get_competitor_urls(config.COMPETITOR_URLS)
+            if 0 <= idx < len(urls):
+                removed = urls.pop(idx)
+                storage.set_competitor_urls(urls, user_id=user_id, source='telegram')
+                self.pending_actions.pop(chat_id, None)
+                await update.message.reply_text(f'✅ Удалён: {removed}', reply_markup=self.get_settings_keyboard())
+                await self.send_settings(chat_id, update)
+
+        elif action == 'IMPORT_SETTINGS':
+            allowed = {'MIN_PRICE', 'MAX_PRICE', 'DESIRED_PRICE', 'UNDERCUT_VALUE', 'MODE', 'FIXED_PRICE', 'STEP_UP_VALUE',
+                      'LOW_PRICE_THRESHOLD', 'WEAK_PRICE_CEIL_LIMIT', 'POSITION_FILTER_ENABLED', 'WEAK_POSITION_THRESHOLD',
+                      'COOLDOWN_SECONDS', 'IGNORE_DELTA', 'CHECK_INTERVAL', 'COMPETITOR_COOKIES'}
+            for line in text.splitlines():
+                if '=' in line:
+                    k, v = line.split('=', 1)
+                    if k.strip() in allowed:
+                        storage.set_runtime_setting(k.strip(), v.strip(), user_id=user_id, source='telegram')
+            self.pending_actions.pop(chat_id, None)
+            await update.message.reply_text('✅ Импорт завершён', reply_markup=self.get_settings_keyboard())
+            await self.send_settings(chat_id, update)
+
+    # ===== START / STOP =====
     async def start(self):
-        """Асинхронный запуск бота в текущем event loop"""
-        logger.info('Запуск Telegram бота...')
         app = self.app
         await app.initialize()
         await app.start()
         if app.updater:
             await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        logger.info('Telegram бот запущен')
 
     async def stop(self):
-        """Асинхронная остановка бота"""
-        if not self._app:
-            return
-        app = self._app
-        try:
-            if app.updater and app.updater.running:
-                await app.updater.stop()
-            if app.running:
-                await app.stop()
-            await app.shutdown()
-        except Exception as e:
-            logger.error(f'Ошибка остановки Telegram бота: {e}')
+        if self._app:
+            if self._app.updater and self._app.updater.running:
+                await self._app.updater.stop()
+            if self._app.running:
+                await self._app.stop()
+            await self._app.shutdown()
 
 
 # Глобальный экземпляр
