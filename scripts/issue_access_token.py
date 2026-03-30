@@ -20,11 +20,6 @@ def main() -> int:
         print('issue-token: missing env vars: ' + ', '.join(missing))
         return 2
 
-    if config.GGSEL_API_KEY.count('.') == 2:
-        print('issue-token: GGSEL_API_KEY looks like JWT access token, not API secret key')
-        print('issue-token: use this value as GGSEL_ACCESS_TOKEN or provide real API secret in GGSEL_API_KEY')
-        return 1
-
     client = GGSELClient(
         api_key=config.GGSEL_API_KEY,
         seller_id=config.GGSEL_SELLER_ID,
