@@ -1,6 +1,15 @@
 # 🤖 Auto-Pricing Bot для GGSEL Marketplace
 
-Полноценный auto-pricing engine с чёткой бизнес-логикой.
+Полноценный auto-pricing engine с чёткой бизнес-логикой, Telegram-управлением и обходом anti-bot защиты.
+
+**Основные возможности:**
+- Автоматический мониторинг цен конкурентов (Playwright + Selenium fallback)
+- Гибкая бизнес-логика ценообразования (FIXED/STEP_UP режимы)
+- Telegram-бот с Reply Keyboard для управления настройками
+- Runtime-конфигурация без перезапуска бота
+- Обход QRATOR/anti-bot защиты через cookies backup
+- SQLite для хранения состояния и истории цен
+- systemd + watchdog для продакшн-деплоя
 
 ## 🚀 Быстрый старт
 
@@ -22,8 +31,10 @@ TELEGRAM_ADMIN_IDS=1481790360
 # GGSEL API
 GGSEL_API_KEY=your_api_secret_here
 GGSEL_ACCESS_TOKEN=
+GGSEL_SELLER_ID=8175
 GGSEL_PRODUCT_ID=4697439
 GGSEL_LANG=ru-RU
+GGSEL_REQUIRE_API_ON_START=false
 
 # Конкуренты
 COMPETITOR_URLS=https://ggsel.net/catalog/product/competitor-12345
@@ -37,15 +48,16 @@ SELENIUM_HEADLESS=true
 MIN_PRICE=0.25
 MAX_PRICE=10.0
 UNDERCUT_VALUE=0.0051
+DESIRED_PRICE=0.35
 MODE=FIXED
 FIXED_PRICE=0.35
 ```
 
-Авторизация GGSEL:
-- `GGSEL_API_KEY` — секретный key, используется для `/apilogin`
-- `GGSEL_ACCESS_TOKEN` — опционально готовый access token
-- если `GGSEL_ACCESS_TOKEN` не задан, бот получает token автоматически через `/apilogin`
-- если `GGSEL_API_KEY` выглядит как JWT (`xxx.yyy.zzz`), это, скорее всего, access token, а не secret key
+**Авторизация GGSEL:**
+- `GGSEL_API_KEY` — секретный API key из личного кабинета (используется для `/apilogin`)
+- `GGSEL_ACCESS_TOKEN` — опционально готовый access token (если не задан, получается автоматически)
+- `GGSEL_SELLER_ID` — ID продавца (должен совпадать с `sub` в JWT payload)
+- **Важно:** если `GGSEL_API_KEY` выглядит как JWT (`xxx.yyy.zzz`), это access token — укажите его в `GGSEL_ACCESS_TOKEN`, а в `GGSEL_API_KEY` вставьте секретный ключ
 
 ### 3. Запуск
 
@@ -139,42 +151,113 @@ target_price = min(competitor_prices)
 
 ## ⚙️ Конфигурация
 
+### Основные переменные окружения
+
 | Переменная | Описание | По умолчанию |
 |------------|----------|--------------|
 | `TELEGRAM_BOT_TOKEN` | Токен бота | - |
-| `TELEGRAM_ADMIN_IDS` | ID админов | - |
-| `GGSEL_API_KEY` | API ключ GGSEL | - |
+| `TELEGRAM_ADMIN_IDS` | ID админов (через запятую) | - |
+| `GGSEL_API_KEY` | Секретный API ключ GGSEL (для `/apilogin`) | - |
 | `GGSEL_ACCESS_TOKEN` | Готовый access token (опционально) | - |
-| `GGSEL_PRODUCT_ID` | ID товара | - |
-| `GGSEL_LANG` | Локаль Seller API (`ru-RU`/`en-US`) | ru-RU |
-| `GGSEL_REQUIRE_API_ON_START` | Fail-fast на старте, если API недоступен | false |
-| `COMPETITOR_URLS` | URL конкурентов | - |
-| `COMPETITOR_COOKIES` | Cookies для антибот-защиты конкурентов (`name=value; ...`) | - |
-| `SELENIUM_USE_REAL_PROFILE` | Использовать реальный профиль Chrome в Selenium | false |
+| `GGSEL_SELLER_ID` | ID продавца | `8175` |
+| `GGSEL_PRODUCT_ID` | ID товара для мониторинга | - |
+| `GGSEL_BASE_URL` | Базовый URL Seller API | `https://seller.ggsel.com/api_sellers/api` |
+| `GGSEL_LANG` | Локаль API (`ru-RU`/`en-US`) | `ru-RU` |
+| `GGSEL_REQUIRE_API_ON_START` | Fail-fast на старте, если API недоступен | `false` |
+
+### Конкуренты и парсинг
+
+| Переменная | Описание | По умолчанию |
+|------------|----------|--------------|
+| `COMPETITOR_URLS` | URL конкурентов (через запятую) | - |
+| `COMPETITOR_COOKIES` | Cookies для обхода anti-bot (`name=value; ...`) | - |
+| `SELENIUM_USE_REAL_PROFILE` | Использовать реальный профиль Chrome | `false` |
 | `SELENIUM_CHROME_USER_DATA_DIR` | Путь к user-data-dir Chrome | - |
-| `SELENIUM_CHROME_PROFILE_DIR` | Имя профиля Chrome (например `Default`) | Default |
-| `SELENIUM_HEADLESS` | Запуск Selenium в headless режиме | true |
-| `MIN_PRICE` | Минимальная цена | 0.25 |
-| `MAX_PRICE` | Максимальная цена | 10.0 |
-| `UNDERCUT_VALUE` | Насколько быть ниже конкурента | 0.0051 |
-| `DESIRED_PRICE` | Желаемая цена | 0.35 |
-| `MODE` | Режим: FIXED/STEP_UP | FIXED |
-| `FIXED_PRICE` | Фикс цена | 0.35 |
-| `STEP_UP_VALUE` | Шаг повышения | 0.05 |
-| `LOW_PRICE_THRESHOLD` | Порог слабого конкурента | 0 |
-| `WEAK_PRICE_CEIL_LIMIT` | Граница ceil-логики (п.4) | 0.3 |
-| `POSITION_FILTER_ENABLED` | Включить фильтр по позиции конкурента | false |
-| `WEAK_POSITION_THRESHOLD` | Позиция, ниже которой конкурент считается слабым | 20 |
-| `COOLDOWN_SECONDS` | Пауза между обновлениями | 30 |
-| `IGNORE_DELTA` | Мин. разница для обновления | 0.001 |
-| `CHECK_INTERVAL` | Интервал проверки | 30 |
-| `NOTIFY_SKIP` | Отправлять уведомления о skip-циклах | false |
-| `NOTIFY_SKIP_COOLDOWN_SECONDS` | Антиспам для skip-уведомлений | 300 |
-| `NOTIFY_COMPETITOR_CHANGE` | Уведомлять об изменении min-цены конкурента | true |
-| `COMPETITOR_CHANGE_DELTA` | Минимальная дельта для алерта конкурента | 0.0001 |
-| `COMPETITOR_CHANGE_COOLDOWN_SECONDS` | Антиспам для алерта конкурента | 60 |
-| `LOG_MAX_BYTES` | Размер файла лога до ротации | 10485760 |
-| `LOG_BACKUP_COUNT` | Количество ротаций лога | 5 |
+| `SELENIUM_CHROME_PROFILE_DIR` | Имя профиля Chrome | `Default` |
+| `SELENIUM_HEADLESS` | Запуск в headless режиме | `true` |
+
+### Настройки цен
+
+| Переменная | Описание | По умолчанию |
+|------------|----------|--------------|
+| `MIN_PRICE` | Минимальная цена | `0.25` |
+| `MAX_PRICE` | Максимальная цена | `10.0` |
+| `DESIRED_PRICE` | Желаемая цена (для слабого конкурента) | `0.35` |
+| `UNDERCUT_VALUE` | Насколько быть ниже конкурента | `0.0051` |
+| `MODE` | Режим при `MIN_PRICE`: `FIXED` или `STEP_UP` | `FIXED` |
+| `FIXED_PRICE` | Фиксированная цена (MODE=FIXED) | `0.35` |
+| `STEP_UP_VALUE` | Шаг повышения (MODE=STEP_UP) | `0.05` |
+
+### Фильтры конкурентов
+
+| Переменная | Описание | По умолчанию |
+|------------|----------|--------------|
+| `LOW_PRICE_THRESHOLD` | Порог «слабого» конкурента по цене | `0` |
+| `WEAK_PRICE_CEIL_LIMIT` | Граница ceil-логики для слабого конкурента | `0.3` |
+| `POSITION_FILTER_ENABLED` | Включить фильтр по позиции в категории | `false` |
+| `WEAK_POSITION_THRESHOLD` | Позиция, выше которой конкурент «слабый» | `20` |
+
+### Тайминги и уведомления
+
+| Переменная | Описание | По умолчанию |
+|------------|----------|--------------|
+| `COOLDOWN_SECONDS` | Мин. пауза между обновлениями цены | `30` |
+| `IGNORE_DELTA` | Мин. разница цен для обновления | `0.001` |
+| `CHECK_INTERVAL` | Интервал проверки конкурентов | `30` |
+| `NOTIFY_SKIP` | Уведомлять о пропусках (skip) | `false` |
+| `NOTIFY_SKIP_COOLDOWN_SECONDS` | Антиспам для skip-уведомлений | `300` |
+| `NOTIFY_COMPETITOR_CHANGE` | Уведомлять об изменении цены конкурента | `true` |
+| `COMPETITOR_CHANGE_DELTA` | Мин. дельта для алерта конкурента | `0.0001` |
+| `COMPETITOR_CHANGE_COOLDOWN_SECONDS` | Антиспам для алерта конкурента | `60` |
+
+### Логирование
+
+| Переменная | Описание | По умолчанию |
+|------------|----------|--------------|
+| `LOG_LEVEL` | Уровень логирования | `INFO` |
+| `LOG_MAX_BYTES` | Размер файла лога до ротации | `10485760` (10MB) |
+| `LOG_BACKUP_COUNT` | Количество файлов лога | `5` |
+
+---
+
+## 🤖 Telegram-бот
+
+Бот управляется через **Reply Keyboard** (кнопки внизу экрана).
+
+### Главное меню
+
+| Кнопка | Описание |
+|--------|----------|
+| `📊 Статус` | Показать текущее состояние: цена, конкуренты, статистика |
+| `⬆ +0.01₽` | Увеличить цену на 0.01₽ |
+| `⬇ -0.01₽` | Уменьшить цену на 0.01₽ |
+| `🔔 Авто: ВКЛ/ВЫКЛ` | Включить/выключить авто-режим |
+| `⚙ Настройки` | Открыть меню настроек |
+| `🩺 Диагностика` | Проверка API, heartbeat, конфигурации |
+
+### Меню настроек
+
+| Кнопка | Описание |
+|--------|----------|
+| `🎯 Цена` | Установить `DESIRED_PRICE` |
+| `➖ Шаг` | Установить `UNDERCUT_VALUE` |
+| `📉 Мин` | Установить `MIN_PRICE` |
+| `📈 Макс` | Установить `MAX_PRICE` |
+| `🔀 Режим` | Переключить `MODE` (FIXED ↔ STEP_UP) |
+| `📍 Позиция` | Включить/выключить фильтр по позиции |
+| `🔗 Добавить URL` | Добавить URL конкурента |
+| `🗑 Удалить URL` | Удалить URL из списка |
+| `📤 Экспорт` | Экспорт текущих runtime-настроек |
+| `📥 Импорт` | Импорт настроек в формате `key=value` |
+| `🧾 История` | История изменений настроек |
+
+### Уведомления
+
+Бот отправляет уведомления о:
+- ✅ Обновлении цены (старая → новая, причина)
+- ⏭️ Пропуске обновления (причина: cooldown, ignore_delta, и т.д.)
+- 📡 Изменении цены конкурента (если `NOTIFY_COMPETITOR_CHANGE=true`)
+- ❌ Ошибках API и парсинга (с throttling)
 
 ---
 
@@ -241,7 +324,11 @@ python3 -m src.main
 
 ## 🍪 Обход QRATOR (anti-bot защита конкурента)
 
-Для парсинга цен конкурента с защитой QRATOR используется один из методов:
+Для парсинга цен конкурента с защитой QRATOR используется **трёхуровневая стратегия**:
+
+1. **Cookies backup** (основной метод) — загрузка сохранённых cookies
+2. **Playwright** (fallback 1) — headless Chromium с эмуляцией браузера
+3. **Selenium** (fallback 2) — резервный метод для сложных случаев
 
 ### Метод 1: Cookies backup (рекомендуется)
 
@@ -265,7 +352,18 @@ python3 -m src.main
    0 */6 * * * /path/to/Monitoring/scripts/cron_update_cookies.sh
    ```
 
-### Метод 2: Selenium с реальным профилем
+### Метод 2: Playwright (автоматический fallback)
+
+Если cookies протухли, бот автоматически использует Playwright:
+- Открывает страницу в headless Chromium
+- Ждёт загрузки контента (2.5 сек)
+- Извлекает HTML для парсинга
+
+**Ничего настраивать не требуется** — работает из коробки.
+
+### Метод 3: Selenium с реальным профилем
+
+Для сложных случаев можно использовать реальный профиль Chrome:
 
 1. **Подготовка профиля на сервере:**
    ```bash
@@ -281,7 +379,7 @@ python3 -m src.main
    SELENIUM_HEADLESS=false  # или true если профиль работает
    ```
 
-### Метод 3: Ручные cookies
+### Метод 4: Ручные cookies
 
 1. Открыть https://ggsel.net в браузере
 2. DevTools → Application → Cookies → ggsel.net

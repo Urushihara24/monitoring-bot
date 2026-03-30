@@ -13,11 +13,11 @@
 import logging
 import math
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 
-from .config import config
+from .config import Config
 
 logger = logging.getLogger(__name__)
 PRICE_PRECISION = Decimal('0.0001')
@@ -42,10 +42,10 @@ class PriceDecision:
 
 
 def calculate_price(
-    competitor_prices: list,
+    competitor_prices: List[float],
     current_price: Optional[float],
     last_update: Optional[datetime],
-    config: config,
+    config: Config,
     target_competitor_rank: Optional[int] = None,
     force_weak_mode: bool = False,
 ) -> PriceDecision:
@@ -232,7 +232,7 @@ def calculate_price(
 
 # Глобальная функция для удобства
 def calculate(
-    competitor_prices: list,
+    competitor_prices: List[float],
     current_price: Optional[float],
     last_update: Optional[datetime],
 ) -> PriceDecision:
