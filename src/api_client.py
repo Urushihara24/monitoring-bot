@@ -128,12 +128,6 @@ class GGSELClient:
         if not self.api_key:
             logger.error("ApiLogin невозможен: GGSEL_API_KEY пуст")
             return False
-        if self._is_probably_jwt(self.api_key):
-            logger.error(
-                "ApiLogin невозможен: GGSEL_API_KEY похож на JWT token, "
-                "нужен secret API key"
-            )
-            return False
 
         timestamp = str(int(time.time()))
         sign_input = (self.api_key + timestamp).encode("utf-8")
@@ -203,13 +197,21 @@ class GGSELClient:
             return None
 
         req_params = dict(params or {})
+        # Пробуем оба способа авторизации:
+        # 1. Query param (основной по документации GGSEL)
+        # 2. Authorization header (для совместимости)
         req_params["token"] = token
+        
+        # Добавляем Authorization header для случаев, когда API требует Bearer token
+        req_headers = dict(headers or {})
+        if token and self._is_probably_jwt(token):
+            req_headers["Authorization"] = f"Bearer {token}"
 
         response = self._request_with_retry(
             method,
             url,
             params=req_params,
-            headers=headers,
+            headers=req_headers,
             timeout=timeout,
             max_retries=max_retries,
             **kwargs,
@@ -224,11 +226,13 @@ class GGSELClient:
             if not token:
                 return response
             req_params["token"] = token
+            if self._is_probably_jwt(token):
+                req_headers["Authorization"] = f"Bearer {token}"
             response = self._request_with_retry(
                 method,
                 url,
                 params=req_params,
-                headers=headers,
+                headers=req_headers,
                 timeout=timeout,
                 max_retries=max_retries,
                 **kwargs,
