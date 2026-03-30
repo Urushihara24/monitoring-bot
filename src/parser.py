@@ -6,6 +6,8 @@
 import logging
 import time
 import re
+import json
+from pathlib import Path
 from typing import Optional, List, Tuple
 from dataclasses import dataclass
 from urllib.parse import urljoin, urlsplit, urlunsplit
@@ -37,6 +39,7 @@ class CompetitorParser:
         self.selenium_chrome_user_data_dir = ''
         self.selenium_chrome_profile_dir = 'Default'
         self.selenium_headless = True
+        self.cookies_backup_file: Optional[Path] = None
         # Обновлённый User-Agent для обхода блокировок
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -59,6 +62,40 @@ class CompetitorParser:
             self.session.headers['Cookie'] = value
         else:
             self.session.headers.pop('Cookie', None)
+
+    def set_cookies_backup_file(self, filepath: Optional[str]):
+        """Устанавливает путь к файлу backup cookies."""
+        if filepath:
+            self.cookies_backup_file = Path(filepath)
+            if self.cookies_backup_file.exists():
+                self._load_cookies_from_backup()
+        else:
+            self.cookies_backup_file = None
+
+    def _load_cookies_from_backup(self):
+        """Загружает cookies из backup файла в сессию."""
+        if not self.cookies_backup_file or not self.cookies_backup_file.exists():
+            return
+
+        try:
+            with open(self.cookies_backup_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            cookies_list = data.get('cookies', [])
+            cookie_pairs = {}
+
+            for cookie in cookies_list:
+                name = cookie.get('name', '')
+                value = cookie.get('value', '')
+                if name and value:
+                    cookie_pairs[name] = value
+
+            if cookie_pairs:
+                cookie_string = '; '.join(f'{k}={v}' for k, v in cookie_pairs.items())
+                self.set_cookie_string(cookie_string)
+                logger.info(f'Cookies загружены из {self.cookies_backup_file}')
+        except Exception as e:
+            logger.warning(f'Не удалось загрузить cookies из backup: {e}')
 
     def set_browser_config(
         self,
