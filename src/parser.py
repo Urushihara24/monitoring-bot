@@ -32,6 +32,7 @@ class CompetitorParser:
 
     def __init__(self):
         self.session = requests.Session()
+        self.cookie_string = ''
         # Обновлённый User-Agent для обхода блокировок
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -45,6 +46,15 @@ class CompetitorParser:
             'Sec-Fetch-Site': 'none',
             'Cache-Control': 'max-age=0',
         })
+
+    def set_cookie_string(self, cookie_string: Optional[str]):
+        """Устанавливает cookie header для запросов конкурентов"""
+        value = (cookie_string or '').strip()
+        self.cookie_string = value
+        if value:
+            self.session.headers['Cookie'] = value
+        else:
+            self.session.headers.pop('Cookie', None)
 
     def parse_url(
         self,
@@ -75,8 +85,23 @@ class CompetitorParser:
                 # Обработка 401/403
                 if response.status_code in (401, 403):
                     logger.warning(f'D доступ запрещён ({response.status_code}): {url}')
+                    browser_html = self._fetch_html_with_browser(url, timeout=timeout)
+                    if browser_html:
+                        price = self._extract_price(browser_html, url)
+                        if price is not None:
+                            rank = None
+                            category_url = None
+                            if detect_rank:
+                                rank, category_url = self._detect_rank_from_product_page(browser_html, url)
+                            logger.info(f'Найдена цена {price} на {url} (browser fallback)')
+                            return ParseResult(
+                                success=True,
+                                price=price,
+                                url=url,
+                                rank=rank,
+                                category_url=category_url,
+                            )
                     last_error = f'D доступ запрещён ({response.status_code})'
-                    # Пробуем без headers для некоторых сайтов
                     if attempt == max_retries - 1:
                         return ParseResult(success=False, error=last_error, url=url)
                     time.sleep(2 ** attempt)  # Экспоненциальная задержка
@@ -125,6 +150,69 @@ class CompetitorParser:
                 time.sleep(1 + attempt)
 
         return ParseResult(success=False, error=last_error, url=url)
+
+    def _fetch_html_with_browser(self, url: str, timeout: int = 15) -> Optional[str]:
+        """
+        Headless browser fallback для сайтов с anti-bot защитой.
+        Требует установленный playwright и браузер chromium.
+        """
+        try:
+            from playwright.sync_api import sync_playwright
+        except Exception:
+            logger.debug('Playwright не установлен, browser fallback недоступен')
+            return None
+
+        timeout_ms = max(5, timeout) * 1000
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                context = browser.new_context(
+                    locale='ru-RU',
+                    user_agent=(
+                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                        'AppleWebKit/537.36 (KHTML, like Gecko) '
+                        'Chrome/131.0.0.0 Safari/537.36'
+                    ),
+                )
+                cookies = self._cookie_header_to_playwright(url, self.cookie_string)
+                if cookies:
+                    context.add_cookies(cookies)
+                page = context.new_page()
+                page.goto(url, wait_until='domcontentloaded', timeout=timeout_ms)
+                page.wait_for_timeout(2500)
+                html = page.content()
+                context.close()
+                browser.close()
+                return html
+        except Exception as e:
+            logger.warning(f'Browser fallback не сработал для {url}: {type(e).__name__}')
+            return None
+
+    def _cookie_header_to_playwright(self, url: str, cookie_header: str) -> List[dict]:
+        """Преобразует 'name=value; name2=value2' в playwright cookies"""
+        if not cookie_header:
+            return []
+        host = urlsplit(url).hostname or 'ggsel.net'
+        result: List[dict] = []
+        for part in cookie_header.split(';'):
+            chunk = part.strip()
+            if not chunk or '=' not in chunk:
+                continue
+            name, value = chunk.split('=', 1)
+            name = name.strip()
+            if not name:
+                continue
+            result.append(
+                {
+                    'name': name,
+                    'value': value.strip(),
+                    'domain': host,
+                    'path': '/',
+                    'httpOnly': False,
+                    'secure': True,
+                }
+            )
+        return result
 
     def parse_competitors(
         self,
@@ -178,6 +266,8 @@ class CompetitorParser:
 
         # Селекторы для поиска цены (приоритетные)
         selectors = [
+            '[data-testid="product-price"]',  # GGSEL product card/block
+            '[data-test="productPrice"]',  # GGSEL fallback атрибут
             '.price',  # Стандартный
             '[class*="price"]',  # Любой класс содержащий "price"
             '[data-testid="price"]',  # Test ID
@@ -198,6 +288,7 @@ class CompetitorParser:
                 price = self._parse_price_text(text)
 
                 if price and price > 0 and price < 100000:  # Разумный предел
+                    price = self._to_unit_price_if_vbucks(price, soup)
                     logger.debug(f'Найдена цена {price} по селектору "{selector}"')
                     return price
 
@@ -206,8 +297,57 @@ class CompetitorParser:
         price = self._find_price_in_text(text)
 
         if price:
+            price = self._to_unit_price_if_vbucks(price, soup)
             return price
 
+        return None
+
+    def _to_unit_price_if_vbucks(self, total_price: float, soup: BeautifulSoup) -> float:
+        """
+        Если на странице найдено количество V-Bucks, возвращает цену за 1 штуку.
+        Иначе возвращает исходную total_price.
+        """
+        amount = self._extract_vbucks_amount(soup.get_text(' ', strip=True))
+        if amount is None:
+            return total_price
+        if amount <= 0:
+            return total_price
+        if amount == 1:
+            return round(total_price, 4)
+
+        unit_price = round(total_price / amount, 4)
+        logger.info(
+            'Определена цена за 1 V-Bucks: total=%s, amount=%s, unit=%s',
+            total_price,
+            amount,
+            unit_price,
+        )
+        return unit_price
+
+    def _extract_vbucks_amount(self, text: str) -> Optional[int]:
+        """
+        Пытается найти количество V-Bucks в тексте страницы.
+        Примеры: "200 V-Bucks", "2000 vbucks", "500 В-баксов".
+        """
+        if not text:
+            return None
+
+        patterns = [
+            r'(\d[\d\s]{0,8})\s*(?:v[\s-]?bucks?)',
+            r'(\d[\d\s]{0,8})\s*(?:в[\s-]?бакс(?:ов|а|ы)?)',
+        ]
+        for pattern in patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                raw = match.group(1)
+                digits = re.sub(r'\D', '', raw)
+                if not digits:
+                    continue
+                try:
+                    amount = int(digits)
+                except ValueError:
+                    continue
+                if 1 <= amount <= 1000000:
+                    return amount
         return None
 
     def _parse_price_text(self, text: str) -> Optional[float]:

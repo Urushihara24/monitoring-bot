@@ -11,8 +11,8 @@ from src.config import config
 
 def main() -> int:
     missing = []
-    if not config.GGSEL_API_KEY:
-        missing.append('GGSEL_API_KEY')
+    if not config.GGSEL_API_KEY and not config.GGSEL_ACCESS_TOKEN:
+        missing.append('GGSEL_API_KEY or GGSEL_ACCESS_TOKEN')
     if not config.GGSEL_PRODUCT_ID:
         missing.append('GGSEL_PRODUCT_ID')
 
@@ -25,11 +25,47 @@ def main() -> int:
         seller_id=config.GGSEL_SELLER_ID,
         base_url=config.GGSEL_BASE_URL,
         lang=config.GGSEL_LANG,
+        access_token=config.GGSEL_ACCESS_TOKEN,
     )
 
     api_access = client.check_api_access()
     print(f'smoke: api_access={api_access}')
     if not api_access:
+        # Детализируем причину авторизации для быстрой диагностики.
+        import hashlib
+        import requests
+        import time
+        url = f'{config.GGSEL_BASE_URL}/products/list'
+        try:
+            resp = requests.get(
+                url,
+                params={'page': 1, 'count': 1, 'token': client.access_token or ''},
+                headers={'lang': config.GGSEL_LANG, 'accept': 'application/json'},
+                timeout=20,
+            )
+            print(f'smoke: auth_status={resp.status_code}')
+            print(f'smoke: www_authenticate={resp.headers.get("www-authenticate")}')
+            print(f'smoke: x_request_id={resp.headers.get("x-request-id")}')
+        except Exception as e:
+            print(f'smoke: auth_probe_error={e}')
+
+        # Дополнительно проверяем прямой apilogin по документации.
+        try:
+            ts = str(int(time.time()))
+            sign = hashlib.sha256((config.GGSEL_API_KEY + ts).encode('utf-8')).hexdigest()
+            login_resp = requests.post(
+                f'{config.GGSEL_BASE_URL}/apilogin',
+                json={
+                    'seller_id': config.GGSEL_SELLER_ID,
+                    'timestamp': ts,
+                    'sign': sign,
+                },
+                timeout=20,
+            )
+            print(f'smoke: apilogin_status={login_resp.status_code}')
+            print(f'smoke: apilogin_body={login_resp.text[:300]}')
+        except Exception as e:
+            print(f'smoke: apilogin_probe_error={e}')
         return 1
 
     product = client.get_product(config.GGSEL_PRODUCT_ID)

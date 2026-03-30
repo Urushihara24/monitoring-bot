@@ -1,4 +1,4 @@
-.PHONY: run test compile up down logs restart backup health smoke
+.PHONY: run test compile up down logs restart backup health smoke check-apilogin issue-token
 
 run:
 	python3 -m src.main
@@ -28,3 +28,9 @@ health:
 
 smoke:
 	PYTHONPATH=. python3 scripts/smoke_seller_api.py
+
+check-apilogin:
+	PYTHONPATH=. python3 scripts/check_apilogin.py
+
+issue-token:
+	PYTHONPATH=. python3 scripts/issue_access_token.py

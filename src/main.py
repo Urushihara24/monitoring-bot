@@ -7,7 +7,6 @@ import asyncio
 import logging
 import sys
 import signal
-import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -23,7 +22,6 @@ from .storage import storage
 api_client: Optional[GGSELClient] = None
 telegram_bot: Optional[TelegramBot] = None
 scheduler: Optional[Scheduler] = None
-bot_thread: Optional[threading.Thread] = None
 
 # Флаг остановки
 shutdown_event = asyncio.Event()
@@ -93,10 +91,7 @@ async def shutdown():
     # Остановка Telegram бота
     if telegram_bot:
         logger.info('Остановка Telegram бота...')
-        telegram_bot.stop()
-    if bot_thread and bot_thread.is_alive():
-        logger.info('Ожидание завершения потока Telegram...')
-        bot_thread.join(timeout=10)
+        await telegram_bot.stop()
 
     logger.info('✅ Бот корректно завершил работу')
 
@@ -107,7 +102,7 @@ async def shutdown():
 
 async def main():
     """Основная функция"""
-    global api_client, telegram_bot, scheduler, bot_thread
+    global api_client, telegram_bot, scheduler
 
     setup_logging()
     logger = logging.getLogger(__name__)
@@ -119,8 +114,8 @@ async def main():
         logger.error('TELEGRAM_BOT_TOKEN не указан')
         return
 
-    if not config.GGSEL_API_KEY:
-        logger.error('GGSEL_API_KEY не указан')
+    if not config.GGSEL_API_KEY and not config.GGSEL_ACCESS_TOKEN:
+        logger.error('Нужно указать GGSEL_API_KEY (secret) или GGSEL_ACCESS_TOKEN')
         return
 
     if not config.GGSEL_PRODUCT_ID:
@@ -139,6 +134,12 @@ async def main():
     logger.info(f'  - MAX_PRICE: {config.MAX_PRICE}')
     logger.info(f'  - MODE: {config.MODE}')
     logger.info(f'  - Интервал: {config.CHECK_INTERVAL}s')
+    if config.GGSEL_API_KEY.count('.') == 2 and not config.GGSEL_ACCESS_TOKEN:
+        logger.warning(
+            'GGSEL_API_KEY выглядит как JWT access token. '
+            'По документации для /apilogin нужен секретный API key. '
+            'Если это access token, укажите его в GGSEL_ACCESS_TOKEN.'
+        )
 
     # Инициализация компонентов
     logger.info('Инициализация компонентов...')
@@ -148,6 +149,7 @@ async def main():
         seller_id=config.GGSEL_SELLER_ID,
         base_url=config.GGSEL_BASE_URL,
         lang=config.GGSEL_LANG,
+        access_token=config.GGSEL_ACCESS_TOKEN,
     )
 
     telegram_bot = TelegramBot(api_client=api_client)
@@ -167,6 +169,12 @@ async def main():
     else:
         logger.warning('⚠️ GGSEL API недоступен')
         logger.warning('   Бот будет работать в режиме мониторинга (без обновления цен)')
+        if config.GGSEL_REQUIRE_API_ON_START:
+            logger.error(
+                'GGSEL_REQUIRE_API_ON_START=true и API недоступен. '
+                'Остановка запуска для fail-fast поведения.'
+            )
+            return
 
     # Инициализация хранилища
     state = storage.get_state()
@@ -182,26 +190,26 @@ async def main():
     # Настройка сигналов
     setup_signal_handlers()
 
-    # Уведомление о запуске
+    # Запуск Telegram + scheduler в одном event loop
+    await telegram_bot.start()
+    logger.info('Telegram бот запущен')
     await telegram_bot.notify_startup()
 
-    # Запуск Telegram бота в отдельном потоке
-    bot_thread = threading.Thread(target=telegram_bot.run, daemon=True)
-    bot_thread.start()
-    logger.info('Telegram бот запущен в фоне')
-
-    # Даем боту время на старт
-    await asyncio.sleep(2)
-
-    # Запуск планировщика
     logger.info('Запуск планировщика...')
+    scheduler_task = asyncio.create_task(scheduler.run())
 
     try:
-        await scheduler.run()
+        await shutdown_event.wait()
     except KeyboardInterrupt:
         logger.info('Получен сигнал остановки')
     finally:
         await shutdown()
+        if not scheduler_task.done():
+            scheduler_task.cancel()
+            try:
+                await scheduler_task
+            except asyncio.CancelledError:
+                pass
 
 
 def run():

@@ -20,12 +20,14 @@ TELEGRAM_BOT_TOKEN=your_token_here
 TELEGRAM_ADMIN_IDS=1481790360
 
 # GGSEL API
-GGSEL_API_KEY=your_api_key_here
+GGSEL_API_KEY=your_api_secret_here
+GGSEL_ACCESS_TOKEN=
 GGSEL_PRODUCT_ID=4697439
 GGSEL_LANG=ru-RU
 
 # Конкуренты
 COMPETITOR_URLS=https://ggsel.net/catalog/product/competitor-12345
+COMPETITOR_COOKIES=
 
 # Настройки цен
 MIN_PRICE=0.25
@@ -34,6 +36,12 @@ UNDERCUT_VALUE=0.0051
 MODE=FIXED
 FIXED_PRICE=0.35
 ```
+
+Авторизация GGSEL:
+- `GGSEL_API_KEY` — секретный key, используется для `/apilogin`
+- `GGSEL_ACCESS_TOKEN` — опционально готовый access token
+- если `GGSEL_ACCESS_TOKEN` не задан, бот получает token автоматически через `/apilogin`
+- если `GGSEL_API_KEY` выглядит как JWT (`xxx.yyy.zzz`), это, скорее всего, access token, а не secret key
 
 ### 3. Запуск
 
@@ -132,9 +140,12 @@ target_price = min(competitor_prices)
 | `TELEGRAM_BOT_TOKEN` | Токен бота | - |
 | `TELEGRAM_ADMIN_IDS` | ID админов | - |
 | `GGSEL_API_KEY` | API ключ GGSEL | - |
+| `GGSEL_ACCESS_TOKEN` | Готовый access token (опционально) | - |
 | `GGSEL_PRODUCT_ID` | ID товара | - |
 | `GGSEL_LANG` | Локаль Seller API (`ru-RU`/`en-US`) | ru-RU |
+| `GGSEL_REQUIRE_API_ON_START` | Fail-fast на старте, если API недоступен | false |
 | `COMPETITOR_URLS` | URL конкурентов | - |
+| `COMPETITOR_COOKIES` | Cookies для антибот-защиты конкурентов (`name=value; ...`) | - |
 | `MIN_PRICE` | Минимальная цена | 0.25 |
 | `MAX_PRICE` | Максимальная цена | 10.0 |
 | `UNDERCUT_VALUE` | Насколько быть ниже конкурента | 0.0051 |
@@ -149,6 +160,11 @@ target_price = min(competitor_prices)
 | `COOLDOWN_SECONDS` | Пауза между обновлениями | 30 |
 | `IGNORE_DELTA` | Мин. разница для обновления | 0.001 |
 | `CHECK_INTERVAL` | Интервал проверки | 30 |
+| `NOTIFY_SKIP` | Отправлять уведомления о skip-циклах | false |
+| `NOTIFY_SKIP_COOLDOWN_SECONDS` | Антиспам для skip-уведомлений | 300 |
+| `NOTIFY_COMPETITOR_CHANGE` | Уведомлять об изменении min-цены конкурента | true |
+| `COMPETITOR_CHANGE_DELTA` | Минимальная дельта для алерта конкурента | 0.0001 |
+| `COMPETITOR_CHANGE_COOLDOWN_SECONDS` | Антиспам для алерта конкурента | 60 |
 | `LOG_MAX_BYTES` | Размер файла лога до ротации | 10485760 |
 | `LOG_BACKUP_COUNT` | Количество ротаций лога | 5 |
 
@@ -197,7 +213,17 @@ make down      # docker compose down
 make logs      # docker compose logs -f
 make health    # локальный healthcheck
 make smoke     # live smoke Seller API (без изменения цены)
+make check-apilogin  # проверка связки GGSEL_API_KEY + GGSEL_SELLER_ID
+make issue-token  # выпуск access token через /apilogin
 ```
+
+Если `make check-apilogin` показывает `retdesc=Не найдено`:
+1. В `GGSEL_API_KEY` указан не тот ключ (обычно туда попал JWT/access token).
+2. Неверный `GGSEL_SELLER_ID` для этого key.
+
+Для конкурентов с anti-bot защитой (например QRATOR) можно задать
+`COMPETITOR_COOKIES` из браузера (DevTools -> Application -> Cookies),
+чтобы парсер смог получить HTML карточки товара.
 
 ---
 
@@ -214,7 +240,7 @@ make smoke     # live smoke Seller API (без изменения цены)
 - `price_history` - история изменений
 - `runtime_settings` - runtime overrides из Telegram
 - `settings_history` - журнал изменений runtime-настроек (кто/что/когда)
-- `alert_state` - антиспам-состояние уведомлений об ошибках
+- `alert_state` - антиспам-состояние уведомлений (ошибки/skip/изменение конкурента)
 
 Бот валидирует runtime-настройки перед каждым циклом.
 Если параметры некорректны, цикл пропускается и отправляется throttled-ошибка в Telegram.

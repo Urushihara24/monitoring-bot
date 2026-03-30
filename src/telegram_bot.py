@@ -5,6 +5,7 @@ Telegram бот с Reply Keyboard (кнопки внизу)
 import logging
 import re
 import asyncio
+import unicodedata
 from datetime import datetime
 from typing import Optional
 
@@ -103,6 +104,19 @@ class TelegramBot:
             '📤 Экспорт', '📥 Импорт', '🧾 История',
         }
 
+    def _normalize_button_text(self, text: str) -> str:
+        """Нормализация текста кнопок (emoji variants, пробелы, регистр)"""
+        normalized = unicodedata.normalize('NFKC', text or '')
+        # Убираем variation selectors / zero-width символы
+        for ch in ('\ufe0f', '\ufe0e', '\u200d', '\u200b', '\u2060'):
+            normalized = normalized.replace(ch, '')
+        normalized = normalized.replace('\xa0', ' ')
+        normalized = ' '.join(normalized.split())
+        return normalized.strip().lower()
+
+    def _is_button(self, text: str, button_label: str) -> bool:
+        return self._normalize_button_text(text) == self._normalize_button_text(button_label)
+
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /start"""
         user_id = update.effective_user.id
@@ -131,69 +145,71 @@ class TelegramBot:
         user_id = update.effective_user.id
         chat_id = update.effective_chat.id
         text = update.message.text.strip()
+        text_norm = self._normalize_button_text(text)
 
         if not self._check_access(user_id):
             await self._send_with_main_keyboard(chat_id, '❌ У вас нет доступа к этому боту')
             return
 
-        if chat_id in self.pending_actions and text not in self._known_buttons():
+        known_normalized = {self._normalize_button_text(x) for x in self._known_buttons()}
+        if chat_id in self.pending_actions and text_norm not in known_normalized:
             handled = await self._handle_pending_action(chat_id, user_id, text)
             if handled:
                 return
 
-        logger.info(f'Получено сообщение: {text}')
+        logger.info(f'Получено сообщение: {text!r} (normalized={text_norm!r})')
 
-        if text == '📊 Статус':
+        if self._is_button(text, '📊 Статус'):
             await self.send_status(chat_id)
 
-        elif text == '⬆️ +0.01₽':
+        elif self._is_button(text, '⬆️ +0.01₽'):
             await self.handle_price_change(chat_id, 0.01)
 
-        elif text == '⬇️ -0.01₽':
+        elif self._is_button(text, '⬇️ -0.01₽'):
             await self.handle_price_change(chat_id, -0.01)
 
-        elif text in ('🔔 Авто: ВКЛ', '🔕 Авто: ВЫКЛ'):
+        elif self._is_button(text, '🔔 Авто: ВКЛ') or self._is_button(text, '🔕 Авто: ВЫКЛ'):
             await self.handle_toggle_auto(chat_id)
 
-        elif text == '⚙️ Настройки':
+        elif self._is_button(text, '⚙️ Настройки'):
             await self.send_settings(chat_id)
 
-        elif text == '🩺 Диагностика':
+        elif self._is_button(text, '🩺 Диагностика'):
             await self.send_diagnostics(chat_id)
 
-        elif text == '🎯 Цена':
+        elif self._is_button(text, '🎯 Цена'):
             self.pending_actions[chat_id] = 'DESIRED_PRICE'
             await self._send_with_settings_keyboard(chat_id, 'Введите желаемую цену (например 0.35):')
 
-        elif text == '➖ Шаг':
+        elif self._is_button(text, '➖ Шаг'):
             self.pending_actions[chat_id] = 'UNDERCUT_VALUE'
             await self._send_with_settings_keyboard(chat_id, 'Введите шаг снижения (например 0.0051):')
 
-        elif text == '📉 Мин':
+        elif self._is_button(text, '📉 Мин'):
             self.pending_actions[chat_id] = 'MIN_PRICE'
             await self._send_with_settings_keyboard(chat_id, 'Введите минимальную цену:')
 
-        elif text == '📈 Макс':
+        elif self._is_button(text, '📈 Макс'):
             self.pending_actions[chat_id] = 'MAX_PRICE'
             await self._send_with_settings_keyboard(chat_id, 'Введите максимальную цену:')
 
-        elif text == '🔀 Режим':
+        elif self._is_button(text, '🔀 Режим'):
             await self._toggle_mode(chat_id, user_id)
 
-        elif text == '📍 Позиция':
+        elif self._is_button(text, '📍 Позиция'):
             await self._toggle_position_filter(chat_id, user_id)
 
-        elif text == '🔗 Добавить URL':
+        elif self._is_button(text, '🔗 Добавить URL'):
             self.pending_actions[chat_id] = 'ADD_URL'
             await self._send_with_settings_keyboard(chat_id, 'Отправьте URL конкурента:')
 
-        elif text == '🗑 Удалить URL':
+        elif self._is_button(text, '🗑 Удалить URL'):
             await self._start_remove_url(chat_id)
 
-        elif text == '📤 Экспорт':
+        elif self._is_button(text, '📤 Экспорт'):
             await self._export_runtime_settings(chat_id)
 
-        elif text == '📥 Импорт':
+        elif self._is_button(text, '📥 Импорт'):
             self.pending_actions[chat_id] = 'IMPORT_SETTINGS'
             await self._send_with_settings_keyboard(
                 chat_id,
@@ -201,10 +217,10 @@ class TelegramBot:
                 'Пример:\nMIN_PRICE=0.25\nMAX_PRICE=10\nMODE=FIXED',
             )
 
-        elif text == '🧾 История':
+        elif self._is_button(text, '🧾 История'):
             await self._show_settings_history(chat_id)
 
-        elif text == '🔙 Назад':
+        elif self._is_button(text, '🔙 Назад'):
             self.pending_actions.pop(chat_id, None)
             await update.message.reply_text(
                 '📋 Главное меню:',
@@ -310,6 +326,8 @@ class TelegramBot:
 ⏱️ Cooldown: {runtime.COOLDOWN_SECONDS} сек
 📏 Ignore delta: {runtime.IGNORE_DELTA}
 🔄 Интервал: {runtime.CHECK_INTERVAL} сек
+🔕 Notify skip: {'Вкл' if runtime.NOTIFY_SKIP else 'Выкл'} ({runtime.NOTIFY_SKIP_COOLDOWN_SECONDS}с)
+📡 Notify competitor change: {'Вкл' if runtime.NOTIFY_COMPETITOR_CHANGE else 'Выкл'} (Δ>={runtime.COMPETITOR_CHANGE_DELTA}, {runtime.COMPETITOR_CHANGE_COOLDOWN_SECONDS}с)
 🔗 Конкурентов: {len(competitor_urls)}
 """
 
@@ -474,7 +492,10 @@ class TelegramBot:
             'MODE', 'FIXED_PRICE', 'STEP_UP_VALUE', 'LOW_PRICE_THRESHOLD',
             'WEAK_PRICE_CEIL_LIMIT', 'POSITION_FILTER_ENABLED',
             'WEAK_POSITION_THRESHOLD', 'COOLDOWN_SECONDS',
-            'IGNORE_DELTA', 'CHECK_INTERVAL', 'competitor_urls',
+            'IGNORE_DELTA', 'CHECK_INTERVAL', 'COMPETITOR_COOKIES', 'competitor_urls',
+            'NOTIFY_SKIP', 'NOTIFY_SKIP_COOLDOWN_SECONDS',
+            'NOTIFY_COMPETITOR_CHANGE', 'COMPETITOR_CHANGE_DELTA',
+            'COMPETITOR_CHANGE_COOLDOWN_SECONDS',
         }
         updated = 0
         errors = []
@@ -568,6 +589,24 @@ class TelegramBot:
         text = f"❌ *Ошибка*\n\n`{error}`"
         await self.notify(text)
 
+    async def notify_competitor_price_changed(
+        self,
+        old_price: float,
+        new_price: float,
+        delta: float,
+        rank: Optional[int] = None,
+    ):
+        """Уведомление об изменении цены конкурента"""
+        rank_text = f'`#{rank}`' if rank is not None else '`N/A`'
+        text = (
+            f"📡 *Изменение цены конкурента*\n\n"
+            f"Было: `{old_price:.4f}₽`\n"
+            f"Стало: `{new_price:.4f}₽`\n"
+            f"Δ: `{delta:.4f}₽`\n"
+            f"Позиция: {rank_text}"
+        )
+        await self.notify(text)
+
     async def notify_startup(self):
         """Уведомление о запуске"""
         competitor_urls = storage.get_competitor_urls(config.COMPETITOR_URLS)
@@ -580,22 +619,28 @@ class TelegramBot:
         )
         await self.notify(text)
 
-    def run(self):
-        """Запуск бота (blocking)"""
+    async def start(self):
+        """Асинхронный запуск бота в текущем event loop"""
         logger.info('Запуск Telegram бота...')
-        self.app.run_polling(allowed_updates=Update.ALL_TYPES)
+        app = self.app
+        await app.initialize()
+        await app.start()
+        if app.updater:
+            await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
 
-    def stop(self):
-        """Остановка бота"""
-        if self._app:
-            try:
-                # Предпочтительный способ для run_polling
-                self.app.stop_running()
-            except Exception:
-                try:
-                    self.app.stop()
-                except Exception as e:
-                    logger.error(f'Ошибка остановки Telegram бота: {e}')
+    async def stop(self):
+        """Асинхронная остановка бота"""
+        if not self._app:
+            return
+        app = self._app
+        try:
+            if app.updater and app.updater.running:
+                await app.updater.stop()
+            if app.running:
+                await app.stop()
+            await app.shutdown()
+        except Exception as e:
+            logger.error(f'Ошибка остановки Telegram бота: {e}')
 
 
 # Глобальный экземпляр
