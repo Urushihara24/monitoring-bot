@@ -82,13 +82,19 @@ class TelegramBot:
         if update.message:
             await update.message.reply_text(text, reply_markup=self.main_keyboard)
 
-    async def _send_with_main_keyboard(self, chat_id: int, text: str):
+    async def _send_with_main_keyboard(self, chat_id: int, text: str, update: Optional[Update] = None):
         """Отправка в чат с основной Reply клавиатурой"""
-        await self.app.bot.send_message(chat_id=chat_id, text=text, reply_markup=self.main_keyboard)
+        if update and update.message:
+            await update.message.reply_text(text, reply_markup=self.main_keyboard)
+        else:
+            await self.app.bot.send_message(chat_id=chat_id, text=text, reply_markup=self.main_keyboard)
 
-    async def _send_with_settings_keyboard(self, chat_id: int, text: str):
+    async def _send_with_settings_keyboard(self, chat_id: int, text: str, update: Optional[Update] = None):
         """Отправка в чат с клавиатурой настроек"""
-        await self.app.bot.send_message(chat_id=chat_id, text=text, reply_markup=self.settings_keyboard)
+        if update and update.message:
+            await update.message.reply_text(text, reply_markup=self.settings_keyboard)
+        else:
+            await self.app.bot.send_message(chat_id=chat_id, text=text, reply_markup=self.settings_keyboard)
 
     def _runtime(self):
         return storage.get_runtime_config(config)
@@ -179,19 +185,19 @@ class TelegramBot:
 
         elif self._is_button(text, '🎯 Цена'):
             self.pending_actions[chat_id] = 'DESIRED_PRICE'
-            await self._send_with_settings_keyboard(chat_id, 'Введите желаемую цену (например 0.35):')
+            await update.message.reply_text('Введите желаемую цену (например 0.35):', reply_markup=self.settings_keyboard)
 
         elif self._is_button(text, '➖ Шаг'):
             self.pending_actions[chat_id] = 'UNDERCUT_VALUE'
-            await self._send_with_settings_keyboard(chat_id, 'Введите шаг снижения (например 0.0051):')
+            await update.message.reply_text('Введите шаг снижения (например 0.0051):', reply_markup=self.settings_keyboard)
 
         elif self._is_button(text, '📉 Мин'):
             self.pending_actions[chat_id] = 'MIN_PRICE'
-            await self._send_with_settings_keyboard(chat_id, 'Введите минимальную цену:')
+            await update.message.reply_text('Введите минимальную цену:', reply_markup=self.settings_keyboard)
 
         elif self._is_button(text, '📈 Макс'):
             self.pending_actions[chat_id] = 'MAX_PRICE'
-            await self._send_with_settings_keyboard(chat_id, 'Введите максимальную цену:')
+            await update.message.reply_text('Введите максимальную цену:', reply_markup=self.settings_keyboard)
 
         elif self._is_button(text, '🔀 Режим'):
             await self._toggle_mode(chat_id, user_id, update)
@@ -201,24 +207,24 @@ class TelegramBot:
 
         elif self._is_button(text, '🔗 Добавить URL'):
             self.pending_actions[chat_id] = 'ADD_URL'
-            await self._send_with_settings_keyboard(chat_id, 'Отправьте URL конкурента:')
+            await update.message.reply_text('Отправьте URL конкурента:', reply_markup=self.settings_keyboard)
 
         elif self._is_button(text, '🗑 Удалить URL'):
-            await self._start_remove_url(chat_id)
+            await self._start_remove_url(chat_id, update)
 
         elif self._is_button(text, '📤 Экспорт'):
-            await self._export_runtime_settings(chat_id)
+            await self._export_runtime_settings(chat_id, update)
 
         elif self._is_button(text, '📥 Импорт'):
             self.pending_actions[chat_id] = 'IMPORT_SETTINGS'
-            await self._send_with_settings_keyboard(
-                chat_id,
+            await update.message.reply_text(
                 'Отправьте настройки в формате key=value, по одной на строку.\n'
                 'Пример:\nMIN_PRICE=0.25\nMAX_PRICE=10\nMODE=FIXED',
+                reply_markup=self.settings_keyboard,
             )
 
         elif self._is_button(text, '🧾 История'):
-            await self._show_settings_history(chat_id)
+            await self._show_settings_history(chat_id, update)
 
         elif self._is_button(text, '🔙 Назад'):
             self.pending_actions.pop(chat_id, None)
@@ -227,6 +233,8 @@ class TelegramBot:
                 reply_markup=self.main_keyboard,
             )
         else:
+            logger.warning(f'Нераспознанная кнопка: {text!r} (normalized={text_norm!r})')
+            logger.warning(f'Известные кнопки: {self._known_buttons()}')
             await self._send_with_main_keyboard(chat_id, 'Выберите действие кнопками ниже 👇')
 
     async def send_status(self, chat_id: int, update: Optional[Update] = None):
@@ -452,16 +460,22 @@ class TelegramBot:
 
         return False
 
-    async def _start_remove_url(self, chat_id: int):
+    async def _start_remove_url(self, chat_id: int, update: Optional[Update] = None):
         urls = storage.get_competitor_urls(config.COMPETITOR_URLS)
         if not urls:
-            await self._send_with_settings_keyboard(chat_id, 'Список конкурентов пуст.')
+            if update and update.message:
+                await update.message.reply_text('Список конкурентов пуст.', reply_markup=self.settings_keyboard)
+            else:
+                await self._send_with_settings_keyboard(chat_id, 'Список конкурентов пуст.')
             return
         lines = ['Выберите номер URL для удаления:']
         for i, url in enumerate(urls, start=1):
             lines.append(f'{i}. {url}')
         self.pending_actions[chat_id] = 'REMOVE_URL'
-        await self._send_with_settings_keyboard(chat_id, '\n'.join(lines))
+        if update and update.message:
+            await update.message.reply_text('\n'.join(lines), reply_markup=self.settings_keyboard)
+        else:
+            await self._send_with_settings_keyboard(chat_id, '\n'.join(lines))
 
     async def _toggle_mode(self, chat_id: int, user_id: int, update: Optional[Update] = None):
         runtime = self._runtime()
@@ -488,20 +502,29 @@ class TelegramBot:
             await self._send_with_settings_keyboard(chat_id, f'✅ Фильтр позиции: {"Вкл" if new_value else "Выкл"}')
         await self.send_settings(chat_id, update)
 
-    async def _export_runtime_settings(self, chat_id: int):
+    async def _export_runtime_settings(self, chat_id: int, update: Optional[Update] = None):
         settings = storage.get_all_runtime_settings()
         if not settings:
-            await self._send_with_settings_keyboard(chat_id, 'Runtime-настройки пусты, используются значения из .env')
+            if update and update.message:
+                await update.message.reply_text('Runtime-настройки пусты, используются значения из .env', reply_markup=self.settings_keyboard)
+            else:
+                await self._send_with_settings_keyboard(chat_id, 'Runtime-настройки пусты, используются значения из .env')
             return
         lines = ['Текущие runtime-настройки:']
         for key, value in sorted(settings.items()):
             lines.append(f'{key}={value}')
-        await self._send_with_settings_keyboard(chat_id, '\n'.join(lines))
+        if update and update.message:
+            await update.message.reply_text('\n'.join(lines), reply_markup=self.settings_keyboard)
+        else:
+            await self._send_with_settings_keyboard(chat_id, '\n'.join(lines))
 
-    async def _show_settings_history(self, chat_id: int):
+    async def _show_settings_history(self, chat_id: int, update: Optional[Update] = None):
         rows = storage.get_settings_history(limit=15)
         if not rows:
-            await self._send_with_settings_keyboard(chat_id, 'История изменений пока пуста.')
+            if update and update.message:
+                await update.message.reply_text('История изменений пока пуста.', reply_markup=self.settings_keyboard)
+            else:
+                await self._send_with_settings_keyboard(chat_id, 'История изменений пока пуста.')
             return
         lines = ['Последние изменения:']
         for row in rows:
@@ -511,7 +534,10 @@ class TelegramBot:
                 f"{row['old_value']} -> {row['new_value']} "
                 f"(user={user}, src={row.get('source')})"
             )
-        await self._send_with_settings_keyboard(chat_id, '\n'.join(lines))
+        if update and update.message:
+            await update.message.reply_text('\n'.join(lines), reply_markup=self.settings_keyboard)
+        else:
+            await self._send_with_settings_keyboard(chat_id, '\n'.join(lines))
 
     async def _import_runtime_settings(self, chat_id: int, user_id: int, text: str):
         allowed_keys = {
