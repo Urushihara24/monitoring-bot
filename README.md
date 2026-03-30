@@ -226,9 +226,16 @@ make issue-token  # выпуск access token через /apilogin
 make systemd-install  # установка systemd service + watchdog timer (Linux)
 ```
 
+**Важно:** Перед запуском очистите переменные окружения:
+```bash
+unset GGSEL_SELLER_ID GGSEL_ACCESS_TOKEN GGSEL_API_KEY
+python3 -m src.main
+```
+
 Если `make check-apilogin` показывает `retdesc=Не найдено`:
 1. В `GGSEL_API_KEY` указан не тот ключ (обычно туда попал JWT/access token).
 2. Неверный `GGSEL_SELLER_ID` для этого key.
+3. **Решение:** Используйте JWT токен как `GGSEL_API_KEY` и правильный `GGSEL_SELLER_ID` из личного кабинета.
 
 ---
 
