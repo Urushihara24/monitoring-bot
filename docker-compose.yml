@@ -1,0 +1,15 @@
+version: '3.9'
+
+services:
+  ggsel-bot:
+    build: .
+    container_name: ggsel-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - HEALTHCHECK_DB_PATH=/app/data/state.db
+      - HEALTHCHECK_MAX_AGE_SECONDS=300
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
