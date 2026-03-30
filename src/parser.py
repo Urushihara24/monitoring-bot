@@ -235,18 +235,45 @@ class CompetitorParser:
                         'Chrome/131.0.0.0 Safari/537.36'
                     ),
                 )
-                cookies = self._cookie_header_to_playwright(url, self.cookie_string)
-                if cookies:
-                    context.add_cookies(cookies)
+                # Пробуем загрузить cookies из backup файла напрямую
+                if self.cookies_backup_file and self.cookies_backup_file.exists():
+                    try:
+                        with open(self.cookies_backup_file, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                        cookies_list = data.get('cookies', [])
+                        # Фильтруем и преобразуем cookies для Playwright
+                        pw_cookies = []
+                        for cookie in cookies_list:
+                            name = cookie.get('name', '')
+                            value = cookie.get('value', '')
+                            if name and value:
+                                pw_cookies.append({
+                                    'name': name,
+                                    'value': value,
+                                    'domain': cookie.get('domain', 'ggsel.net'),
+                                    'path': cookie.get('path', '/'),
+                                    'httpOnly': cookie.get('httpOnly', False),
+                                    'secure': cookie.get('secure', True),
+                                })
+                        if pw_cookies:
+                            context.add_cookies(pw_cookies)
+                            logger.debug(f'Добавлено {len(pw_cookies)} cookies в Playwright')
+                    except Exception as e:
+                        logger.debug(f'Не удалось загрузить cookies для Playwright: {e}')
+                # Fallback на cookie header
+                elif self.cookie_string:
+                    cookies = self._cookie_header_to_playwright(url, self.cookie_string)
+                    if cookies:
+                        context.add_cookies(cookies)
                 page = context.new_page()
                 page.goto(url, wait_until='domcontentloaded', timeout=timeout_ms)
-                page.wait_for_timeout(2500)
+                page.wait_for_timeout(3000)  # Увеличил время ожидания
                 html = page.content()
                 context.close()
                 browser.close()
                 return html
         except Exception as e:
-            logger.warning(f'Playwright fallback не сработал для {url}: {type(e).__name__}')
+            logger.warning(f'Playwright fallback не сработал для {url}: {type(e).__name__}: {e}')
             return None
 
     def _fetch_html_with_selenium(self, url: str, timeout: int = 15) -> Optional[str]:
