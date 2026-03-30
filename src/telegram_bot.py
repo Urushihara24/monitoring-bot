@@ -160,22 +160,22 @@ class TelegramBot:
         logger.info(f'Получено сообщение: {text!r} (normalized={text_norm!r})')
 
         if self._is_button(text, '📊 Статус'):
-            await self.send_status(chat_id)
+            await self.send_status(chat_id, update)
 
         elif self._is_button(text, '⬆️ +0.01₽'):
-            await self.handle_price_change(chat_id, 0.01)
+            await self.handle_price_change(chat_id, 0.01, update)
 
         elif self._is_button(text, '⬇️ -0.01₽'):
-            await self.handle_price_change(chat_id, -0.01)
+            await self.handle_price_change(chat_id, -0.01, update)
 
         elif self._is_button(text, '🔔 Авто: ВКЛ') or self._is_button(text, '🔕 Авто: ВЫКЛ'):
-            await self.handle_toggle_auto(chat_id)
+            await self.handle_toggle_auto(chat_id, update)
 
         elif self._is_button(text, '⚙️ Настройки'):
-            await self.send_settings(chat_id)
+            await self.send_settings(chat_id, update)
 
         elif self._is_button(text, '🩺 Диагностика'):
-            await self.send_diagnostics(chat_id)
+            await self.send_diagnostics(chat_id, update)
 
         elif self._is_button(text, '🎯 Цена'):
             self.pending_actions[chat_id] = 'DESIRED_PRICE'
@@ -194,10 +194,10 @@ class TelegramBot:
             await self._send_with_settings_keyboard(chat_id, 'Введите максимальную цену:')
 
         elif self._is_button(text, '🔀 Режим'):
-            await self._toggle_mode(chat_id, user_id)
+            await self._toggle_mode(chat_id, user_id, update)
 
         elif self._is_button(text, '📍 Позиция'):
-            await self._toggle_position_filter(chat_id, user_id)
+            await self._toggle_position_filter(chat_id, user_id, update)
 
         elif self._is_button(text, '🔗 Добавить URL'):
             self.pending_actions[chat_id] = 'ADD_URL'
@@ -229,7 +229,7 @@ class TelegramBot:
         else:
             await self._send_with_main_keyboard(chat_id, 'Выберите действие кнопками ниже 👇')
 
-    async def send_status(self, chat_id: int):
+    async def send_status(self, chat_id: int, update: Optional[Update] = None):
         """Отправка статуса"""
         state = storage.get_state()
         runtime = self._runtime()
@@ -256,9 +256,12 @@ class TelegramBot:
 ⏭️ Пропусков: {state.get('skip_count', 0)}
 """
 
-        await self.app.bot.send_message(chat_id=chat_id, text=text, reply_markup=self.main_keyboard)
+        if update and update.message:
+            await update.message.reply_text(text, reply_markup=self.main_keyboard)
+        else:
+            await self.app.bot.send_message(chat_id=chat_id, text=text, reply_markup=self.main_keyboard)
 
-    async def send_diagnostics(self, chat_id: int):
+    async def send_diagnostics(self, chat_id: int, update: Optional[Update] = None):
         """Быстрая диагностика состояния бота и окружения"""
         state = storage.get_state()
         runtime = self._runtime()
@@ -302,9 +305,12 @@ class TelegramBot:
         if errors:
             lines.append('Errors: ' + '; '.join(errors[:3]))
 
-        await self._send_with_main_keyboard(chat_id, '\n'.join(lines))
+        if update and update.message:
+            await update.message.reply_text('\n'.join(lines), reply_markup=self.main_keyboard)
+        else:
+            await self._send_with_main_keyboard(chat_id, '\n'.join(lines))
 
-    async def send_settings(self, chat_id: int):
+    async def send_settings(self, chat_id: int, update: Optional[Update] = None):
         """Отправка настроек"""
         runtime = self._runtime()
         competitor_urls = runtime.COMPETITOR_URLS
@@ -331,9 +337,12 @@ class TelegramBot:
 🔗 Конкурентов: {len(competitor_urls)}
 """
 
-        await self.app.bot.send_message(chat_id=chat_id, text=text, reply_markup=self.settings_keyboard)
+        if update and update.message:
+            await update.message.reply_text(text, reply_markup=self.settings_keyboard)
+        else:
+            await self.app.bot.send_message(chat_id=chat_id, text=text, reply_markup=self.settings_keyboard)
 
-    async def handle_price_change(self, chat_id: int, delta: float):
+    async def handle_price_change(self, chat_id: int, delta: float, update: Optional[Update] = None):
         """Изменение цены"""
         runtime = self._runtime()
         state = storage.get_state()
@@ -344,13 +353,19 @@ class TelegramBot:
             current_price = self.api_client.get_my_price(config.GGSEL_PRODUCT_ID) if self.api_client else None
 
         if not current_price:
-            await self._send_with_main_keyboard(chat_id, '❌ Не удалось получить текущую цену')
+            if update and update.message:
+                await update.message.reply_text('❌ Не удалось получить текущую цену', reply_markup=self.main_keyboard)
+            else:
+                await self._send_with_main_keyboard(chat_id, '❌ Не удалось получить текущую цену')
             return
 
         new_price = round(max(current_price + delta, runtime.MIN_PRICE), 4)
 
         if new_price == current_price:
-            await self._send_with_main_keyboard(chat_id, f'⚠️ Нельзя изменить цену (минимум {runtime.MIN_PRICE}₽)')
+            if update and update.message:
+                await update.message.reply_text(f'⚠️ Нельзя изменить цену (минимум {runtime.MIN_PRICE}₽)', reply_markup=self.main_keyboard)
+            else:
+                await self._send_with_main_keyboard(chat_id, f'⚠️ Нельзя изменить цену (минимум {runtime.MIN_PRICE}₽)')
             return
 
         # Обновляем через API
@@ -362,11 +377,20 @@ class TelegramBot:
                     last_price=new_price,
                     last_update=__import__('datetime').datetime.now(),
                 )
-                await self._send_with_main_keyboard(chat_id, f'✅ Цена изменена: {current_price:.4f}₽ → {new_price:.4f}₽')
+                if update and update.message:
+                    await update.message.reply_text(f'✅ Цена изменена: {current_price:.4f}₽ → {new_price:.4f}₽', reply_markup=self.main_keyboard)
+                else:
+                    await self._send_with_main_keyboard(chat_id, f'✅ Цена изменена: {current_price:.4f}₽ → {new_price:.4f}₽')
             else:
-                await self._send_with_main_keyboard(chat_id, '❌ Ошибка обновления цены')
+                if update and update.message:
+                    await update.message.reply_text('❌ Ошибка обновления цены', reply_markup=self.main_keyboard)
+                else:
+                    await self._send_with_main_keyboard(chat_id, '❌ Ошибка обновления цены')
         else:
-            await self._send_with_main_keyboard(chat_id, '❌ API-клиент не инициализирован')
+            if update and update.message:
+                await update.message.reply_text('❌ API-клиент не инициализирован', reply_markup=self.main_keyboard)
+            else:
+                await self._send_with_main_keyboard(chat_id, '❌ API-клиент не инициализирован')
 
     async def _handle_pending_action(self, chat_id: int, user_id: int, text: str) -> bool:
         action = self.pending_actions.get(chat_id)
@@ -439,14 +463,17 @@ class TelegramBot:
         self.pending_actions[chat_id] = 'REMOVE_URL'
         await self._send_with_settings_keyboard(chat_id, '\n'.join(lines))
 
-    async def _toggle_mode(self, chat_id: int, user_id: int):
+    async def _toggle_mode(self, chat_id: int, user_id: int, update: Optional[Update] = None):
         runtime = self._runtime()
         new_mode = 'STEP_UP' if runtime.MODE == 'FIXED' else 'FIXED'
         storage.set_runtime_setting('MODE', new_mode, user_id=user_id, source='telegram')
-        await self._send_with_settings_keyboard(chat_id, f'✅ Режим переключен: {new_mode}')
-        await self.send_settings(chat_id)
+        if update and update.message:
+            await update.message.reply_text(f'✅ Режим переключен: {new_mode}', reply_markup=self.settings_keyboard)
+        else:
+            await self._send_with_settings_keyboard(chat_id, f'✅ Режим переключен: {new_mode}')
+        await self.send_settings(chat_id, update)
 
-    async def _toggle_position_filter(self, chat_id: int, user_id: int):
+    async def _toggle_position_filter(self, chat_id: int, user_id: int, update: Optional[Update] = None):
         runtime = self._runtime()
         new_value = not runtime.POSITION_FILTER_ENABLED
         storage.set_runtime_setting(
@@ -455,11 +482,11 @@ class TelegramBot:
             user_id=user_id,
             source='telegram',
         )
-        await self._send_with_settings_keyboard(
-            chat_id,
-            f'✅ Фильтр позиции: {"Вкл" if new_value else "Выкл"}',
-        )
-        await self.send_settings(chat_id)
+        if update and update.message:
+            await update.message.reply_text(f'✅ Фильтр позиции: {"Вкл" if new_value else "Выкл"}', reply_markup=self.settings_keyboard)
+        else:
+            await self._send_with_settings_keyboard(chat_id, f'✅ Фильтр позиции: {"Вкл" if new_value else "Выкл"}')
+        await self.send_settings(chat_id, update)
 
     async def _export_runtime_settings(self, chat_id: int):
         settings = storage.get_all_runtime_settings()
@@ -529,7 +556,7 @@ class TelegramBot:
         await self._send_with_settings_keyboard(chat_id, '\n'.join(result_lines))
         await self.send_settings(chat_id)
 
-    async def handle_toggle_auto(self, chat_id: int):
+    async def handle_toggle_auto(self, chat_id: int, update: Optional[Update] = None):
         """Переключение авто-режима"""
         self.auto_mode = not self.auto_mode
         storage.update_state(auto_mode=self.auto_mode)
@@ -543,11 +570,14 @@ class TelegramBot:
             ['⚙️ Настройки', '🩺 Диагностика'],
         ], resize_keyboard=True, one_time_keyboard=False)
 
-        await self.app.bot.send_message(
-            chat_id=chat_id,
-            text=f'🔔 Авто-режим {status}',
-            reply_markup=self.main_keyboard,
-        )
+        if update and update.message:
+            await update.message.reply_text(f'🔔 Авто-режим {status}', reply_markup=self.main_keyboard)
+        else:
+            await self.app.bot.send_message(
+                chat_id=chat_id,
+                text=f'🔔 Авто-режим {status}',
+                reply_markup=self.main_keyboard,
+            )
 
     async def notify(self, message: str):
         """Отправка уведомления всем админам"""
