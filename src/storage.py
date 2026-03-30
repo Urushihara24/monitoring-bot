@@ -259,6 +259,22 @@ class Storage:
             'IGNORE_DELTA': self._get_float('IGNORE_DELTA', base_config.IGNORE_DELTA),
             'CHECK_INTERVAL': self._get_int('CHECK_INTERVAL', base_config.CHECK_INTERVAL),
             'COMPETITOR_COOKIES': self._get_str('COMPETITOR_COOKIES', base_config.COMPETITOR_COOKIES),
+            'SELENIUM_USE_REAL_PROFILE': self._get_bool(
+                'SELENIUM_USE_REAL_PROFILE',
+                base_config.SELENIUM_USE_REAL_PROFILE,
+            ),
+            'SELENIUM_CHROME_USER_DATA_DIR': self._get_str(
+                'SELENIUM_CHROME_USER_DATA_DIR',
+                base_config.SELENIUM_CHROME_USER_DATA_DIR,
+            ),
+            'SELENIUM_CHROME_PROFILE_DIR': self._get_str(
+                'SELENIUM_CHROME_PROFILE_DIR',
+                base_config.SELENIUM_CHROME_PROFILE_DIR,
+            ),
+            'SELENIUM_HEADLESS': self._get_bool(
+                'SELENIUM_HEADLESS',
+                base_config.SELENIUM_HEADLESS,
+            ),
             'NOTIFY_SKIP': self._get_bool('NOTIFY_SKIP', base_config.NOTIFY_SKIP),
             'NOTIFY_SKIP_COOLDOWN_SECONDS': self._get_int(
                 'NOTIFY_SKIP_COOLDOWN_SECONDS',

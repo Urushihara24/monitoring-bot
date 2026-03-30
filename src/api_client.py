@@ -218,8 +218,7 @@ class GGSELClient:
         # Если токен протух/отозван — пробуем получить новый и повторить 1 раз.
         if response is not None and response.status_code == 401:
             logger.warning(
-                "Получен 401, пробуем обновить access token и "
-                "повторить запрос"
+                "Получен 401, пробуем обновить access token и " "повторить запрос"
             )
             token = self._get_access_token(force_refresh=True, timeout=timeout)
             if not token:
@@ -266,9 +265,7 @@ class GGSELClient:
 
         for attempt in range(max_retries):
             try:
-                response = self.session.request(
-                    method, url, timeout=timeout, **kwargs
-                )
+                response = self.session.request(method, url, timeout=timeout, **kwargs)
 
                 # 404 не retry-им
                 if response.status_code == 404:
@@ -302,9 +299,7 @@ class GGSELClient:
 
             except requests.Timeout:
                 last_error = f"Timeout ({timeout}s)"
-                logger.warning(
-                    f"{last_error}, попытка {attempt + 1}/{max_retries}"
-                )
+                logger.warning(f"{last_error}, попытка {attempt + 1}/{max_retries}")
 
             except requests.RequestException as e:
                 last_error = str(e)
@@ -375,9 +370,7 @@ class GGSELClient:
                         currency=str(p.get("currency", "RUB") or "RUB"),
                         stock=int(stock_value or 0),
                         status=(
-                            "active"
-                            if int(p.get("visible", 1) or 0) == 1
-                            else "hidden"
+                            "active" if int(p.get("visible", 1) or 0) == 1 else "hidden"
                         ),
                     )
                 )
@@ -388,9 +381,7 @@ class GGSELClient:
             logger.error(f"Ошибка парсинга JSON get_products: {e}")
             return []
 
-    def get_product(
-        self, product_id: int, timeout: int = 10
-    ) -> Optional[Product]:
+    def get_product(self, product_id: int, timeout: int = 10) -> Optional[Product]:
         """
         Получение товара по ID
         """
@@ -442,9 +433,7 @@ class GGSELClient:
         logger.error(f"GGSEL get_product_info error: {data}")
         return None
 
-    def get_my_price(
-        self, product_id: int, timeout: int = 10
-    ) -> Optional[float]:
+    def get_my_price(self, product_id: int, timeout: int = 10) -> Optional[float]:
         """
         Получение текущей цены товара
         """
@@ -453,9 +442,7 @@ class GGSELClient:
         if product_info:
             price = float(product_info.get("price", 0) or 0)
             currency = str(product_info.get("currency", "RUB") or "RUB")
-            logger.info(
-                f"Текущая цена товара {product_id}: {price} {currency}"
-            )
+            logger.info(f"Текущая цена товара {product_id}: {price} {currency}")
             return price
 
         logger.warning(f"Не удалось получить цену товара {product_id}")
@@ -504,9 +491,7 @@ class GGSELClient:
             }
         ]
 
-        logger.info(
-            f"Обновление цены: product={product_id}, price={new_price}"
-        )
+        logger.info(f"Обновление цены: product={product_id}, price={new_price}")
 
         response = self._authorized_request(
             "POST",
@@ -543,9 +528,7 @@ class GGSELClient:
             started_at = time.time()
 
             while time.time() - started_at <= self.task_poll_timeout:
-                status_result = self.get_update_task_status(
-                    task_id, timeout=timeout
-                )
+                status_result = self.get_update_task_status(task_id, timeout=timeout)
                 if status_result is None:
                     time.sleep(self.task_poll_interval)
                     continue
@@ -557,10 +540,7 @@ class GGSELClient:
 
                 # По документации Status: 1/2/3, где 2/3 - финальные
                 if status == 2:
-                    if (
-                        error_count == 0
-                        and (success_count > 0 or total_count == 0)
-                    ):
+                    if error_count == 0 and (success_count > 0 or total_count == 0):
                         logger.info(
                             f"✅ Цена обновлена: {new_price} (taskId={task_id})"
                         )
@@ -619,9 +599,7 @@ class GGSELClient:
 
         if response.status_code == 404:
             logger.error("API endpoint не найден (404)")
-            logger.error(
-                "Требуется активация Seller API в личном кабинете GGSEL"
-            )
+            logger.error("Требуется активация Seller API в личном кабинете GGSEL")
             return False
 
         if response.status_code in (401, 403):

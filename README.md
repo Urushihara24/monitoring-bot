@@ -28,6 +28,10 @@ GGSEL_LANG=ru-RU
 # Конкуренты
 COMPETITOR_URLS=https://ggsel.net/catalog/product/competitor-12345
 COMPETITOR_COOKIES=
+SELENIUM_USE_REAL_PROFILE=false
+SELENIUM_CHROME_USER_DATA_DIR=
+SELENIUM_CHROME_PROFILE_DIR=Default
+SELENIUM_HEADLESS=true
 
 # Настройки цен
 MIN_PRICE=0.25
@@ -146,6 +150,10 @@ target_price = min(competitor_prices)
 | `GGSEL_REQUIRE_API_ON_START` | Fail-fast на старте, если API недоступен | false |
 | `COMPETITOR_URLS` | URL конкурентов | - |
 | `COMPETITOR_COOKIES` | Cookies для антибот-защиты конкурентов (`name=value; ...`) | - |
+| `SELENIUM_USE_REAL_PROFILE` | Использовать реальный профиль Chrome в Selenium | false |
+| `SELENIUM_CHROME_USER_DATA_DIR` | Путь к user-data-dir Chrome | - |
+| `SELENIUM_CHROME_PROFILE_DIR` | Имя профиля Chrome (например `Default`) | Default |
+| `SELENIUM_HEADLESS` | Запуск Selenium в headless режиме | true |
 | `MIN_PRICE` | Минимальная цена | 0.25 |
 | `MAX_PRICE` | Максимальная цена | 10.0 |
 | `UNDERCUT_VALUE` | Насколько быть ниже конкурента | 0.0051 |
@@ -215,6 +223,7 @@ make health    # локальный healthcheck
 make smoke     # live smoke Seller API (без изменения цены)
 make check-apilogin  # проверка связки GGSEL_API_KEY + GGSEL_SELLER_ID
 make issue-token  # выпуск access token через /apilogin
+make systemd-install  # установка systemd service + watchdog timer (Linux)
 ```
 
 Если `make check-apilogin` показывает `retdesc=Не найдено`:
@@ -224,6 +233,40 @@ make issue-token  # выпуск access token через /apilogin
 Для конкурентов с anti-bot защитой (например QRATOR) можно задать
 `COMPETITOR_COOKIES` из браузера (DevTools -> Application -> Cookies),
 чтобы парсер смог получить HTML карточки товара.
+
+Также доступен Selenium-режим с реальным Chrome-профилем:
+1. На сервере подготовьте user-data-dir Chrome.
+2. Укажите `SELENIUM_USE_REAL_PROFILE=true`.
+3. Задайте `SELENIUM_CHROME_USER_DATA_DIR` и при необходимости `SELENIUM_CHROME_PROFILE_DIR`.
+4. Если сервер без GUI, используйте `SELENIUM_HEADLESS=true` или запуск через `xvfb-run`.
+
+## 🔁 Автоперезапуск на сервере (systemd)
+
+Бот можно установить как systemd-сервис с автоматическим рестартом и watchdog-таймером:
+
+```bash
+make systemd-install
+```
+
+Что будет создано:
+- `<service>.service` — основной бот (`Restart=always`, `RestartSec=5`)
+- `<service>-watchdog.service` — проверка heartbeat и smoke Seller API
+- `<service>-watchdog.timer` — запуск watchdog каждые 2 минуты
+
+По умолчанию имя сервиса: `monitoring-bot`.
+Можно задать своё:
+
+```bash
+./scripts/install_systemd.sh my-bot
+```
+
+Проверка статуса:
+
+```bash
+sudo systemctl status monitoring-bot.service
+sudo systemctl status monitoring-bot-watchdog.timer
+journalctl -u monitoring-bot.service -f
+```
 
 ---
 
