@@ -117,6 +117,8 @@ class TelegramBot:
 
     # ===== COMMANDS =====
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not update.effective_user or not update.message:
+            return
         user_id = update.effective_user.id
         if not self._check_access(user_id):
             # Неавторизованным не показываем клавиатуру
@@ -129,13 +131,16 @@ class TelegramBot:
         )
 
     async def cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await self.send_status(update.effective_chat.id, update)
+        if update.effective_chat:
+            await self.send_status(update.effective_chat.id, update)
 
     # ===== MESSAGE HANDLER =====
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not update.effective_user or not update.effective_chat or not update.message:
+            return
         user_id = update.effective_user.id
         chat_id = update.effective_chat.id
-        text = update.message.text
+        text = update.message.text or ""
 
         # Нормализация текста (убираем variation selectors и прочее)
         import unicodedata
@@ -244,6 +249,8 @@ class TelegramBot:
 
     # ===== STATUS =====
     async def send_status(self, chat_id: int, update: Update):
+        if not update.message:
+            return
         state = storage.get_state()
         runtime = self._runtime()
         auto_mode = state.get("auto_mode", True)  # берём актуальное
@@ -253,6 +260,9 @@ class TelegramBot:
             rank = state.get("last_competitor_rank")
             competitor_info = f"#{rank}" if rank else "N/A"
 
+        last_update = state.get("last_update")
+        update_str = last_update.strftime("%Y-%m-%d %H:%M") if last_update else "Никогда"
+
         text = f"""📊 Статус
 
 💰 Моя цена: {state.get('last_price') or 'N/A'}₽
@@ -261,7 +271,7 @@ class TelegramBot:
 
 🔔 Авто: {'ВКЛ' if auto_mode else 'ВЫКЛ'}
 🎯 Режим: {runtime.MODE}
-🕐 Обновление: {state.get('last_update').strftime('%Y-%m-%d %H:%M') if state.get('last_update') else 'Никогда'}
+🕐 Обновление: {update_str}
 
 📊 Обновлений: {state.get('update_count', 0)}
 ⏭️ Пропусков: {state.get('skip_count', 0)}
@@ -270,6 +280,8 @@ class TelegramBot:
 
     # ===== SETTINGS =====
     async def send_settings(self, chat_id: int, update: Update):
+        if not update.message:
+            return
         runtime = self._runtime()
         text = f"""⚙️ Настройки
 
@@ -291,6 +303,8 @@ class TelegramBot:
 
     # ===== DIAGNOSTICS =====
     async def send_diagnostics(self, chat_id: int, update: Update):
+        if not update.message:
+            return
         state = storage.get_state()
         runtime = self._runtime()
         is_valid, errors = validate_runtime_config(runtime)
@@ -331,6 +345,8 @@ class TelegramBot:
 
     # ===== PRICE CHANGE =====
     async def handle_price_change(self, chat_id: int, delta: float, update: Update):
+        if not update.message:
+            return
         runtime = self._runtime()
         state = storage.get_state()
         current_price = state.get("last_price")
@@ -390,6 +406,8 @@ class TelegramBot:
 
     # ===== AUTO MODE =====
     async def toggle_auto(self, update: Update):
+        if not update.message:
+            return
         state = storage.get_state()
         new_auto = not state.get("auto_mode", True)
         storage.update_state(auto_mode=new_auto)
@@ -400,6 +418,8 @@ class TelegramBot:
 
     # ===== MODE TOGGLE =====
     async def toggle_mode(self, chat_id: int, user_id: int, update: Update):
+        if not update.message:
+            return
         runtime = self._runtime()
         new_mode = "STEP_UP" if runtime.MODE == "FIXED" else "FIXED"
         storage.set_runtime_setting(
@@ -412,6 +432,8 @@ class TelegramBot:
 
     # ===== POSITION FILTER =====
     async def toggle_position_filter(self, chat_id: int, user_id: int, update: Update):
+        if not update.message:
+            return
         runtime = self._runtime()
         new_value = not runtime.POSITION_FILTER_ENABLED
         storage.set_runtime_setting(
@@ -428,6 +450,8 @@ class TelegramBot:
 
     # ===== REMOVE URL =====
     async def start_remove_url(self, chat_id: int, update: Update):
+        if not update.message:
+            return
         urls = storage.get_competitor_urls(config.COMPETITOR_URLS)
         if not urls:
             await update.message.reply_text(
@@ -442,6 +466,8 @@ class TelegramBot:
 
     # ===== EXPORT =====
     async def export_settings(self, chat_id: int, update: Update):
+        if not update.message:
+            return
         settings = storage.get_all_runtime_settings()
         if not settings:
             await update.message.reply_text(
@@ -456,6 +482,8 @@ class TelegramBot:
 
     # ===== HISTORY =====
     async def show_settings_history(self, chat_id: int, update: Update):
+        if not update.message:
+            return
         rows = storage.get_settings_history(limit=15)
         if not rows:
             await update.message.reply_text(
@@ -550,6 +578,8 @@ class TelegramBot:
     async def handle_pending_action(
         self, chat_id: int, user_id: int, text: str, update: Update
     ):
+        if not update.message:
+            return
         action = self.pending_actions.get(chat_id)
         if not action:
             return
