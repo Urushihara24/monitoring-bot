@@ -5,7 +5,8 @@ Scheduler - циклический обработчик auto-pricing
 
 import asyncio
 import logging
-from datetime import datetime
+import subprocess
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
@@ -45,6 +46,7 @@ class Scheduler:
         self.api_client = api_client
         self.telegram_bot = telegram_bot
         self._running = False
+        self._cookies_last_update: Optional[datetime] = None
 
     async def _notify_error_throttled(self, key: str, message: str, cooldown_seconds: int = 300):
         """Отправка error-уведомления с ограничением частоты"""
@@ -100,6 +102,62 @@ class Scheduler:
         else:
             logger.info('Уведомление об изменении цены конкурента подавлено throttling')
 
+    async def _check_and_update_cookies(self) -> bool:
+        """
+        Проверка cookies на протухание и автообновление
+        
+        Returns:
+            True если cookies актуальны или успешно обновлены
+        """
+        if not config.AUTO_UPDATE_COOKIES:
+            return True
+        
+        # Проверяем файл backup cookies
+        cookies_backup_path = Path('data/cookies_backup.json')
+        
+        if not cookies_backup_path.exists():
+            logger.warning('Файл cookies_backup.json не найден, пропускаю проверку')
+            return True
+        
+        # Проверяем время последнего обновления
+        file_mtime = datetime.fromtimestamp(cookies_backup_path.stat().st_mtime)
+        age_seconds = (datetime.now() - file_mtime).total_seconds()
+        
+        if age_seconds < config.COOKIES_EXPIRE_SECONDS:
+            logger.debug(f'Cookies актуальны (возраст: {int(age_seconds)}с)')
+            return True
+        
+        # Cookies протухли — запускаем обновление
+        logger.warning(f'Cookies протухли (возраст: {int(age_seconds)}с > {config.COOKIES_EXPIRE_SECONDS}с), запускаю обновление...')
+        
+        script_path = Path(config.COOKIES_UPDATE_SCRIPT)
+        if not script_path.exists():
+            logger.error(f'Скрипт обновления cookies не найден: {script_path}')
+            return False
+        
+        try:
+            result = subprocess.run(
+                ['bash', str(script_path)],
+                capture_output=True,
+                text=True,
+                timeout=300,  # 5 минут на выполнение
+            )
+            
+            if result.returncode == 0:
+                logger.info('✅ Cookies успешно обновлены')
+                self._cookies_last_update = datetime.now()
+                return True
+            else:
+                logger.error(f'❌ Ошибка обновления cookies: {result.stderr}')
+                return False
+                
+        except subprocess.TimeoutExpired:
+            logger.error('Таймаут при обновлении cookies (5 минут)')
+            return False
+        except Exception as e:
+            logger.error(f'Ошибка выполнения скрипта: {e}')
+            return False
+
     async def run_cycle(self):
         """
         Один цикл работы планировщика
@@ -122,6 +180,14 @@ class Scheduler:
                 )
                 storage.increment_skip_count()
                 return
+
+            # === ПРОВЕРКА COOKIES ===
+            if runtime.COMPETITOR_COOKIES or config.AUTO_UPDATE_COOKIES:
+                cookies_ok = await self._check_and_update_cookies()
+                if not cookies_ok:
+                    logger.warning('Пропуск цикла: cookies протухли и не обновлены')
+                    storage.increment_skip_count()
+                    return
 
             # === ШАГ 1: Получить цены конкурентов (всегда, независимо от auto_mode) ===
             logger.info(f'Парсинг {len(runtime.COMPETITOR_URLS)} конкурентов...')
