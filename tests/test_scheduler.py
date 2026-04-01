@@ -78,11 +78,9 @@ async def test_scheduler_notifies_competitor_price_change(monkeypatch, tmp_path)
     monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
     monkeypatch.setattr(scheduler_mod, 'config', cfg)
     monkeypatch.setattr(
-        scheduler_mod.parser,
-        'parse_competitors',
-        lambda urls, detect_rank=False: [
-            SimpleNamespace(success=True, price=0.315, rank=3)
-        ],
+        scheduler_mod.rsc_parser,
+        'parse_url',
+        lambda url, timeout=10: SimpleNamespace(success=True, price=0.315, error=None, offers=None, rank=3),
     )
     monkeypatch.setattr(
         scheduler_mod,
@@ -124,11 +122,9 @@ async def test_scheduler_skip_notifications_are_throttled(monkeypatch, tmp_path)
     monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
     monkeypatch.setattr(scheduler_mod, 'config', cfg)
     monkeypatch.setattr(
-        scheduler_mod.parser,
-        'parse_competitors',
-        lambda urls, detect_rank=False: [
-            SimpleNamespace(success=True, price=0.30, rank=1)
-        ],
+        scheduler_mod.rsc_parser,
+        'parse_url',
+        lambda url, timeout=10: SimpleNamespace(success=True, price=0.30, error=None, offers=None, rank=1),
     )
     monkeypatch.setattr(
         scheduler_mod,

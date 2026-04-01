@@ -216,7 +216,7 @@ class CompetitorParser:
         return self._fetch_html_with_selenium(url, timeout=timeout)
 
     def _fetch_html_with_playwright(self, url: str, timeout: int = 15) -> Optional[str]:
-        """Playwright fallback."""
+        """Playwright fallback (запускается в отдельном потоке для asyncio)."""
         try:
             from playwright.sync_api import sync_playwright
         except Exception:
@@ -224,57 +224,72 @@ class CompetitorParser:
             return None
 
         timeout_ms = max(5, timeout) * 1000
-        try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
-                context = browser.new_context(
-                    locale='ru-RU',
-                    user_agent=(
-                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                        'AppleWebKit/537.36 (KHTML, like Gecko) '
-                        'Chrome/131.0.0.0 Safari/537.36'
-                    ),
-                )
-                # Пробуем загрузить cookies из backup файла напрямую
-                if self.cookies_backup_file and self.cookies_backup_file.exists():
-                    try:
-                        with open(self.cookies_backup_file, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
-                        cookies_list = data.get('cookies', [])
-                        # Фильтруем и преобразуем cookies для Playwright
-                        pw_cookies = []
-                        for cookie in cookies_list:
-                            name = cookie.get('name', '')
-                            value = cookie.get('value', '')
-                            if name and value:
-                                pw_cookies.append({
-                                    'name': name,
-                                    'value': value,
-                                    'domain': cookie.get('domain', 'ggsel.net'),
-                                    'path': cookie.get('path', '/'),
-                                    'httpOnly': cookie.get('httpOnly', False),
-                                    'secure': cookie.get('secure', True),
-                                })
-                        if pw_cookies:
-                            context.add_cookies(pw_cookies)
-                            logger.debug(f'Добавлено {len(pw_cookies)} cookies в Playwright')
-                    except Exception as e:
-                        logger.debug(f'Не удалось загрузить cookies для Playwright: {e}')
-                # Fallback на cookie header
-                elif self.cookie_string:
-                    cookies = self._cookie_header_to_playwright(url, self.cookie_string)
-                    if cookies:
-                        context.add_cookies(cookies)
-                page = context.new_page()
-                page.goto(url, wait_until='domcontentloaded', timeout=timeout_ms)
-                page.wait_for_timeout(3000)  # Увеличил время ожидания
-                html = page.content()
-                context.close()
-                browser.close()
-                return html
-        except Exception as e:
-            logger.warning(f'Playwright fallback не сработал для {url}: {type(e).__name__}: {e}')
-            return None
+        
+        def _run_playwright():
+            try:
+                with sync_playwright() as p:
+                    browser = p.chromium.launch(headless=True)
+                    context = browser.new_context(
+                        locale='ru-RU',
+                        user_agent=(
+                            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                            'AppleWebKit/537.36 (KHTML, like Gecko) '
+                            'Chrome/131.0.0.0 Safari/537.36'
+                        ),
+                    )
+                    # Пробуем загрузить cookies из backup файла напрямую
+                    if self.cookies_backup_file and self.cookies_backup_file.exists():
+                        try:
+                            with open(self.cookies_backup_file, 'r', encoding='utf-8') as f:
+                                data = json.load(f)
+                            cookies_list = data.get('cookies', [])
+                            # Фильтруем и преобразуем cookies для Playwright
+                            pw_cookies = []
+                            for cookie in cookies_list:
+                                name = cookie.get('name', '')
+                                value = cookie.get('value', '')
+                                if name and value:
+                                    pw_cookies.append({
+                                        'name': name,
+                                        'value': value,
+                                        'domain': cookie.get('domain', 'ggsel.net'),
+                                        'path': cookie.get('path', '/'),
+                                        'httpOnly': cookie.get('httpOnly', False),
+                                        'secure': cookie.get('secure', True),
+                                    })
+                            if pw_cookies:
+                                context.add_cookies(pw_cookies)
+                                logger.debug(f'Добавлено {len(pw_cookies)} cookies в Playwright')
+                        except Exception as e:
+                            logger.debug(f'Не удалось загрузить cookies для Playwright: {e}')
+                    # Fallback на cookie header
+                    elif self.cookie_string:
+                        cookies = self._cookie_header_to_playwright(url, self.cookie_string)
+                        if cookies:
+                            context.add_cookies(cookies)
+                    page = context.new_page()
+                    page.goto(url, wait_until='domcontentloaded', timeout=timeout_ms)
+                    page.wait_for_timeout(3000)  # Увеличил время ожидания
+                    html = page.content()
+                    context.close()
+                    browser.close()
+                    return html
+            except Exception as e:
+                logger.warning(f'Playwright fallback не сработал для {url}: {type(e).__name__}: {e}')
+                return None
+        
+        # Запускаем в отдельном потоке для совместимости с asyncio
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(_run_playwright)
+            try:
+                return future.result(timeout=timeout)
+            except concurrent.futures.TimeoutError:
+                logger.warning(f'Playwright timeout for {url}')
+                return None
+            except Exception as e:
+                logger.warning(f'Playwright error: {e}')
+                return None
 
     def _fetch_html_with_selenium(self, url: str, timeout: int = 15) -> Optional[str]:
         """
@@ -476,11 +491,20 @@ class CompetitorParser:
         
         # Для GGSEL: если цена < 1₽, это уже цена за 1 V-Buck (не делим)
         # Делим только если цена > 10₽ (оптовая продажа)
+        # Для GGSEL: если цена < 10₽, это уже цена за 1 V-Buck (не делим)
         if total_price < 10:
             logger.debug(
-                'Цена за V-Bucks < 10₽, считаем что это розница: total=%s, amount=%s',
+                'Цена < 10₽, считаем что это розница (за 1 V-Buck): total=%s',
                 total_price,
+            )
+            return round(total_price, 4)
+
+        # Если amount > 1000 — это описание товара, а не упаковка (не делим)
+        if amount > 1000:
+            logger.debug(
+                'amount=%s > 1000, это описание товара (не упаковка): total=%s',
                 amount,
+                total_price,
             )
             return round(total_price, 4)
         
