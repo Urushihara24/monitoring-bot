@@ -1,0 +1,128 @@
+"""
+Конфигурация auto-pricing бота
+"""
+
+import os
+from dataclasses import dataclass
+from typing import List
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+@dataclass
+class Config:
+    """Конфигурация бота"""
+    
+    # Telegram
+    TELEGRAM_BOT_TOKEN: str = os.getenv('TELEGRAM_BOT_TOKEN', '')
+    TELEGRAM_ADMIN_IDS: List[int] = None
+    
+    # GGSEL API
+    # Секретный API key (используется для получения access token через /apilogin)
+    GGSEL_API_KEY: str = os.getenv('GGSEL_API_KEY', '')
+    # Опционально: можно явно передать готовый access token
+    GGSEL_ACCESS_TOKEN: str = os.getenv('GGSEL_ACCESS_TOKEN', '')
+    GGSEL_SELLER_ID: int = int(os.getenv('GGSEL_SELLER_ID', '8175'))
+    GGSEL_PRODUCT_ID: int = int(os.getenv('GGSEL_PRODUCT_ID', '0'))
+    GGSEL_BASE_URL: str = 'https://seller.ggsel.com/api_sellers/api'
+    GGSEL_LANG: str = os.getenv('GGSEL_LANG', 'ru-RU')
+    GGSEL_REQUIRE_API_ON_START: bool = _env_bool('GGSEL_REQUIRE_API_ON_START', False)
+    
+    # Конкуренты (список URL)
+    COMPETITOR_URLS: List[str] = None
+    # Google Watchlist URL для fallback (если основной парсинг не работает)
+    WATCHLIST_URLS: List[str] = None
+    # Cookies для доступа к защищенным страницам конкурента
+    # Формат: "name1=value1; name2=value2"
+    COMPETITOR_COOKIES: str = os.getenv('COMPETITOR_COOKIES', '')
+    # Selenium/Chrome profile mode (для обхода anti-bot без proxy)
+    SELENIUM_USE_REAL_PROFILE: bool = _env_bool('SELENIUM_USE_REAL_PROFILE', False)
+    SELENIUM_CHROME_USER_DATA_DIR: str = os.getenv('SELENIUM_CHROME_USER_DATA_DIR', '')
+    SELENIUM_CHROME_PROFILE_DIR: str = os.getenv('SELENIUM_CHROME_PROFILE_DIR', 'Default')
+    SELENIUM_HEADLESS: bool = _env_bool('SELENIUM_HEADLESS', True)
+    
+    # Playwright fallback (для RSC парсера)
+    RSC_USE_PLAYWRIGHT: bool = _env_bool('RSC_USE_PLAYWRIGHT', True)
+    RSC_MAX_RETRIES: int = int(os.getenv('RSC_MAX_RETRIES', '2'))
+
+    # Distill.io fallback
+    DISTILL_API_KEY: str = os.getenv('DISTILL_API_KEY', '')
+    DISTILL_MONITOR_IDS: str = os.getenv('DISTILL_MONITOR_IDS', '')
+    DISTILL_LOCAL_DATA_DIR: str = os.getenv('DISTILL_LOCAL_DATA_DIR', '')
+    DISTILL_EMAIL_ENABLED: bool = _env_bool('DISTILL_EMAIL_ENABLED', False)
+    DISTILL_EMAIL_IMAP_SERVER: str = os.getenv('DISTILL_EMAIL_IMAP_SERVER', '')
+    DISTILL_EMAIL_IMAP_PORT: int = int(os.getenv('DISTILL_EMAIL_IMAP_PORT', '993'))
+    DISTILL_EMAIL_USERNAME: str = os.getenv('DISTILL_EMAIL_USERNAME', '')
+    DISTILL_EMAIL_PASSWORD: str = os.getenv('DISTILL_EMAIL_PASSWORD', '')
+    
+    # Основные настройки цен
+    MIN_PRICE: float = float(os.getenv('MIN_PRICE', '0.25'))
+    MAX_PRICE: float = float(os.getenv('MAX_PRICE', '10.0'))
+    DESIRED_PRICE: float = float(os.getenv('DESIRED_PRICE', '0.35'))
+    # Насколько быть ниже конкурента (пример: 0.30 -> 0.2949)
+    UNDERCUT_VALUE: float = float(os.getenv('UNDERCUT_VALUE', '0.0051'))
+    
+    # Режим при достижении MIN_PRICE: FIXED или STEP_UP
+    MODE: str = os.getenv('MODE', 'FIXED')
+    FIXED_PRICE: float = float(os.getenv('FIXED_PRICE', '0.35'))
+    STEP_UP_VALUE: float = float(os.getenv('STEP_UP_VALUE', '0.05'))
+    
+    # Фильтр слабого конкурента
+    LOW_PRICE_THRESHOLD: float = float(os.getenv('LOW_PRICE_THRESHOLD', '0'))
+    # До какого уровня считаем логику "ceil(до 0.1) - undercut"
+    WEAK_PRICE_CEIL_LIMIT: float = float(os.getenv('WEAK_PRICE_CEIL_LIMIT', '0.3'))
+    # Фильтр по позиции в выдаче категории
+    POSITION_FILTER_ENABLED: bool = _env_bool('POSITION_FILTER_ENABLED', False)
+    WEAK_POSITION_THRESHOLD: int = int(os.getenv('WEAK_POSITION_THRESHOLD', '20'))
+    
+    # Cooldown (секунды)
+    COOLDOWN_SECONDS: int = int(os.getenv('COOLDOWN_SECONDS', '30'))
+    
+    # Ignore delta
+    IGNORE_DELTA: float = float(os.getenv('IGNORE_DELTA', '0.001'))
+    
+    # Интервал проверки (секунды)
+    CHECK_INTERVAL: int = int(os.getenv('CHECK_INTERVAL', '600'))  # 10 минут по умолчанию
+
+    # Уведомления
+    NOTIFY_SKIP: bool = _env_bool('NOTIFY_SKIP', False)
+    NOTIFY_SKIP_COOLDOWN_SECONDS: int = int(os.getenv('NOTIFY_SKIP_COOLDOWN_SECONDS', '300'))
+    
+    # Автообновление cookies
+    COOKIES_EXPIRE_SECONDS: int = int(os.getenv('COOKIES_EXPIRE_SECONDS', '21600'))  # 6 часов
+    AUTO_UPDATE_COOKIES: bool = _env_bool('AUTO_UPDATE_COOKIES', False)
+    COOKIES_UPDATE_SCRIPT: str = os.getenv('COOKIES_UPDATE_SCRIPT', 'scripts/cron_update_cookies.sh')
+    NOTIFY_COMPETITOR_CHANGE: bool = _env_bool('NOTIFY_COMPETITOR_CHANGE', True)
+    COMPETITOR_CHANGE_DELTA: float = float(os.getenv('COMPETITOR_CHANGE_DELTA', '0.0001'))
+    COMPETITOR_CHANGE_COOLDOWN_SECONDS: int = int(os.getenv('COMPETITOR_CHANGE_COOLDOWN_SECONDS', '60'))
+    
+    # Логирование
+    LOG_LEVEL: str = os.getenv('LOG_LEVEL', 'INFO')
+    LOG_MAX_BYTES: int = int(os.getenv('LOG_MAX_BYTES', str(10 * 1024 * 1024)))
+    LOG_BACKUP_COUNT: int = int(os.getenv('LOG_BACKUP_COUNT', '5'))
+    
+    def __post_init__(self):
+        # Парсим списки из строк
+        if self.TELEGRAM_ADMIN_IDS is None:
+            ids_str = os.getenv('TELEGRAM_ADMIN_IDS', '')
+            self.TELEGRAM_ADMIN_IDS = [int(x.strip()) for x in ids_str.split(',') if x.strip()]
+
+        if self.COMPETITOR_URLS is None:
+            urls_str = os.getenv('COMPETITOR_URLS', '')
+            self.COMPETITOR_URLS = [x.strip() for x in urls_str.split(',') if x.strip()]
+        
+        if self.WATCHLIST_URLS is None:
+            wl_str = os.getenv('WATCHLIST_URLS', '')
+            self.WATCHLIST_URLS = [x.strip() for x in wl_str.split(',') if x.strip()]
+
+
+# Глобальный экземпляр конфигурации
+config = Config()

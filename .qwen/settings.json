@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(params *)",
+      "Bash('page': *)",
+      "Bash('count': *)",
+      "Bash('token': *)",
+      "Bash(print)",
+      "Bash(eof)",
+      "Bash(python3 *)",
+      "Bash(ssh *)"
+    ]
+  },
+  "$version": 3
+}

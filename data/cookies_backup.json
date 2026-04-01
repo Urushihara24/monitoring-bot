@@ -1,0 +1,361 @@
+{
+  "updated_at": "2026-04-01T23:19:39.131721",
+  "domain": "ggsel.net",
+  "cookies": [
+    {
+      "domain": "ggsel.net",
+      "httpOnly": false,
+      "name": "branch",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": false,
+      "value": "MAIN"
+    },
+    {
+      "domain": ".ggsel.net",
+      "expiry": 1809632798,
+      "httpOnly": false,
+      "name": "mindboxDeviceUUID",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": true,
+      "value": "8c0607c8-9bd2-4606-8608-a7c77557f52e"
+    },
+    {
+      "domain": ".ggsel.net",
+      "httpOnly": false,
+      "name": "branch",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": true,
+      "value": "MAIN"
+    },
+    {
+      "domain": "ggsel.net",
+      "expiry": 1775075072,
+      "httpOnly": false,
+      "name": "geo_user",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": false,
+      "value": "RU"
+    },
+    {
+      "domain": ".ggsel.net",
+      "expiry": 1806608797,
+      "httpOnly": false,
+      "name": "_ym_d",
+      "path": "/",
+      "sameSite": "None",
+      "secure": true,
+      "value": "1775072797"
+    },
+    {
+      "domain": ".ggsel.net",
+      "httpOnly": false,
+      "name": "is_first_visit",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": true,
+      "value": "false"
+    },
+    {
+      "domain": ".ggsel.net",
+      "expiry": 1775333780,
+      "httpOnly": false,
+      "name": "st_uid",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": true,
+      "value": "08c36bdcd291597f607c533304e6f229"
+    },
+    {
+      "domain": ".ggsel.net",
+      "expiry": 1775160986,
+      "httpOnly": false,
+      "name": "tmr_detect",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": true,
+      "value": "0%7C1775074586713"
+    },
+    {
+      "domain": ".ggsel.net",
+      "expiry": 1806608797,
+      "httpOnly": false,
+      "name": "_ym_uid",
+      "path": "/",
+      "sameSite": "None",
+      "secure": true,
+      "value": "1775072797550422980"
+    },
+    {
+      "domain": "ggsel.net",
+      "expiry": 1776284368,
+      "httpOnly": false,
+      "name": "abc",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": false,
+      "value": "original"
+    },
+    {
+      "domain": ".ggsel.net",
+      "httpOnly": false,
+      "name": "i18next",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": true,
+      "value": "ru"
+    },
+    {
+      "domain": ".ggsel.net",
+      "expiry": 1775075584,
+      "httpOnly": true,
+      "name": "qrator_msid2",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": true,
+      "value": "v2.0.1775074585.778.b2ccfa833UhAqnat|U3dFERdwgUQqlm5L|Ko9IRlFQZQSNRjoI724qjqATZ66BCEF+EUV+6/KdlXCNW8TxuIYDPwcEih6PsLQOm+4UTuAl36qknJnyg60D0JN9F/f7PIMB/x3HgUXsPrA=-DysCXdPbTPkUwte7I895WrLT3F8="
+    },
+    {
+      "domain": ".ggsel.net",
+      "expiry": 1803845972,
+      "httpOnly": false,
+      "name": "tmr_lvid",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": false,
+      "value": "427528aa1c022fff3a378210b2b5a949"
+    },
+    {
+      "domain": "ggsel.net",
+      "httpOnly": false,
+      "name": "currency",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": false,
+      "value": "wmr"
+    },
+    {
+      "domain": ".ggsel.net",
+      "httpOnly": false,
+      "name": "device",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": true,
+      "value": "desktop"
+    },
+    {
+      "domain": ".ggsel.net",
+      "expiry": 1776284179,
+      "httpOnly": false,
+      "name": "abc",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": true,
+      "value": "original"
+    },
+    {
+      "domain": ".ggsel.net",
+      "expiry": 1775076572,
+      "httpOnly": false,
+      "name": "_ym_visorc",
+      "path": "/",
+      "sameSite": "None",
+      "secure": true,
+      "value": "b"
+    },
+    {
+      "domain": ".ggsel.net",
+      "httpOnly": false,
+      "name": "qrator_jsr",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": true,
+      "value": "v2.0.1774904877.871.97f6c4c5a6SBhJ4C|FejJNBAxcBHadfeI|vO6n5TEsxmB2cohLs2CwSLcwS5iIvAZGUy61WqHswzj6k9PAPi4/chP/twp+JkV/YOFM3AkjTf0DT2FazIlvvA==-d6VvTGwXoMosLtz/i3pcIiPI14k=-00"
+    },
+    {
+      "domain": "ggsel.net",
+      "httpOnly": false,
+      "name": "is_first_visit",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": false,
+      "value": "false"
+    },
+    {
+      "domain": ".ggsel.net",
+      "expiry": 1809632798,
+      "httpOnly": false,
+      "name": "directCrm-session",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": true,
+      "value": "%7B%22deviceGuid%22%3A%228c0607c8-9bd2-4606-8608-a7c77557f52e%22%7D"
+    },
+    {
+      "domain": "ggsel.net",
+      "httpOnly": false,
+      "name": "activePWA",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": false,
+      "value": "false"
+    },
+    {
+      "domain": ".ggsel.net",
+      "expiry": 1809634772,
+      "httpOnly": false,
+      "name": "_ga",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": false,
+      "value": "GA1.1.139590556.1775072797"
+    },
+    {
+      "domain": ".ggsel.net",
+      "expiry": 1809634772,
+      "httpOnly": false,
+      "name": "_ga_6QVFBL8H0P",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": false,
+      "value": "GS2.1.s1775072797$o1$g1$t1775074772$j60$l0$h0"
+    },
+    {
+      "domain": "ggsel.net",
+      "httpOnly": false,
+      "name": "i18next",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": false,
+      "value": "ru"
+    },
+    {
+      "domain": ".ggsel.net",
+      "expiry": 1790626772,
+      "httpOnly": false,
+      "name": "popmechanic_sbjs_migrations",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": false,
+      "value": "popmechanic_1418474375998%3D1%7C%7C%7C1471519752600%3D1%7C%7C%7C1471519752605%3D1"
+    },
+    {
+      "domain": ".ggsel.net",
+      "expiry": 1775144798,
+      "httpOnly": false,
+      "name": "_ym_isad",
+      "path": "/",
+      "sameSite": "None",
+      "secure": true,
+      "value": "2"
+    },
+    {
+      "domain": "ggsel.net",
+      "httpOnly": false,
+      "name": "device",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": false,
+      "value": "desktop"
+    },
+    {
+      "domain": "ggsel.net",
+      "expiry": 1775161174,
+      "httpOnly": false,
+      "name": "tmr_detect",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": false,
+      "value": "0%7C1775074774958"
+    },
+    {
+      "domain": ".ggsel.net",
+      "expiry": 1803845972,
+      "httpOnly": false,
+      "name": "tmr_lvidTS",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": false,
+      "value": "1775072796840"
+    },
+    {
+      "domain": ".ggsel.net",
+      "httpOnly": false,
+      "name": "ip",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": true,
+      "value": "178.204.250.131"
+    },
+    {
+      "domain": "ggsel.net",
+      "httpOnly": false,
+      "name": "ip",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": false,
+      "value": "178.204.250.131"
+    },
+    {
+      "domain": "ggsel.net",
+      "expiry": 1775333969,
+      "httpOnly": false,
+      "name": "st_uid",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": false,
+      "value": "6fe556a4dbac147b03cca582fb71e97e"
+    },
+    {
+      "domain": "ggsel.net",
+      "expiry": 1775679570,
+      "httpOnly": false,
+      "name": "domain_sid",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": false,
+      "value": "kdA83T8G8QGAv-yT4_f8U%3A1775074770377"
+    },
+    {
+      "domain": ".ggsel.net",
+      "expiry": 1775074884,
+      "httpOnly": false,
+      "name": "geo_user",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": true,
+      "value": "RU"
+    },
+    {
+      "domain": ".ggsel.net",
+      "expiry": 1775679382,
+      "httpOnly": false,
+      "name": "domain_sid",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": true,
+      "value": "Udrc5b_tgx6zvSKFJEXqI%3A1775074582252"
+    },
+    {
+      "domain": ".ggsel.net",
+      "httpOnly": false,
+      "name": "activePWA",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": true,
+      "value": "false"
+    },
+    {
+      "domain": ".ggsel.net",
+      "httpOnly": false,
+      "name": "currency",
+      "path": "/",
+      "sameSite": "Lax",
+      "secure": true,
+      "value": "wmr"
+    }
+  ]
+}

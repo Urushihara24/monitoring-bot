@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  monitoring-bot:
+    build: .
+    container_name: monitoring-pricing-bot
+    restart: unless-stopped
+    
+    # Healthcheck для проверки работоспособности
+    healthcheck:
+      test: ["CMD", "python3", "healthcheck.py"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    
+    volumes:
+      # Данные бота
+      - ./data:/app/data
+      - ./logs:/app/logs
+      # Distill Web Monitor data (опционально, для fallback)
+      # Раскомментируйте если используете локальный Distill
+      # - ~/.config/Distill Web Monitor/data:/app/distill-data:ro
+    env_file:
+      - .env
+    environment:
+      - TZ=Europe/Moscow
+      # Переменные для Playwright (headless режим)
+      - PLAYWRIGHT_BROWSERS_PATH=/app/.ms-playwright
+      - PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
+      # Переменные для Distill.io (опционально)
+      - DISTILL_LOCAL_DATA_DIR=/app/distill-data
+    cap_add:
+      # Нужно для Playwright в Docker
+      - SYS_ADMIN
+    security_opt:
+      - seccomp=unconfined
+    networks:
+      - monitoring-net
+
+networks:
+  monitoring-net:
+    driver: bridge
