@@ -74,11 +74,16 @@ class Config:
     IGNORE_DELTA: float = float(os.getenv('IGNORE_DELTA', '0.001'))
     
     # Интервал проверки (секунды)
-    CHECK_INTERVAL: int = int(os.getenv('CHECK_INTERVAL', '30'))
+    CHECK_INTERVAL: int = int(os.getenv('CHECK_INTERVAL', '600'))  # 10 минут по умолчанию
 
     # Уведомления
     NOTIFY_SKIP: bool = _env_bool('NOTIFY_SKIP', False)
     NOTIFY_SKIP_COOLDOWN_SECONDS: int = int(os.getenv('NOTIFY_SKIP_COOLDOWN_SECONDS', '300'))
+    
+    # Автообновление cookies
+    COOKIES_EXPIRE_SECONDS: int = int(os.getenv('COOKIES_EXPIRE_SECONDS', '21600'))  # 6 часов
+    AUTO_UPDATE_COOKIES: bool = _env_bool('AUTO_UPDATE_COOKIES', False)
+    COOKIES_UPDATE_SCRIPT: str = os.getenv('COOKIES_UPDATE_SCRIPT', 'scripts/cron_update_cookies.sh')
     NOTIFY_COMPETITOR_CHANGE: bool = _env_bool('NOTIFY_COMPETITOR_CHANGE', True)
     COMPETITOR_CHANGE_DELTA: float = float(os.getenv('COMPETITOR_CHANGE_DELTA', '0.0001'))
     COMPETITOR_CHANGE_COOLDOWN_SECONDS: int = int(os.getenv('COMPETITOR_CHANGE_COOLDOWN_SECONDS', '60'))
