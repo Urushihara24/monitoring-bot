@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Логи и данные
+*.log
+logs/
+data/
+
+# Конфиги с секретами
+.env
+.env.local
+*.env
+config.json
+secrets.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+._*
+
+# SSH keys
+yes
+yes.pub
+id_ed25519
+id_ed25519.pub
+
+# Архивы
+*.tar.gz
