@@ -49,6 +49,20 @@ class Config:
     SELENIUM_CHROME_PROFILE_DIR: str = os.getenv('SELENIUM_CHROME_PROFILE_DIR', 'Default')
     SELENIUM_HEADLESS: bool = _env_bool('SELENIUM_HEADLESS', True)
     
+    # Playwright fallback (для RSC парсера)
+    RSC_USE_PLAYWRIGHT: bool = _env_bool('RSC_USE_PLAYWRIGHT', True)
+    RSC_MAX_RETRIES: int = int(os.getenv('RSC_MAX_RETRIES', '2'))
+
+    # Distill.io fallback
+    DISTILL_API_KEY: str = os.getenv('DISTILL_API_KEY', '')
+    DISTILL_MONITOR_IDS: str = os.getenv('DISTILL_MONITOR_IDS', '')
+    DISTILL_LOCAL_DATA_DIR: str = os.getenv('DISTILL_LOCAL_DATA_DIR', '')
+    DISTILL_EMAIL_ENABLED: bool = _env_bool('DISTILL_EMAIL_ENABLED', False)
+    DISTILL_EMAIL_IMAP_SERVER: str = os.getenv('DISTILL_EMAIL_IMAP_SERVER', '')
+    DISTILL_EMAIL_IMAP_PORT: int = int(os.getenv('DISTILL_EMAIL_IMAP_PORT', '993'))
+    DISTILL_EMAIL_USERNAME: str = os.getenv('DISTILL_EMAIL_USERNAME', '')
+    DISTILL_EMAIL_PASSWORD: str = os.getenv('DISTILL_EMAIL_PASSWORD', '')
+    
     # Основные настройки цен
     MIN_PRICE: float = float(os.getenv('MIN_PRICE', '0.25'))
     MAX_PRICE: float = float(os.getenv('MAX_PRICE', '10.0'))

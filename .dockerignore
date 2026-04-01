@@ -1,20 +1,58 @@
+# Docker build context
 .git
 .gitignore
+.qwen
 .idea
-.vscode
-.pytest_cache
-__pycache__
-*.pyc
-*.pyo
-*.pyd
-.DS_Store
-logs/*.log
-data/backups
-venv
-.venv
-env
-ENV
+*.iml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+*.egg-info/
+dist/
+build/
+
+# Logs
+logs/
+*.log
+
+# Data
+data/*.db
+data/*.json
+!data/.gitkeep
+
+# Environment
 .env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tests
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Documentation
 *.md
 !README.md
-tests/
+
+# Scripts (не нужны в контейнере для runtime)
+scripts/update_competitor_cookies.py
+scripts/backup_state.py
+scripts/test_*.py

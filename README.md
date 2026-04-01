@@ -3,15 +3,53 @@
 Полноценный auto-pricing engine с чёткой бизнес-логикой, Telegram-управлением и обходом anti-bot защиты.
 
 **Основные возможности:**
-- Автоматический мониторинг цен конкурентов (Playwright + Selenium fallback)
+- Автоматический мониторинг цен конкурентов (RSC Parser + Playwright fallback)
+- Distill.io интеграция как резервный парсер
 - Гибкая бизнес-логика ценообразования (FIXED/STEP_UP режимы)
 - Telegram-бот с Reply Keyboard для управления настройками
 - Runtime-конфигурация без перезапуска бота
-- Обход QRATOR/anti-bot защиты через cookies backup
+- Обход QRATOR/anti-bot защиты через cookies + Playwright
 - SQLite для хранения состояния и истории цен
-- systemd + watchdog для продакшн-деплоя
+- Docker + systemd для продакшн-деплоя
 
-## 🚀 Быстрый старт
+---
+
+## 🚀 Развёртывание на сервере
+
+### Быстрый старт (Docker)
+
+```bash
+# 1. Клонирование
+cd /opt
+git clone <REPO_URL> monitoring
+cd monitoring
+
+# 2. Настройка
+cp .env.example .env
+nano .env  # Заполните TELEGRAM_BOT_TOKEN, GGSEL_API_KEY, COMPETITOR_URLS
+
+# 3. Cookies (обход anti-bot)
+# На локальном компьютере:
+python3 scripts/update_competitor_cookies.py --interactive
+# Копирование на сервер:
+scp data/cookies_backup.json user@server:/opt/monitoring/data/
+
+# 4. Запуск
+docker-compose up -d --build
+docker-compose logs -f  # Проверка логов
+```
+
+**Полная инструкция:** см. [DEPLOY_SERVER.md](DEPLOY_SERVER.md)
+
+**Скрипт автоматической настройки:**
+
+```bash
+bash scripts/setup_server.sh
+```
+
+---
+
+## 🚀 Быстрый старт (локально)
 
 ### 1. Установка зависимостей
 
