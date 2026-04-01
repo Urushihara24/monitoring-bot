@@ -125,22 +125,25 @@ class Scheduler:
 
             # === ШАГ 1: Получить цены конкурентов (всегда, независимо от auto_mode) ===
             logger.info(f'Парсинг {len(runtime.COMPETITOR_URLS)} конкурентов...')
-            
+
             # Используем RSC парсер с cookies
             competitor_results = []
             for url in runtime.COMPETITOR_URLS:
                 result = rsc_parser.parse_url(url, timeout=15)
                 logger.info(f"RSC результат: success={result.success}, price={result.price}, error={result.error}")
                 competitor_results.append(result)
-            
+
             valid_competitors = [
                 r for r in competitor_results
                 if r.success and r.price is not None
             ]
 
             # === PRE-CHECK: авто-режим (после парсинга, чтобы цена конкурента обновлялась) ===
+            # Перечитываем state для получения актуального auto_mode
             state = storage.get_state()
-            if not state.get('auto_mode', True):
+            auto_mode = state.get('auto_mode', True)
+            
+            if not auto_mode:
                 logger.info('Авто-режим выключен, мониторинг работает (без обновления цены)')
                 # Сохраняем цену конкурента в state (для отображения в статусе)
                 if valid_competitors:
