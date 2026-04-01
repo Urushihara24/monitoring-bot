@@ -12,7 +12,7 @@ from typing import Optional, TYPE_CHECKING
 
 from .config import config
 from .rsc_parser import rsc_parser
-from .watchlist_parser import watchlist_parser
+from .distill_parser import distill_parser, init_distill_parser
 from .logic import calculate_price
 from .storage import storage
 from .validator import validate_runtime_config
@@ -48,6 +48,9 @@ class Scheduler:
         self.telegram_bot = telegram_bot
         self._running = False
         self._cookies_last_update: Optional[datetime] = None
+        
+        # Инициализация Distill парсера
+        self.distill = init_distill_parser(config)
 
     async def _notify_error_throttled(self, key: str, message: str, cooldown_seconds: int = 300):
         """Отправка error-уведомления с ограничением частоты"""
@@ -106,36 +109,36 @@ class Scheduler:
     async def _check_and_update_cookies(self) -> bool:
         """
         Проверка cookies на протухание и автообновление
-        
+
         Returns:
             True если cookies актуальны или успешно обновлены
         """
         if not config.AUTO_UPDATE_COOKIES:
             return True
-        
+
         # Проверяем файл backup cookies
         cookies_backup_path = Path('data/cookies_backup.json')
-        
+
         if not cookies_backup_path.exists():
             logger.warning('Файл cookies_backup.json не найден, пропускаю проверку')
             return True
-        
+
         # Проверяем время последнего обновления
         file_mtime = datetime.fromtimestamp(cookies_backup_path.stat().st_mtime)
         age_seconds = (datetime.now() - file_mtime).total_seconds()
-        
+
         if age_seconds < config.COOKIES_EXPIRE_SECONDS:
             logger.debug(f'Cookies актуальны (возраст: {int(age_seconds)}с)')
             return True
-        
+
         # Cookies протухли — запускаем обновление
         logger.warning(f'Cookies протухли (возраст: {int(age_seconds)}с > {config.COOKIES_EXPIRE_SECONDS}с), запускаю обновление...')
-        
+
         script_path = Path(config.COOKIES_UPDATE_SCRIPT)
         if not script_path.exists():
             logger.error(f'Скрипт обновления cookies не найден: {script_path}')
             return False
-        
+
         try:
             result = subprocess.run(
                 ['bash', str(script_path)],
@@ -143,7 +146,7 @@ class Scheduler:
                 text=True,
                 timeout=300,  # 5 минут на выполнение
             )
-            
+
             if result.returncode == 0:
                 logger.info('✅ Cookies успешно обновлены')
                 self._cookies_last_update = datetime.now()
@@ -151,13 +154,68 @@ class Scheduler:
             else:
                 logger.error(f'❌ Ошибка обновления cookies: {result.stderr}')
                 return False
-                
+
         except subprocess.TimeoutExpired:
             logger.error('Таймаут при обновлении cookies (5 минут)')
             return False
         except Exception as e:
             logger.error(f'Ошибка выполнения скрипта: {e}')
             return False
+
+    async def _parse_competitor_price(self, url: str, timeout: int = 15) -> 'ParseResult':
+        """
+        Каскадный парсинг цены конкурента
+        
+        Приоритет методов:
+        1. RSC Parser (stealth_requests)
+        2. Distill.io Parser (если настроен)
+        
+        Args:
+            url: URL для парсинга
+            timeout: Таймаут запроса
+            
+        Returns:
+            ParseResult с ценой или ошибкой
+        """
+        from .rsc_parser import ParseResult
+        
+        logger.info(f"🔍 Парсинг цены: {url}")
+        
+        # === ПОПЫТКА 1: RSC Parser ===
+        cookies = config.COMPETITOR_COOKIES or None
+        result = rsc_parser.parse_url(url, timeout=timeout, cookies=cookies)
+        
+        if result.success:
+            logger.info(f"✅ RSC Parser успешен: {result.price}₽ (метод: {result.method})")
+            return result
+        
+        logger.warning(f"RSC Parser не удался: {result.error}")
+        
+        # === ПОПЫТКА 2: Distill.io Parser ===
+        if self.distill and (self.distill.api_key or self.distill.local_data_dir):
+            logger.info(f"Пробуем Distill.io Parser для {url}")
+            distill_result = self.distill.get_price(url, timeout=timeout)
+            
+            if distill_result.success:
+                logger.info(f"✅ Distill.io Parser успешен: {distill_result.price}₽ (метод: {distill_result.method})")
+                # Конвертируем в ParseResult
+                return ParseResult(
+                    success=True,
+                    price=distill_result.price,
+                    url=url,
+                    method=f"distill_{distill_result.method}"
+                )
+            
+            logger.warning(f"Distill.io Parser не удался: {distill_result.error}")
+        
+        # === ВСЕ МЕТОДЫ ИСЧЕРПАНЫ ===
+        logger.error(f"❌ Все методы парсинга исчерпаны для {url}")
+        return ParseResult(
+            success=False,
+            error="Все методы парсинга исчерпаны (RSC → Distill)",
+            url=url,
+            method="all_failed"
+        )
 
     async def run_cycle(self):
         """
@@ -190,24 +248,12 @@ class Scheduler:
                     storage.increment_skip_count()
                     return
 
-            # === ШАГ 1: Получить цены конкурентов (всегда, независимо от auto_mode) ===
-            logger.info(f'Парсинг {len(runtime.COMPETITOR_URLS)} конкурентов...')
+            # === ШАГ 1: Получить цены конкурентов (каскадный парсинг) ===
+            logger.info(f'Парсинг {len(runtime.COMPETITOR_URLS)} конкурентов (каскад: RSC → Distill)...')
 
-            # Используем RSC парсер с cookies
             competitor_results = []
             for url in runtime.COMPETITOR_URLS:
-                # Сначала пробуем RSC парсер
-                result = rsc_parser.parse_url(url, timeout=15)
-                logger.info(f"RSC результат: success={result.success}, price={result.price}, error={result.error}")
-                
-                # Если RSC не сработал (401/403), пробуем Google Watchlist
-                if not result.success and url in (runtime.WATCHLIST_URLS or []):
-                    logger.info(f"RSC failed, пробуем Watchlist для {url}")
-                    wl_result = watchlist_parser.parse_url(url, timeout=10)
-                    if wl_result.success:
-                        logger.info(f"✅ Watchlist вернул цену: {wl_result.price}")
-                        result = wl_result
-                
+                result = self._parse_competitor_price(url, timeout=15)
                 competitor_results.append(result)
 
             valid_competitors = [
