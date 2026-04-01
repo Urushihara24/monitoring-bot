@@ -18,3 +18,4 @@ python-dotenv==1.0.0
 # Тестирование (опционально)
 pytest==7.4.3
 pytest-asyncio==0.21.1
+stealth-requests

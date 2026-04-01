@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 from .config import config
-from .parser import parser
+from .rsc_parser import rsc_parser
 from .logic import calculate_price
 from .storage import storage
 from .validator import validate_runtime_config
@@ -111,23 +111,6 @@ class Scheduler:
             runtime = storage.get_runtime_config(config)
             state = storage.get_state()
 
-            # Загружаем cookies из env или backup файла
-            cookies_str = getattr(runtime, 'COMPETITOR_COOKIES', '')
-            parser.set_cookie_string(cookies_str)
-
-            # Пытаемся загрузить из backup если env пустой
-            if not cookies_str:
-                backup_path = Path('data/cookies_backup.json')
-                if backup_path.exists():
-                    parser.set_cookies_backup_file(str(backup_path))
-
-            parser.set_browser_config(
-                use_real_profile=getattr(runtime, 'SELENIUM_USE_REAL_PROFILE', False),
-                chrome_user_data_dir=getattr(runtime, 'SELENIUM_CHROME_USER_DATA_DIR', ''),
-                chrome_profile_dir=getattr(runtime, 'SELENIUM_CHROME_PROFILE_DIR', 'Default'),
-                selenium_headless=getattr(runtime, 'SELENIUM_HEADLESS', True),
-            )
-
             is_valid, errors = validate_runtime_config(runtime)
             if not is_valid:
                 message = 'Некорректные runtime-настройки: ' + '; '.join(errors[:5])
@@ -140,23 +123,34 @@ class Scheduler:
                 storage.increment_skip_count()
                 return
 
-            # === PRE-CHECK: авто-режим ===
-            state = storage.get_state()
-            if not state.get('auto_mode', True):
-                logger.info('Авто-режим выключен, цикл пропущен')
-                storage.increment_skip_count()
-                return
-
-            # === ШАГ 1: Получить цены конкурентов ===
+            # === ШАГ 1: Получить цены конкурентов (всегда, независимо от auto_mode) ===
             logger.info(f'Парсинг {len(runtime.COMPETITOR_URLS)} конкурентов...')
-            competitor_results = parser.parse_competitors(
-                runtime.COMPETITOR_URLS,
-                detect_rank=runtime.POSITION_FILTER_ENABLED,
-            )
+            
+            # Используем RSC парсер с cookies
+            competitor_results = []
+            for url in runtime.COMPETITOR_URLS:
+                result = rsc_parser.parse_url(url, timeout=15)
+                logger.info(f"RSC результат: success={result.success}, price={result.price}, error={result.error}")
+                competitor_results.append(result)
+            
             valid_competitors = [
                 r for r in competitor_results
                 if r.success and r.price is not None
             ]
+
+            # === PRE-CHECK: авто-режим (после парсинга, чтобы цена конкурента обновлялась) ===
+            state = storage.get_state()
+            if not state.get('auto_mode', True):
+                logger.info('Авто-режим выключен, мониторинг работает (без обновления цены)')
+                # Сохраняем цену конкурента в state (для отображения в статусе)
+                if valid_competitors:
+                    min_price = min(r.price for r in valid_competitors)
+                    storage.update_state(
+                        last_competitor_price=min_price,
+                        last_competitor_min=min_price,
+                    )
+                storage.increment_skip_count()
+                return
 
             if not valid_competitors:
                 logger.warning('Не удалось получить цены конкурентов')
@@ -318,7 +312,8 @@ class Scheduler:
         """
         self._running = True
 
-        logger.info(f'Планировщик запущен (интервал: {config.CHECK_INTERVAL}s)')
+        runtime = storage.get_runtime_config(config)
+        logger.info(f'Планировщик запущен (интервал: {runtime.CHECK_INTERVAL}s)')
 
         while self._running:
             try:

@@ -101,6 +101,7 @@ class TelegramBot:
     def _setup_handlers(self):
         self.app.add_handler(CommandHandler("start", self.cmd_start))
         self.app.add_handler(CommandHandler("status", self.cmd_status))
+        self.app.add_handler(CommandHandler("set_competitor", self.cmd_set_competitor_price))
         self.app.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
         )
@@ -713,6 +714,40 @@ class TelegramBot:
             if self._app.running:
                 await self._app.stop()
             await self._app.shutdown()
+
+    # ===== РУЧНАЯ УСТАНОВКА ЦЕНЫ КОНКУРЕНТА =====
+    async def cmd_set_competitor_price(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Ручная установка цены конкурента через /set_competitor <цена>"""
+        if not update.message or not self._check_access(update.effective_user.id):
+            return
+
+        if not context.args or len(context.args) == 0:
+            await update.message.reply_text(
+                "Использование: /set_competitor <цена>\nПример: /set_competitor 0.35",
+                reply_markup=self.get_main_keyboard()
+            )
+            return
+
+        try:
+            price = float(context.args[0].replace(',', '.'))
+            if price <= 0:
+                raise ValueError()
+
+            storage.update_state(
+                last_competitor_price=price,
+                last_competitor_min=price,
+            )
+            await update.message.reply_text(
+                f"✅ Цена конкурента установлена: {price}₽",
+                reply_markup=self.get_main_keyboard()
+            )
+            logger.info(f"Установлена цена конкурента: {price}₽ (вручную)")
+
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Ошибка: введите число больше 0",
+                reply_markup=self.get_main_keyboard()
+            )
 
 
 # Глобальный экземпляр (можно оставить, но лучше использовать dependency injection)
