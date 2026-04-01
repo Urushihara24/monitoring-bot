@@ -38,6 +38,8 @@ class Config:
     
     # Конкуренты (список URL)
     COMPETITOR_URLS: List[str] = None
+    # Google Watchlist URL для fallback (если основной парсинг не работает)
+    WATCHLIST_URLS: List[str] = None
     # Cookies для доступа к защищенным страницам конкурента
     # Формат: "name1=value1; name2=value2"
     COMPETITOR_COOKIES: str = os.getenv('COMPETITOR_COOKIES', '')
@@ -98,10 +100,14 @@ class Config:
         if self.TELEGRAM_ADMIN_IDS is None:
             ids_str = os.getenv('TELEGRAM_ADMIN_IDS', '')
             self.TELEGRAM_ADMIN_IDS = [int(x.strip()) for x in ids_str.split(',') if x.strip()]
-        
+
         if self.COMPETITOR_URLS is None:
             urls_str = os.getenv('COMPETITOR_URLS', '')
             self.COMPETITOR_URLS = [x.strip() for x in urls_str.split(',') if x.strip()]
+        
+        if self.WATCHLIST_URLS is None:
+            wl_str = os.getenv('WATCHLIST_URLS', '')
+            self.WATCHLIST_URLS = [x.strip() for x in wl_str.split(',') if x.strip()]
 
 
 # Глобальный экземпляр конфигурации

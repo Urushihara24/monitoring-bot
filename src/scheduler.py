@@ -12,6 +12,7 @@ from typing import Optional, TYPE_CHECKING
 
 from .config import config
 from .rsc_parser import rsc_parser
+from .watchlist_parser import watchlist_parser
 from .logic import calculate_price
 from .storage import storage
 from .validator import validate_runtime_config
@@ -195,8 +196,18 @@ class Scheduler:
             # Используем RSC парсер с cookies
             competitor_results = []
             for url in runtime.COMPETITOR_URLS:
+                # Сначала пробуем RSC парсер
                 result = rsc_parser.parse_url(url, timeout=15)
                 logger.info(f"RSC результат: success={result.success}, price={result.price}, error={result.error}")
+                
+                # Если RSC не сработал (401/403), пробуем Google Watchlist
+                if not result.success and url in (runtime.WATCHLIST_URLS or []):
+                    logger.info(f"RSC failed, пробуем Watchlist для {url}")
+                    wl_result = watchlist_parser.parse_url(url, timeout=10)
+                    if wl_result.success:
+                        logger.info(f"✅ Watchlist вернул цену: {wl_result.price}")
+                        result = wl_result
+                
                 competitor_results.append(result)
 
             valid_competitors = [
