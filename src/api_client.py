@@ -418,6 +418,47 @@ class GGSELClient:
         )
         return format(normalized, "f")
 
+    def _build_update_price_payload(
+        self,
+        product_id: int,
+        price_4dp: str,
+    ) -> list[dict[str, Any]]:
+        """
+        Формирует payload для bulk-обновления цен.
+        """
+        return [
+            {
+                "product_id": product_id,
+                # Для GGSEL отправляем строку с фиксированной точностью.
+                "price": price_4dp,
+                "variants": [],
+            }
+        ]
+
+    def _is_async_task_success(
+        self,
+        *,
+        status: int,
+        success_count: int,
+        error_count: int,
+        total_count: int,
+    ) -> bool:
+        """
+        Правило успешного завершения async-задачи.
+        GGSEL: 2 = done, 3 = error.
+        """
+        return (
+            status == 2
+            and error_count == 0
+            and (success_count > 0 or total_count == 0)
+        )
+
+    def _is_async_task_error(self, *, status: int) -> bool:
+        """
+        Правило завершения async-задачи с ошибкой.
+        """
+        return status == 3
+
     def update_price(
         self, product_id: int, new_price: float, timeout: int = 10
     ) -> bool:
@@ -428,14 +469,10 @@ class GGSELClient:
         """
         url = f"{self.base_url}/product/edit/prices"
         price_4dp = self._format_price_4dp(new_price)
-        data = [
-            {
-                "product_id": product_id,
-                # Для GGSEL отправляем строку с фиксированной точностью.
-                "price": price_4dp,
-                "variants": [],
-            }
-        ]
+        data = self._build_update_price_payload(
+            product_id=product_id,
+            price_4dp=price_4dp,
+        )
 
         logger.info(
             "Обновление цены: product=%s, price=%s",
@@ -488,20 +525,18 @@ class GGSELClient:
                 error_count = int(status_result.get("ErrorCount", 0) or 0)
                 total_count = int(status_result.get("TotalCount", 0) or 0)
 
-                # По документации Status: 1/2/3, где 2/3 - финальные
-                if status == 2:
-                    if error_count == 0 and (success_count > 0 or total_count == 0):
-                        logger.info(
-                            f"✅ Цена обновлена: {price_4dp} (taskId={task_id})"
-                        )
-                        return True
-                    logger.error(
-                        "Задача завершена с ошибками: %s",
-                        status_result,
+                if self._is_async_task_success(
+                    status=status,
+                    success_count=success_count,
+                    error_count=error_count,
+                    total_count=total_count,
+                ):
+                    logger.info(
+                        f"✅ Цена обновлена: {price_4dp} (taskId={task_id})"
                     )
-                    return False
+                    return True
 
-                if status == 3:
+                if self._is_async_task_error(status=status):
                     logger.error(
                         "Задача обновления завершилась ошибкой: %s",
                         status_result,
