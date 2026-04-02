@@ -84,3 +84,17 @@ def test_parser_state_fields_are_persisted(tmp_path):
     assert state['last_competitor_block_reason'] == 'captcha'
     assert state['last_competitor_status_code'] == 403
     assert state['last_competitor_parse_at'] is not None
+
+
+def test_target_state_fields_are_persisted(tmp_path):
+    db = tmp_path / 'state.db'
+    storage = Storage(db_path=str(db))
+    storage.update_state(
+        profile_id='ggsel',
+        last_target_price=0.2649,
+        last_target_competitor_min=0.27,
+    )
+    state = storage.get_state(profile_id='ggsel')
+
+    assert state['last_target_price'] == 0.2649
+    assert state['last_target_competitor_min'] == 0.27
