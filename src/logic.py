@@ -158,45 +158,18 @@ def calculate_price(
     
     # === ШАГ 4: Применить базовую формулу (-0.0051) ===
     new_price = _to_price(min_competitor_price_d - undercut_value_d)
+    reason = 'base_formula'
     logger.info(
         f'Базовая формула: {min_competitor_price} - {config.UNDERCUT_VALUE} = {new_price}'
     )
     
-    # === ШАГ 5: Проверить MIN_PRICE ===
-    if new_price < config.MIN_PRICE:
-        logger.info(f'Цена ниже MIN_PRICE ({config.MIN_PRICE})')
-        
-        # === ШАГ 6: Применить MODE (FIXED/STEP_UP) ===
-        if config.MODE == 'FIXED':
-            new_price = _to_price(_d(config.FIXED_PRICE))
-            reason = f'min_price_fixed({config.FIXED_PRICE})'
-            logger.info(f'MODE=FIXED: цена={config.FIXED_PRICE}')
-            
-        elif config.MODE == 'STEP_UP':
-            if current_price is not None:
-                new_price = current_price + config.STEP_UP_VALUE
-                new_price = _to_price(_d(new_price))
-                reason = f'min_price_step_up({current_price}+{config.STEP_UP_VALUE})'
-                logger.info(f'MODE=STEP_UP: {current_price} + {config.STEP_UP_VALUE} = {new_price}')
-            else:
-                new_price = config.MIN_PRICE + config.STEP_UP_VALUE
-                new_price = _to_price(_d(new_price))
-                reason = f'min_price_step_up_default({new_price})'
-                logger.info(f'MODE=STEP_UP (нет текущей): цена={new_price}')
-        else:
-            logger.warning(f'Неизвестный MODE={config.MODE}, используем FIXED')
-            new_price = _to_price(_d(config.FIXED_PRICE))
-            reason = f'min_price_fixed_default({config.FIXED_PRICE})'
-    else:
-        reason = 'base_formula'
-    
-    # === ШАГ 7: Проверить MAX_PRICE ===
+    # === ШАГ 5: Проверить MAX_PRICE ===
     if new_price > config.MAX_PRICE:
         new_price = _to_price(_d(config.MAX_PRICE))
         reason += f'_max_capped({config.MAX_PRICE})'
         logger.info(f'Цена ограничена MAX_PRICE: {config.MAX_PRICE}')
-    
-    # === ШАГ 8: Проверить cooldown ===
+
+    # === ШАГ 6: Проверить cooldown ===
     if last_update and (now - last_update).total_seconds() < config.COOLDOWN_SECONDS:
         logger.info(f'Cooldown активен ({config.COOLDOWN_SECONDS}s)')
         return PriceDecision(
@@ -207,7 +180,7 @@ def calculate_price(
             competitor_price=min_competitor_price,
         )
     
-    # === ШАГ 9: Проверить ignore delta ===
+    # === ШАГ 7: Проверить ignore delta ===
     if current_price is not None:
         delta = abs(new_price - current_price)
         if delta < config.IGNORE_DELTA:
@@ -219,8 +192,8 @@ def calculate_price(
                 old_price=current_price,
                 competitor_price=min_competitor_price,
             )
-    
-    # === ШАГ 10: Вернуть решение ===
+
+    # === ШАГ 8: Вернуть решение ===
     return PriceDecision(
         action='update',
         price=new_price,
