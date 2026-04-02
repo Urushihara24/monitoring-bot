@@ -42,6 +42,7 @@ Pipeline:
 2. извлечение unit-price (`unitsToPay / unitsToGet`) если доступно
 3. fallback по CSS-селекторам цены
 4. fallback на публичный endpoint: `https://api4.ggsel.com/goods/<id>`
+   (используется только для доменов `ggsel.*`)
 
 Что пишется в state:
 - `last_competitor_min`

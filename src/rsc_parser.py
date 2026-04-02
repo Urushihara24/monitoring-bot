@@ -8,6 +8,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
+from urllib.parse import urlparse
 
 import stealth_requests
 from bs4 import BeautifulSoup
@@ -302,6 +303,16 @@ class RSCParser:
             return None
         return match.group(1)
 
+    def _is_ggsel_domain(self, url: str) -> bool:
+        try:
+            host = (urlparse(url).hostname or '').lower()
+        except Exception:
+            return False
+        if not host:
+            return False
+        allowed = ('ggsel.net', 'ggsel.com')
+        return any(host == domain or host.endswith(f'.{domain}') for domain in allowed)
+
     def _parse_with_goods_api(self, url: str, timeout: int) -> ParseResult:
         """
         Fallback через публичный endpoint api4.ggsel.com/goods/<id>.
@@ -402,6 +413,18 @@ class RSCParser:
             return result
 
         self._inc_method_fail(result.method)
+
+        if not self._is_ggsel_domain(url):
+            self.fail_count += 1
+            elapsed = time.time() - started
+            result.elapsed_seconds = elapsed
+            logger.warning(
+                '❌ ПАРСИНГ НЕ УДАЛСЯ: время=%.2fs, fail_count=%s, error=%s',
+                elapsed,
+                self.fail_count,
+                result.error,
+            )
+            return result
 
         api_result = self._parse_with_goods_api(url, timeout)
         if api_result.success:
