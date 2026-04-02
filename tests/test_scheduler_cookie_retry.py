@@ -113,7 +113,10 @@ async def test_parse_returns_error_when_retry_failed(monkeypatch):
 @pytest.mark.asyncio
 async def test_sync_cookies_from_env_updates_runtime(monkeypatch, tmp_path):
     """Cookies из .env должны попадать в runtime без перезапуска."""
-    env_text = 'COMPETITOR_COOKIES=fresh_cookie=1$$o6; another=2\n'
+    env_text = (
+        'GGSEL_COMPETITOR_COOKIES=fresh_cookie=1$$o6; another=2\n'
+        'COMPETITOR_COOKIES=legacy_cookie=1\n'
+    )
     (tmp_path / '.env').write_text(env_text, encoding='utf-8')
     monkeypatch.chdir(tmp_path)
 
@@ -185,3 +188,44 @@ async def test_sync_cookies_from_env_no_runtime_write_when_same(
 
     assert synced is True
     set_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_sync_cookies_from_env_uses_digiseller_profile_key(
+    monkeypatch,
+    tmp_path,
+):
+    """Для профиля digiseller берётся профильный ключ из .env."""
+    env_text = (
+        'DIGISELLER_COMPETITOR_COOKIES=dig_cookie=1\n'
+        'COMPETITOR_COOKIES=shared_cookie=2\n'
+    )
+    (tmp_path / '.env').write_text(env_text, encoding='utf-8')
+    monkeypatch.chdir(tmp_path)
+
+    scheduler = Scheduler(
+        DummyApiClient(),
+        DummyTelegramBot(),
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+    )
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'get_runtime_setting',
+        lambda *args, **kwargs: '',
+    )
+    set_calls = []
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'set_runtime_setting',
+        lambda key, value, **kwargs: set_calls.append((key, value, kwargs)),
+    )
+
+    synced = await scheduler._sync_cookies_from_env()
+
+    assert synced is True
+    assert len(set_calls) == 1
+    key, value, kwargs = set_calls[0]
+    assert key == 'COMPETITOR_COOKIES'
+    assert value == 'dig_cookie=1'
+    assert kwargs.get('profile_id') == 'digiseller'

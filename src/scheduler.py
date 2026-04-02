@@ -199,9 +199,26 @@ class Scheduler:
             return False
         try:
             env_data = dotenv_values(str(env_path))
-            env_cookies = self._normalize_cookies_value(
-                str(env_data.get('COMPETITOR_COOKIES') or '')
-            )
+            cookie_keys = {
+                'ggsel': (
+                    'GGSEL_COMPETITOR_COOKIES',
+                    'COMPETITOR_COOKIES',
+                ),
+                'digiseller': (
+                    'DIGISELLER_COMPETITOR_COOKIES',
+                    'COMPETITOR_COOKIES',
+                ),
+            }.get(self.profile_id, ('COMPETITOR_COOKIES',))
+
+            env_cookies = ''
+            for key in cookie_keys:
+                candidate = self._normalize_cookies_value(
+                    str(env_data.get(key) or '')
+                )
+                if candidate:
+                    env_cookies = candidate
+                    break
+
             if not env_cookies:
                 return False
             current = storage.get_runtime_setting(

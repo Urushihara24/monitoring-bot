@@ -64,6 +64,8 @@ cp .env.example .env
 - `TELEGRAM_ADMIN_IDS`
 - для включённого профиля: `*_API_KEY`/`*_ACCESS_TOKEN`, `*_SELLER_ID`, `*_PRODUCT_ID`
 - `COMPETITOR_URLS` (или профильный список для DigiSeller)
+- cookies конкурента: `GGSEL_COMPETITOR_COOKIES` / `DIGISELLER_COMPETITOR_COOKIES`
+  (если не заданы, используется общий `COMPETITOR_COOKIES`)
 
 Запуск:
 
