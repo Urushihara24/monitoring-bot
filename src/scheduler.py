@@ -123,7 +123,7 @@ class Scheduler:
             logger.warning('Файл cookies_backup.json не найден, пропускаю проверку')
             return True
 
-        # Проверяем время последнего обновления
+        # Проверяем время последнего обновления (резервная проверка)
         file_mtime = datetime.fromtimestamp(cookies_backup_path.stat().st_mtime)
         age_seconds = (datetime.now() - file_mtime).total_seconds()
 
@@ -131,9 +131,17 @@ class Scheduler:
             logger.debug(f'Cookies актуальны (возраст: {int(age_seconds)}с)')
             return True
 
-        # Cookies протухли — запускаем обновление
+        # Cookies протухли по таймеру — запускаем обновление
         logger.warning(f'Cookies протухли (возраст: {int(age_seconds)}с > {config.COOKIES_EXPIRE_SECONDS}с), запускаю обновление...')
+        return await self._update_cookies_now()
 
+    async def _update_cookies_now(self) -> bool:
+        """
+        Немедленное обновление cookies (по факту протухания)
+
+        Returns:
+            True если успешно обновлены
+        """
         script_path = Path(config.COOKIES_UPDATE_SCRIPT)
         if not script_path.exists():
             logger.error(f'Скрипт обновления cookies не найден: {script_path}')
@@ -150,6 +158,8 @@ class Scheduler:
             if result.returncode == 0:
                 logger.info('✅ Cookies успешно обновлены')
                 self._cookies_last_update = datetime.now()
+                # Перечитываем cookies из backup файла и обновляем runtime config
+                await self._reload_cookies_from_backup()
                 return True
             else:
                 logger.error(f'❌ Ошибка обновления cookies: {result.stderr}')
@@ -162,40 +172,86 @@ class Scheduler:
             logger.error(f'Ошибка выполнения скрипта: {e}')
             return False
 
+    async def _reload_cookies_from_backup(self):
+        """
+        Перечитывает cookies из data/cookies_backup.json и обновляет runtime config
+        """
+        from .config import config as base_config
+        from .storage import storage as storage_base
+
+        cookies_backup_path = Path('data/cookies_backup.json')
+        if not cookies_backup_path.exists():
+            return
+
+        try:
+            import json
+            with open(cookies_backup_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            cookies_list = data.get('cookies', [])
+            # Конвертируем в строку формата "name1=value1; name2=value2"
+            cookie_parts = []
+            for cookie in cookies_list:
+                name = cookie.get('name', '')
+                value = cookie.get('value', '')
+                if name and value:
+                    cookie_parts.append(f'{name}={value}')
+
+            cookie_string = '; '.join(cookie_parts)
+
+            # Обновляем runtime config
+            storage_base.set_runtime_setting('COMPETITOR_COOKIES', cookie_string)
+
+            # Обновляем base_config (для текущего сеанса)
+            base_config.COMPETITOR_COOKIES = cookie_string
+
+            logger.info(f'✅ Cookies перезагружены в runtime config ({len(cookie_parts)} cookies)')
+
+        except Exception as e:
+            logger.error(f'Ошибка перезагрузки cookies: {e}')
+
     async def _parse_competitor_price(self, url: str, timeout: int = 15) -> 'ParseResult':
         """
         Каскадный парсинг цены конкурента
-        
+
         Приоритет методов:
         1. RSC Parser (stealth_requests)
         2. Distill.io Parser (если настроен)
-        
+
         Args:
             url: URL для парсинга
             timeout: Таймаут запроса
-            
+
         Returns:
             ParseResult с ценой или ошибкой
         """
         from .rsc_parser import ParseResult
-        
+
         logger.info(f"🔍 Парсинг цены: {url}")
-        
+
         # === ПОПЫТКА 1: RSC Parser ===
         cookies = config.COMPETITOR_COOKIES or None
         result = rsc_parser.parse_url(url, timeout=timeout, cookies=cookies)
-        
+
         if result.success:
-            logger.info(f"✅ RSC Parser успешен: {result.price}₽ (метод: {result.method})")
+            logger.info(f"✅ RSC Parser успешен: цена={result.price}₽ (метод: {result.method})")
             return result
-        
+
+        # === ПРОВЕРКА: cookies протухли? ===
+        if result.cookies_expired:
+            logger.warning(f"🚫 Cookies протухли для {url}, запускаю обновление...")
+            if config.AUTO_UPDATE_COOKIES:
+                await self._update_cookies_now()
+            # Возвращаем результат с флагом cookies_expired
+            return result
+
         logger.warning(f"RSC Parser не удался: {result.error}")
-        
+
         # === ПОПЫТКА 2: Distill.io Parser ===
         if self.distill and (self.distill.api_key or self.distill.local_data_dir):
             logger.info(f"Пробуем Distill.io Parser для {url}")
             distill_result = self.distill.get_price(url, timeout=timeout)
-            
+
             if distill_result.success:
                 logger.info(f"✅ Distill.io Parser успешен: {distill_result.price}₽ (метод: {distill_result.method})")
                 # Конвертируем в ParseResult
@@ -205,9 +261,9 @@ class Scheduler:
                     url=url,
                     method=f"distill_{distill_result.method}"
                 )
-            
+
             logger.warning(f"Distill.io Parser не удался: {distill_result.error}")
-        
+
         # === ВСЕ МЕТОДЫ ИСЧЕРПАНЫ ===
         logger.error(f"❌ Все методы парсинга исчерпаны для {url}")
         return ParseResult(
@@ -280,10 +336,11 @@ class Scheduler:
 
             if not valid_competitors:
                 logger.warning('Не удалось получить цены конкурентов')
+                # Увеличенный cooldown (1 час) чтобы не спамить уведомлениями
                 await self._notify_error_throttled(
                     key='no_competitor_prices',
                     message='Не удалось получить цены конкурентов',
-                    cooldown_seconds=180,
+                    cooldown_seconds=3600,  # 1 час
                 )
                 storage.increment_skip_count()
                 return

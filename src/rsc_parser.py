@@ -37,6 +37,7 @@ class ParseResult:
     offers: List[Offer] = None
     rank: Optional[int] = None
     method: str = "unknown"
+    cookies_expired: bool = False  # Флаг: cookies протухли (401/403/капча)
 
 
 # User-Agent пул для ротации
@@ -68,6 +69,38 @@ class RSCParser:
     def _get_random_user_agent(self) -> str:
         """Случайный user-agent из пула"""
         return random.choice(USER_AGENTS)
+
+    def _detect_cookies_expired(self, html: str) -> bool:
+        """
+        Детекция протухших cookies по HTML-контенту
+
+        Признаки:
+        - "Access Denied", "403 Forbidden", "401 Unauthorized"
+        - CAPTCHA, QRATOR, Cloudflare challenge
+        - Страница с ошибкой доступа
+        """
+        html_lower = html.lower()
+
+        # Маркеры блокировки доступа
+        markers = [
+            'access denied',
+            '403 forbidden',
+            '401 unauthorized',
+            'captcha',
+            'qrator',
+            'cloudflare',
+            'checking your browser',
+            'ddos protection',
+            'attention required',
+            'please turn javascript on',
+        ]
+
+        for marker in markers:
+            if marker in html_lower:
+                logger.warning(f"🚫 Детектирована блокировка: '{marker}'")
+                return True
+
+        return False
 
     def _get_headers(self, cookies: Optional[str] = None) -> dict:
         """Заголовки для запроса"""
@@ -159,18 +192,29 @@ class RSCParser:
 
         # === ПОПЫТКА: stealth_requests с cookies ===
         headers = self._get_headers(cookies)
-        
+
         for attempt in range(self.max_retries + 1):
             try:
                 resp = stealth_requests.get(url, headers=headers, timeout=timeout)
-                
+
+                # === ДЕТЕКЦИЯ ПРОТУХШИХ COOKIES ПО СТАТУСУ ===
+                if resp.status_code in (401, 403):
+                    logger.warning(f"🚫 Cookies протухли: HTTP {resp.status_code}")
+                    return ParseResult(
+                        success=False,
+                        error=f"HTTP {resp.status_code} (cookies expired)",
+                        url=url,
+                        method="stealth_requests",
+                        cookies_expired=True
+                    )
+
                 if resp.status_code == 429:
                     logger.warning(f"Rate limit (429) для {url}")
                     if attempt < self.max_retries:
                         time.sleep(2 ** attempt)
                         continue
                     return ParseResult(success=False, error="Rate limit (429)", url=url, method="stealth_requests")
-                
+
                 if resp.status_code != 200:
                     logger.warning(f"HTTP {resp.status_code} для {url}")
                     if attempt < self.max_retries:
@@ -178,20 +222,31 @@ class RSCParser:
                         headers['User-Agent'] = self._get_random_user_agent()
                         continue
                     return ParseResult(success=False, error=f"HTTP {resp.status_code}", url=url, method="stealth_requests")
-                
+
+                # === ДЕТЕКЦИЯ ПРОТУХШИХ COOKIES ПО HTML ===
+                if self._detect_cookies_expired(resp.text):
+                    logger.warning("🚫 Cookies протухли: детектировано по HTML-контенту")
+                    return ParseResult(
+                        success=False,
+                        error="Cookies expired (detected by HTML content)",
+                        url=url,
+                        method="stealth_requests",
+                        cookies_expired=True
+                    )
+
                 # Парсим HTML
                 result = self._parse_html(resp.text, url)
-                
+
                 if result.success:
                     self.success_count += 1
                     elapsed = time.time() - start_time
                     logger.info(f"🎉 ПАРСИНГ УСПЕШЕН: цена={result.price}₽, время={elapsed:.2f}s")
                     result.method = "stealth_requests"
                     return result
-                
+
                 # Если парсинг не удался, не повторяем
                 return result
-                
+
             except Exception as e:
                 logger.warning(f"Попытка {attempt + 1} не удалась: {e}")
                 if attempt < self.max_retries:
@@ -204,7 +259,7 @@ class RSCParser:
         self.fail_count += 1
         elapsed = time.time() - start_time
         logger.warning(f"❌ ПАРСИНГ НЕ УДАЛСЯ: время={elapsed:.2f}s, fail_count={self.fail_count}")
-        
+
         return ParseResult(
             success=False,
             error="Все методы парсинга исчерпаны",
