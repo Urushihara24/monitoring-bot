@@ -2,14 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Установка зависимостей системы
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
-    gnupg \
-    && rm -rf /var/lib/apt/lists/*
-
-# Установка Chromium для Playwright (обход anti-bot)
+# Установка Chromium для Playwright и Selenium
 # fonts-kacst удалён — недоступен в Debian 13 (trixie)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium \
@@ -37,17 +30,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && mkdir -p /usr/share/fonts \
     && fc-cache -f
 
-# Selenium + Chrome (для обновления cookies)
-# Добавляем репозиторий Google и устанавливаем Chrome
-RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - && \
-    echo "deb http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list && \
-    apt-get update && \
-    apt-get install -y --fix-missing --no-install-recommends \
-        google-chrome-stable \
-        chromium-chromedriver && \
-    rm -rf /var/lib/apt/lists/*
-
-ENV CHROME_BIN=/usr/bin/google-chrome \
+# Используем chromium из репозитория Debian
+ENV CHROME_BIN=/usr/bin/chromium \
     CHROMEDRIVER=/usr/bin/chromedriver
 
 # Копирование requirements
