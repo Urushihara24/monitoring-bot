@@ -5,12 +5,34 @@
 from __future__ import annotations
 
 import sqlite3
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import List, Optional
 
 DEFAULT_PROFILE = 'ggsel'
+PRICE_PRECISION = Decimal('0.0001')
+STATE_PRICE_FIELDS = {
+    'last_price',
+    'last_target_price',
+    'last_target_competitor_min',
+    'last_competitor_price',
+    'last_competitor_min',
+}
+RUNTIME_PRICE_KEYS = {
+    'MIN_PRICE',
+    'MAX_PRICE',
+    'DESIRED_PRICE',
+    'UNDERCUT_VALUE',
+    'FIXED_PRICE',
+    'STEP_UP_VALUE',
+    'WEAK_PRICE_CEIL_LIMIT',
+    'IGNORE_DELTA',
+    'COMPETITOR_CHANGE_DELTA',
+    'MAX_DOWN_STEP',
+    'FAST_REBOUND_DELTA',
+}
 
 
 class Storage:
@@ -104,10 +126,12 @@ class Storage:
             self._migrate_legacy_state(conn)
             self._migrate_profile_state_columns(conn)
             self._backfill_target_state(conn)
+            self._normalize_profile_state_prices(conn)
 
             # Создаём базовые записи профилей.
             self._ensure_profile_state(conn, 'ggsel')
             self._ensure_profile_state(conn, 'digiseller')
+            self._normalize_runtime_price_settings(conn)
             conn.commit()
 
     def _migrate_profile_state_columns(self, conn: sqlite3.Connection):
@@ -146,6 +170,44 @@ class Storage:
               AND last_competitor_min IS NOT NULL
             '''
         )
+
+    def _normalize_profile_state_prices(self, conn: sqlite3.Connection):
+        """Нормализует price-поля profile_state до 4 знаков."""
+        for column in STATE_PRICE_FIELDS:
+            conn.execute(
+                f'''
+                UPDATE profile_state
+                SET {column} = ROUND({column}, 4)
+                WHERE {column} IS NOT NULL
+                '''
+            )
+
+    def _normalize_runtime_price_settings(self, conn: sqlite3.Connection):
+        """Нормализует runtime price-настройки до фиксированного формата 0.0000."""
+        placeholders = ', '.join('?' for _ in RUNTIME_PRICE_KEYS)
+        rows = conn.execute(
+            f'''
+            SELECT profile_id, key, value
+            FROM runtime_settings
+            WHERE key IN ({placeholders})
+            ''',
+            tuple(RUNTIME_PRICE_KEYS),
+        ).fetchall()
+        for profile_id, key, value in rows:
+            normalized = self._normalize_price(value)
+            if normalized is None:
+                continue
+            formatted = f'{normalized:.4f}'
+            if str(value) == formatted:
+                continue
+            conn.execute(
+                '''
+                UPDATE runtime_settings
+                SET value = ?
+                WHERE profile_id = ? AND key = ?
+                ''',
+                (formatted, profile_id, key),
+            )
 
     def _migrate_legacy_state(self, conn: sqlite3.Connection):
         """Перенос legacy state(id=1) в profile_state[ggsel]."""
@@ -222,6 +284,18 @@ class Storage:
         except Exception:
             return None
 
+    def _normalize_price(self, value) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            normalized = Decimal(str(value).replace(',', '.')).quantize(
+                PRICE_PRECISION,
+                rounding=ROUND_HALF_UP,
+            )
+            return float(normalized)
+        except Exception:
+            return None
+
     # ================================
     # Profile state
     # ================================
@@ -238,13 +312,19 @@ class Storage:
             if not row:
                 return self._default_state()
             return {
-                'last_price': row['last_price'],
+                'last_price': self._normalize_price(row['last_price']),
                 'last_update': self._parse_dt(row['last_update']),
                 'last_cycle': self._parse_dt(row['last_cycle']),
-                'last_target_price': row['last_target_price'],
-                'last_target_competitor_min': row['last_target_competitor_min'],
-                'last_competitor_price': row['last_competitor_price'],
-                'last_competitor_min': row['last_competitor_min'],
+                'last_target_price': self._normalize_price(row['last_target_price']),
+                'last_target_competitor_min': self._normalize_price(
+                    row['last_target_competitor_min']
+                ),
+                'last_competitor_price': self._normalize_price(
+                    row['last_competitor_price']
+                ),
+                'last_competitor_min': self._normalize_price(
+                    row['last_competitor_min']
+                ),
                 'last_competitor_rank': row['last_competitor_rank'],
                 'last_competitor_url': row['last_competitor_url'],
                 'last_competitor_parse_at': self._parse_dt(
@@ -314,6 +394,9 @@ class Storage:
         ):
             if dt_key in updates and isinstance(updates[dt_key], datetime):
                 updates[dt_key] = updates[dt_key].isoformat()
+        for price_key in STATE_PRICE_FIELDS:
+            if price_key in updates:
+                updates[price_key] = self._normalize_price(updates[price_key])
         if 'auto_mode' in updates:
             updates['auto_mode'] = 1 if updates['auto_mode'] else 0
 
@@ -364,6 +447,9 @@ class Storage:
         profile_id: str = DEFAULT_PROFILE,
     ):
         profile = self._normalize_profile(profile_id)
+        old_price = self._normalize_price(old_price)
+        new_price = self._normalize_price(new_price)
+        competitor_price = self._normalize_price(competitor_price)
         with sqlite3.connect(str(self.db_path)) as conn:
             conn.execute(
                 '''
@@ -412,8 +498,14 @@ class Storage:
         profile_id: str = DEFAULT_PROFILE,
     ):
         profile = self._normalize_profile(profile_id)
+        normalized_value = str(value)
+        if key in RUNTIME_PRICE_KEYS:
+            price_value = self._normalize_price(normalized_value)
+            if price_value is not None:
+                normalized_value = f'{price_value:.4f}'
+
         old_value = self.get_runtime_setting(key, profile_id=profile)
-        if old_value == value:
+        if old_value == normalized_value:
             return
         with sqlite3.connect(str(self.db_path)) as conn:
             conn.execute(
@@ -423,7 +515,7 @@ class Storage:
                 ON CONFLICT(profile_id, key)
                 DO UPDATE SET value = excluded.value
                 ''',
-                (profile, key, value),
+                (profile, key, normalized_value),
             )
             conn.execute(
                 '''
@@ -437,7 +529,14 @@ class Storage:
                 )
                 VALUES (?, ?, ?, ?, ?, ?)
                 ''',
-                (profile, key, old_value, value, user_id, source),
+                (
+                    profile,
+                    key,
+                    old_value,
+                    normalized_value,
+                    user_id,
+                    source,
+                ),
             )
             conn.commit()
 
@@ -622,7 +721,11 @@ class Storage:
         if value is None:
             return default
         try:
-            return float(value)
+            parsed = float(value)
+            if key in RUNTIME_PRICE_KEYS:
+                normalized = self._normalize_price(parsed)
+                return default if normalized is None else normalized
+            return parsed
         except Exception:
             return default
 
