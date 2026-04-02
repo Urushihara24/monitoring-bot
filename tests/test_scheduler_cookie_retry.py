@@ -3,7 +3,7 @@
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -176,3 +176,80 @@ async def test_parse_skips_refresh_when_auto_update_disabled(monkeypatch):
     assert result.success is True
     assert result.price == 0.315
     refresh_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_sync_cookies_from_env_updates_runtime(monkeypatch, tmp_path):
+    """Cookies из .env должны попадать в runtime без перезапуска."""
+    env_text = 'COMPETITOR_COOKIES=fresh_cookie=1; another=2\n'
+    (tmp_path / '.env').write_text(env_text, encoding='utf-8')
+    monkeypatch.chdir(tmp_path)
+
+    scheduler = Scheduler(
+        DummyApiClient(),
+        DummyTelegramBot(),
+        profile_id='ggsel',
+        profile_name='GGSEL',
+    )
+
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'get_runtime_setting',
+        lambda *args, **kwargs: 'old_cookie=1',
+    )
+    set_calls = []
+
+    def fake_set_runtime_setting(key, value, **kwargs):
+        set_calls.append((key, value, kwargs))
+
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'set_runtime_setting',
+        fake_set_runtime_setting,
+    )
+
+    synced = await scheduler._sync_cookies_from_env()
+
+    assert synced is True
+    assert len(set_calls) == 1
+    key, value, kwargs = set_calls[0]
+    assert key == 'COMPETITOR_COOKIES'
+    assert value == 'fresh_cookie=1; another=2'
+    assert kwargs.get('profile_id') == 'ggsel'
+    assert kwargs.get('source') == 'env_sync'
+
+
+@pytest.mark.asyncio
+async def test_sync_cookies_from_env_no_runtime_write_when_same(
+    monkeypatch,
+    tmp_path,
+):
+    """Если cookies в .env не изменились, runtime не должен перезаписываться."""
+    env_text = 'COMPETITOR_COOKIES=same_cookie=1\n'
+    (tmp_path / '.env').write_text(env_text, encoding='utf-8')
+    monkeypatch.chdir(tmp_path)
+
+    scheduler = Scheduler(
+        DummyApiClient(),
+        DummyTelegramBot(),
+        profile_id='ggsel',
+        profile_name='GGSEL',
+    )
+
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'get_runtime_setting',
+        lambda *args, **kwargs: 'same_cookie=1',
+    )
+
+    set_mock = Mock()
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'set_runtime_setting',
+        set_mock,
+    )
+
+    synced = await scheduler._sync_cookies_from_env()
+
+    assert synced is True
+    set_mock.assert_not_called()

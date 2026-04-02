@@ -12,6 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
+from dotenv import dotenv_values
+
 from .config import config
 from .distill_parser import init_distill_parser
 from .logic import calculate_price
@@ -250,7 +252,15 @@ class Scheduler:
                     result.stdout.strip(),
                 )
             self._cookies_last_update = datetime.now()
-            await self._reload_cookies_from_backup()
+            env_loaded = await self._sync_cookies_from_env()
+            backup_loaded = await self._reload_cookies_from_backup()
+            if not env_loaded and not backup_loaded:
+                logger.error(
+                    '[%s] Не удалось загрузить cookies в runtime '
+                    'ни из .env, ни из backup',
+                    self.profile_name,
+                )
+                return False
             return True
         except subprocess.TimeoutExpired:
             logger.error('[%s] Таймаут обновления cookies', self.profile_name)
@@ -263,10 +273,47 @@ class Scheduler:
             )
             return False
 
-    async def _reload_cookies_from_backup(self):
+    async def _sync_cookies_from_env(self) -> bool:
+        """
+        Подтягивает COMPETITOR_COOKIES из .env в runtime settings.
+        """
+        env_path = Path('.env')
+        if not env_path.exists():
+            return False
+        try:
+            env_data = dotenv_values(str(env_path))
+            env_cookies = str(env_data.get('COMPETITOR_COOKIES') or '').strip()
+            if not env_cookies:
+                return False
+            current = storage.get_runtime_setting(
+                'COMPETITOR_COOKIES',
+                profile_id=self.profile_id,
+            )
+            if current != env_cookies:
+                storage.set_runtime_setting(
+                    'COMPETITOR_COOKIES',
+                    env_cookies,
+                    source='env_sync',
+                    profile_id=self.profile_id,
+                )
+                logger.info(
+                    '[%s] Cookies синхронизированы из .env (%s символов)',
+                    self.profile_name,
+                    len(env_cookies),
+                )
+            return True
+        except Exception as e:
+            logger.error(
+                '[%s] Ошибка синхронизации cookies из .env: %s',
+                self.profile_name,
+                e,
+            )
+            return False
+
+    async def _reload_cookies_from_backup(self) -> bool:
         cookies_backup_path = Path(config.COMPETITOR_COOKIES_BACKUP_PATH)
         if not cookies_backup_path.exists():
-            return
+            return False
         try:
             import json
 
@@ -279,23 +326,33 @@ class Scheduler:
                 value = cookie.get('value', '')
                 if name and value:
                     cookie_parts.append(f'{name}={value}')
+            if not cookie_parts:
+                return False
             cookie_string = '; '.join(cookie_parts)
-            storage.set_runtime_setting(
+            current = storage.get_runtime_setting(
                 'COMPETITOR_COOKIES',
-                cookie_string,
                 profile_id=self.profile_id,
             )
+            if current != cookie_string:
+                storage.set_runtime_setting(
+                    'COMPETITOR_COOKIES',
+                    cookie_string,
+                    source='backup_sync',
+                    profile_id=self.profile_id,
+                )
             logger.info(
                 '[%s] Cookies перезагружены в runtime (%s cookies)',
                 self.profile_name,
                 len(cookie_parts),
             )
+            return True
         except Exception as e:
             logger.error(
                 '[%s] Ошибка перезагрузки cookies: %s',
                 self.profile_name,
                 e,
             )
+            return False
 
     async def _parse_competitor_price(
         self,
@@ -423,6 +480,9 @@ class Scheduler:
                 profile_id=self.profile_id,
                 last_cycle=datetime.now(),
             )
+            # На каждом цикле подтягиваем свежие cookies из .env,
+            # чтобы не требовать перезапуска процесса после обновления.
+            await self._sync_cookies_from_env()
             runtime = self._runtime()
             state = self._state()
 
