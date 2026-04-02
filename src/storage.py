@@ -103,6 +103,7 @@ class Storage:
             # Миграция legacy таблицы state -> profile_state[ggsel].
             self._migrate_legacy_state(conn)
             self._migrate_profile_state_columns(conn)
+            self._backfill_target_state(conn)
 
             # Создаём базовые записи профилей.
             self._ensure_profile_state(conn, 'ggsel')
@@ -123,6 +124,28 @@ class Storage:
             conn.execute(
                 f'ALTER TABLE profile_state ADD COLUMN {column} {type_def}'
             )
+
+    def _backfill_target_state(self, conn: sqlite3.Connection):
+        """
+        Заполняет target-поля из текущего состояния, если они пустые.
+        Нужно для мягкого апгрейда без "лишнего первого reconcile".
+        """
+        conn.execute(
+            '''
+            UPDATE profile_state
+            SET last_target_price = last_price
+            WHERE last_target_price IS NULL
+              AND last_price IS NOT NULL
+            '''
+        )
+        conn.execute(
+            '''
+            UPDATE profile_state
+            SET last_target_competitor_min = last_competitor_min
+            WHERE last_target_competitor_min IS NULL
+              AND last_competitor_min IS NOT NULL
+            '''
+        )
 
     def _migrate_legacy_state(self, conn: sqlite3.Connection):
         """Перенос legacy state(id=1) в profile_state[ggsel]."""
