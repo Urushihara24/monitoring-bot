@@ -18,12 +18,8 @@
 - Reply-клавиатура Telegram (без inline-кнопок).
 - Профильный режим в Telegram (`🧩 Профиль`).
 - Быстрый runtime-интервал (`CHECK_INTERVAL`) через кнопку `⏱ Интервал`.
-- Каскадный парсер конкурента:
-  1. `stealth_requests`
-  2. `Playwright`
-  3. `Selenium (profile/headless)`
-  4. `Distill` как внешний fallback
-- Авто-refresh cookies без перезапуска процесса.
+- Парсер конкурента на `stealth_requests + BeautifulSoup` с fallback на публичный `api4.ggsel.com/goods/<id>`.
+- Автоподхват новых cookies из `.env` без перезапуска процесса.
 - Авторизация GGSEL/DigiSeller через `/apilogin` (sign = `sha256(api_key + timestamp)`).
 - Защита от убытков:
   - hard floor

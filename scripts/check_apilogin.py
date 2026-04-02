@@ -7,8 +7,13 @@ import hashlib
 import time
 import sys
 import json
+from pathlib import Path
 
 import requests
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from src.config import config
 

@@ -1,17 +1,12 @@
-"""
-RSC Parser для ggsel.net с каскадом fallback:
-stealth_requests -> Playwright -> Selenium.
-"""
+"""RSC parser for ggsel.net based on stealth_requests + BeautifulSoup."""
 
 from __future__ import annotations
 
 import logging
-import os
 import random
 import re
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Dict, List, Optional
 
 import stealth_requests
@@ -79,9 +74,7 @@ BLOCK_MARKERS = {
 
 
 class RSCParser:
-    """
-    Каскадный парсер с anti-bot fallback-цепочкой.
-    """
+    """RSC parser with anti-bot detection and retry logic."""
 
     def __init__(self, max_retries: int = 2):
         self.max_retries = max_retries
@@ -90,8 +83,8 @@ class RSCParser:
         self.method_success_count: Dict[str, int] = {}
         self.method_fail_count: Dict[str, int] = {}
         logger.info(
-            'RSC Parser инициализирован '
-            f'(max_retries={max_retries})'
+            'RSC Parser initialized (max_retries=%s)',
+            max_retries,
         )
 
     def _inc_method_success(self, method: str):
@@ -141,29 +134,6 @@ class RSCParser:
             'http_401',
             'http_403',
         }
-
-    def _parse_cookie_string(self, cookies: Optional[str]) -> List[dict]:
-        if not cookies:
-            return []
-        result = []
-        for chunk in cookies.split(';'):
-            chunk = chunk.strip()
-            if not chunk or '=' not in chunk:
-                continue
-            name, value = chunk.split('=', 1)
-            name = name.strip()
-            value = value.strip()
-            if not name or not value:
-                continue
-            result.append(
-                {
-                    'name': name,
-                    'value': value,
-                    'domain': '.ggsel.net',
-                    'path': '/',
-                }
-            )
-        return result
 
     def _parse_price_from_text(self, text: str) -> Optional[float]:
         cleaned = text.replace('\xa0', ' ').replace(',', '.')
@@ -326,280 +296,140 @@ class RSCParser:
             method=method,
         )
 
-    def _parse_with_playwright(
-        self,
-        url: str,
-        timeout: int,
-        cookies: Optional[str],
-    ) -> ParseResult:
-        method = 'playwright'
-        try:
-            from playwright.sync_api import sync_playwright
-        except Exception as e:
+    def _extract_goods_id(self, url: str) -> Optional[str]:
+        match = re.search(r'-(\d+)(?:[/?#]|$)', url)
+        if not match:
+            return None
+        return match.group(1)
+
+    def _parse_with_goods_api(self, url: str, timeout: int) -> ParseResult:
+        """
+        Fallback через публичный endpoint api4.ggsel.com/goods/<id>.
+        """
+        method = 'api4_goods'
+        goods_id = self._extract_goods_id(url)
+        if not goods_id:
             return ParseResult(
                 success=False,
-                error=f'Playwright import error: {e}',
+                error='Не удалось извлечь id товара из URL',
                 url=url,
                 method=method,
             )
 
-        browser = None
+        api_url = f'https://api4.ggsel.com/goods/{goods_id}'
+        headers = {
+            'User-Agent': self._get_random_user_agent(),
+            'Accept': 'application/json,text/plain,*/*',
+        }
         try:
-            with sync_playwright() as pw:
-                browser = pw.chromium.launch(headless=True)
-                context = browser.new_context(user_agent=self._get_random_user_agent())
-                cookie_list = self._parse_cookie_string(cookies)
-                if cookie_list:
-                    context.add_cookies(cookie_list)
-                page = context.new_page()
-                response = page.goto(
-                    url,
-                    wait_until='domcontentloaded',
-                    timeout=timeout * 1000,
+            resp = stealth_requests.get(
+                api_url,
+                headers=headers,
+                timeout=timeout,
+            )
+            if resp.status_code != 200:
+                return ParseResult(
+                    success=False,
+                    error=f'API fallback HTTP {resp.status_code}',
+                    url=url,
+                    method=method,
+                    status_code=resp.status_code,
                 )
-                status_code = response.status if response else None
-                if status_code in (401, 403, 429):
-                    reason = f'http_{status_code}'
-                    return self._blocked_result(
-                        url,
-                        method,
-                        error=f'HTTP {status_code}',
-                        block_reason=reason,
-                        status_code=status_code,
-                    )
-                page.wait_for_timeout(1200)
-                html = page.content()
-                block_reason = self._detect_block_reason(html)
-                if block_reason:
-                    return self._blocked_result(
-                        url,
-                        method,
-                        error=f'Anti-bot block detected: {block_reason}',
-                        block_reason=block_reason,
-                        status_code=status_code,
-                    )
 
-                result = self._parse_html(html, url)
-                result.method = method
-                result.status_code = status_code
-                return result
-        except Exception as e:
-            return ParseResult(
-                success=False,
-                error=f'{method} exception: {e}',
-                url=url,
-                method=method,
-            )
-        finally:
+            payload = resp.json()
+            if not isinstance(payload, dict):
+                return ParseResult(
+                    success=False,
+                    error='API fallback: invalid JSON payload',
+                    url=url,
+                    method=method,
+                )
+            data = payload.get('data') or {}
+            raw_price = data.get('price')
             try:
-                if browser is not None:
-                    browser.close()
-            except Exception:
-                pass
+                price = round(float(raw_price), 4)
+            except (TypeError, ValueError):
+                return ParseResult(
+                    success=False,
+                    error='API fallback: поле price отсутствует',
+                    url=url,
+                    method=method,
+                )
+            if price <= 0:
+                return ParseResult(
+                    success=False,
+                    error='API fallback: невалидная цена',
+                    url=url,
+                    method=method,
+                )
 
-    def _parse_with_selenium(
-        self,
-        url: str,
-        timeout: int,
-        cookies: Optional[str],
-        *,
-        use_real_profile: bool,
-        user_data_dir: str,
-        profile_dir: str,
-        headless: bool,
-    ) -> ParseResult:
-        method = 'selenium'
-        try:
-            from selenium import webdriver
-            from selenium.webdriver.chrome.options import Options
-            from selenium.webdriver.chrome.service import Service
+            return ParseResult(
+                success=True,
+                price=price,
+                url=url,
+                offers=[Offer(price=price)],
+                method=method,
+                status_code=resp.status_code,
+            )
         except Exception as e:
             return ParseResult(
                 success=False,
-                error=f'Selenium import error: {e}',
+                error=f'API fallback exception: {e}',
                 url=url,
                 method=method,
             )
-
-        driver = None
-        try:
-            options = Options()
-            if headless:
-                options.add_argument('--headless=new')
-            options.add_argument('--no-sandbox')
-            options.add_argument('--disable-dev-shm-usage')
-            options.add_argument('--disable-blink-features=AutomationControlled')
-            options.add_argument('--window-size=1920,1080')
-            options.add_argument(f'--user-agent={self._get_random_user_agent()}')
-            options.add_argument('--disable-gpu')
-            options.add_argument('--remote-debugging-port=0')
-
-            chrome_bin = os.environ.get('CHROME_BIN', '/usr/bin/chromium')
-            if Path(chrome_bin).exists():
-                options.binary_location = chrome_bin
-
-            if use_real_profile and user_data_dir:
-                options.add_argument(f'--user-data-dir={user_data_dir}')
-                if profile_dir:
-                    options.add_argument(f'--profile-directory={profile_dir}')
-
-            chromedriver_path = os.environ.get(
-                'CHROMEDRIVER',
-                '/usr/bin/chromedriver',
-            )
-            if Path(chromedriver_path).exists():
-                service = Service(executable_path=chromedriver_path)
-                driver = webdriver.Chrome(service=service, options=options)
-            else:
-                driver = webdriver.Chrome(options=options)
-            driver.set_page_load_timeout(timeout)
-            if cookies:
-                driver.get('https://ggsel.net')
-                for cookie in self._parse_cookie_string(cookies):
-                    try:
-                        driver.add_cookie(cookie)
-                    except Exception:
-                        continue
-            driver.get(url)
-            time.sleep(1.2)
-
-            html = driver.page_source or ''
-            title = (driver.title or '').lower()
-            if '401' in title or '403' in title:
-                code = 401 if '401' in title else 403
-                reason = f'http_{code}'
-                return self._blocked_result(
-                    url,
-                    method,
-                    error=f'HTTP {code} (detected by title)',
-                    block_reason=reason,
-                    status_code=code,
-                )
-
-            block_reason = self._detect_block_reason(html)
-            if block_reason:
-                return self._blocked_result(
-                    url,
-                    method,
-                    error=f'Anti-bot block detected: {block_reason}',
-                    block_reason=block_reason,
-                )
-
-            result = self._parse_html(html, url)
-            result.method = method
-            return result
-        except Exception as e:
-            return ParseResult(
-                success=False,
-                error=f'{method} exception: {e}',
-                url=url,
-                method=method,
-            )
-        finally:
-            try:
-                if driver:
-                    driver.quit()
-            except Exception:
-                pass
 
     def parse_url(
         self,
         url: str,
         timeout: int = 10,
         cookies: Optional[str] = None,
-        *,
-        use_playwright: bool = True,
-        use_selenium_fallback: bool = True,
-        selenium_use_real_profile: bool = False,
-        selenium_user_data_dir: str = '',
-        selenium_profile_dir: str = 'Default',
-        selenium_headless: bool = True,
     ) -> ParseResult:
-        """
-        Парсинг с каскадным fallback.
-        """
+        """Parse URL using stealth_requests with public API fallback."""
         logger.info(f'🔍 НАЧАЛО ПАРСИНГА: {url}')
         started = time.time()
-        attempts: List[ParseResult] = []
-
-        stealth_result = self._parse_with_stealth(url, timeout, cookies)
-        attempts.append(stealth_result)
-        if stealth_result.success:
+        result = self._parse_with_stealth(url, timeout, cookies)
+        if result.success:
             elapsed = time.time() - started
-            stealth_result.elapsed_seconds = elapsed
+            result.elapsed_seconds = elapsed
             self.success_count += 1
-            self._inc_method_success(stealth_result.method)
+            self._inc_method_success(result.method)
             logger.info(
-                '🎉 ПАРСИНГ УСПЕШЕН (stealth): '
-                f'цена={stealth_result.price}₽, время={elapsed:.2f}s'
+                '🎉 ПАРСИНГ УСПЕШЕН: цена=%s₽, время=%.2fs',
+                result.price,
+                elapsed,
             )
-            return stealth_result
-        self._inc_method_fail(stealth_result.method)
+            return result
 
-        if use_playwright:
-            pw_result = self._parse_with_playwright(url, timeout, cookies)
-            attempts.append(pw_result)
-            if pw_result.success:
-                elapsed = time.time() - started
-                pw_result.elapsed_seconds = elapsed
-                self.success_count += 1
-                self._inc_method_success(pw_result.method)
-                logger.info(
-                    '🎉 ПАРСИНГ УСПЕШЕН (playwright): '
-                    f'цена={pw_result.price}₽, время={elapsed:.2f}s'
-                )
-                return pw_result
-            self._inc_method_fail(pw_result.method)
+        self._inc_method_fail(result.method)
 
-        if use_selenium_fallback:
-            sel_result = self._parse_with_selenium(
-                url,
-                timeout,
-                cookies,
-                use_real_profile=selenium_use_real_profile,
-                user_data_dir=selenium_user_data_dir,
-                profile_dir=selenium_profile_dir,
-                headless=selenium_headless,
+        api_result = self._parse_with_goods_api(url, timeout)
+        if api_result.success:
+            elapsed = time.time() - started
+            api_result.elapsed_seconds = elapsed
+            self.success_count += 1
+            self._inc_method_success(api_result.method)
+            logger.info(
+                '🎉 ПАРСИНГ УСПЕШЕН (api fallback): цена=%s₽, время=%.2fs',
+                api_result.price,
+                elapsed,
             )
-            attempts.append(sel_result)
-            if sel_result.success:
-                elapsed = time.time() - started
-                sel_result.elapsed_seconds = elapsed
-                self.success_count += 1
-                self._inc_method_success(sel_result.method)
-                logger.info(
-                    '🎉 ПАРСИНГ УСПЕШЕН (selenium): '
-                    f'цена={sel_result.price}₽, время={elapsed:.2f}s'
-                )
-                return sel_result
-            self._inc_method_fail(sel_result.method)
+            return api_result
+        self._inc_method_fail(api_result.method)
 
         self.fail_count += 1
         elapsed = time.time() - started
-        last_result = attempts[-1]
-        cookies_expired = any(r.cookies_expired for r in attempts)
-        block_reason = next((r.block_reason for r in attempts if r.block_reason), None)
-        status_code = next((r.status_code for r in attempts if r.status_code), None)
-        error_chain = ' | '.join(
-            f'{r.method}: {r.error}' for r in attempts if r.error
-        ) or 'Все методы парсинга исчерпаны'
-
+        if api_result.error:
+            base_error = result.error or 'stealth parse failed'
+            result.error = f'{base_error} | {api_result.error}'
+        result.elapsed_seconds = elapsed
         logger.warning(
             '❌ ПАРСИНГ НЕ УДАЛСЯ: время=%.2fs, fail_count=%s, error=%s',
             elapsed,
             self.fail_count,
-            error_chain,
+            result.error,
         )
-        return ParseResult(
-            success=False,
-            error=error_chain,
-            url=url,
-            method=last_result.method if last_result else 'all_failed',
-            cookies_expired=cookies_expired,
-            block_reason=block_reason,
-            status_code=status_code,
-            elapsed_seconds=elapsed,
-        )
+        return result
 
     def get_stats(self) -> dict:
         total = self.success_count + self.fail_count

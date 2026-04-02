@@ -71,7 +71,7 @@ def test_parser_state_fields_are_persisted(tmp_path):
         profile_id='ggsel',
         last_competitor_url='https://example.com',
         last_competitor_parse_at=now,
-        last_competitor_method='playwright',
+        last_competitor_method='stealth_requests',
         last_competitor_error='blocked',
         last_competitor_block_reason='captcha',
         last_competitor_status_code=403,
@@ -79,7 +79,7 @@ def test_parser_state_fields_are_persisted(tmp_path):
     state = storage.get_state(profile_id='ggsel')
 
     assert state['last_competitor_url'] == 'https://example.com'
-    assert state['last_competitor_method'] == 'playwright'
+    assert state['last_competitor_method'] == 'stealth_requests'
     assert state['last_competitor_error'] == 'blocked'
     assert state['last_competitor_block_reason'] == 'captcha'
     assert state['last_competitor_status_code'] == 403

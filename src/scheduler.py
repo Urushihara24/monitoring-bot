@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
@@ -15,7 +14,6 @@ from typing import TYPE_CHECKING, Optional
 from dotenv import dotenv_values
 
 from .config import config
-from .distill_parser import init_distill_parser
 from .logic import calculate_price
 from .rsc_parser import ParseResult, rsc_parser
 from .storage import DEFAULT_PROFILE, storage
@@ -58,8 +56,6 @@ class Scheduler:
         self.product_id = int(product_id or 0)
         self.default_competitor_urls = competitor_urls or []
         self._running = False
-        self._cookies_last_update: Optional[datetime] = None
-        self.distill = init_distill_parser(config)
 
     def _runtime(self):
         return storage.get_runtime_config(
@@ -194,95 +190,6 @@ class Scheduler:
             profile_name=self.profile_name,
         )
 
-    async def _check_and_update_cookies(self) -> bool:
-        """
-        Проверка cookies на протухание и автообновление.
-        """
-        if not config.AUTO_UPDATE_COOKIES:
-            return True
-
-        cookies_backup_path = Path(config.COMPETITOR_COOKIES_BACKUP_PATH)
-        if not cookies_backup_path.exists():
-            logger.warning(
-                '[%s] Файл cookies_backup.json не найден, пропускаю проверку',
-                self.profile_name,
-            )
-            return True
-
-        file_mtime = datetime.fromtimestamp(cookies_backup_path.stat().st_mtime)
-        age_seconds = (datetime.now() - file_mtime).total_seconds()
-        if age_seconds < config.COOKIES_EXPIRE_SECONDS:
-            logger.debug(
-                '[%s] Cookies актуальны (возраст: %ss)',
-                self.profile_name,
-                int(age_seconds),
-            )
-            return True
-
-        logger.warning(
-            '[%s] Cookies протухли по таймеру (%ss > %ss), запускаю обновление...',
-            self.profile_name,
-            int(age_seconds),
-            config.COOKIES_EXPIRE_SECONDS,
-        )
-        return await self._update_cookies_now()
-
-    async def _update_cookies_now(self) -> bool:
-        script_path = Path(config.COOKIES_UPDATE_SCRIPT)
-        if not script_path.exists():
-            logger.error(
-                '[%s] Скрипт обновления cookies не найден: %s',
-                self.profile_name,
-                script_path,
-            )
-            return False
-
-        try:
-            result = subprocess.run(
-                ['bash', str(script_path)],
-                capture_output=True,
-                text=True,
-                timeout=300,
-            )
-            if result.returncode != 0:
-                logger.error(
-                    '[%s] Ошибка обновления cookies (code=%s). stderr=%s stdout=%s',
-                    self.profile_name,
-                    result.returncode,
-                    (result.stderr or '').strip(),
-                    (result.stdout or '').strip(),
-                )
-                return False
-
-            logger.info('[%s] ✅ Cookies успешно обновлены', self.profile_name)
-            if result.stdout:
-                logger.debug(
-                    '[%s] stdout скрипта cookies: %s',
-                    self.profile_name,
-                    result.stdout.strip(),
-                )
-            self._cookies_last_update = datetime.now()
-            env_loaded = await self._sync_cookies_from_env()
-            backup_loaded = await self._reload_cookies_from_backup()
-            if not env_loaded and not backup_loaded:
-                logger.error(
-                    '[%s] Не удалось загрузить cookies в runtime '
-                    'ни из .env, ни из backup',
-                    self.profile_name,
-                )
-                return False
-            return True
-        except subprocess.TimeoutExpired:
-            logger.error('[%s] Таймаут обновления cookies', self.profile_name)
-            return False
-        except Exception as e:
-            logger.error(
-                '[%s] Ошибка выполнения скрипта cookies: %s',
-                self.profile_name,
-                e,
-            )
-            return False
-
     async def _sync_cookies_from_env(self) -> bool:
         """
         Подтягивает COMPETITOR_COOKIES из .env в runtime settings.
@@ -372,10 +279,7 @@ class Scheduler:
         runtime,
         timeout: int = 15,
     ) -> ParseResult:
-        """
-        Каскадный парсинг:
-        RSC (stealth->playwright->selenium) -> Distill.
-        """
+        """Каскадный парсинг: только stealth_requests."""
         logger.info('[%s] 🔍 Парсинг цены: %s', self.profile_name, url)
         cookies = runtime.COMPETITOR_COOKIES or config.COMPETITOR_COOKIES or None
 
@@ -384,106 +288,26 @@ class Scheduler:
             url,
             timeout=timeout,
             cookies=cookies,
-            use_playwright=getattr(runtime, 'RSC_USE_PLAYWRIGHT', True),
-            use_selenium_fallback=getattr(
-                runtime,
-                'RSC_USE_SELENIUM_FALLBACK',
-                True,
-            ),
-            selenium_use_real_profile=getattr(
-                runtime,
-                'SELENIUM_USE_REAL_PROFILE',
-                False,
-            ),
-            selenium_user_data_dir=getattr(
-                runtime,
-                'SELENIUM_CHROME_USER_DATA_DIR',
-                '',
-            ),
-            selenium_profile_dir=getattr(
-                runtime,
-                'SELENIUM_CHROME_PROFILE_DIR',
-                'Default',
-            ),
-            selenium_headless=getattr(runtime, 'SELENIUM_HEADLESS', True),
         )
         if result.success:
             return result
 
-        # Важно: при cookies_expired пробуем обновить и сразу повторить парсинг.
-        if result.cookies_expired and config.AUTO_UPDATE_COOKIES:
+        # Если cookies протухли, пробуем один повтор без cookies.
+        if result.cookies_expired and cookies:
             logger.warning(
-                '[%s] Cookies протухли для %s, запускаю refresh...',
+                '[%s] Cookies протухли для %s, пробую запрос без cookies...',
                 self.profile_name,
                 url,
             )
-            refreshed = await self._update_cookies_now()
-            if refreshed:
-                refreshed_runtime = self._runtime()
-                refreshed_cookies = (
-                    refreshed_runtime.COMPETITOR_COOKIES
-                    or config.COMPETITOR_COOKIES
-                    or None
-                )
-                retry_result = await asyncio.to_thread(
-                    rsc_parser.parse_url,
-                    url,
-                    timeout=timeout,
-                    cookies=refreshed_cookies,
-                    use_playwright=getattr(
-                        refreshed_runtime,
-                        'RSC_USE_PLAYWRIGHT',
-                        True,
-                    ),
-                    use_selenium_fallback=(
-                        getattr(
-                            refreshed_runtime,
-                            'RSC_USE_SELENIUM_FALLBACK',
-                            True,
-                        )
-                    ),
-                    selenium_use_real_profile=(
-                        getattr(
-                            refreshed_runtime,
-                            'SELENIUM_USE_REAL_PROFILE',
-                            False,
-                        )
-                    ),
-                    selenium_user_data_dir=(
-                        getattr(
-                            refreshed_runtime,
-                            'SELENIUM_CHROME_USER_DATA_DIR',
-                            '',
-                        )
-                    ),
-                    selenium_profile_dir=(
-                        getattr(
-                            refreshed_runtime,
-                            'SELENIUM_CHROME_PROFILE_DIR',
-                            'Default',
-                        )
-                    ),
-                    selenium_headless=getattr(
-                        refreshed_runtime,
-                        'SELENIUM_HEADLESS',
-                        True,
-                    ),
-                )
-                if retry_result.success:
-                    return retry_result
-                result = retry_result
-
-        # Distill fallback.
-        if self.distill and (self.distill.api_key or self.distill.local_data_dir):
-            logger.info('[%s] Пробуем Distill fallback: %s', self.profile_name, url)
-            distill_result = self.distill.get_price(url, timeout=timeout)
-            if distill_result.success:
-                return ParseResult(
-                    success=True,
-                    price=distill_result.price,
-                    url=url,
-                    method=f'distill_{distill_result.method}',
-                )
+            retry_result = await asyncio.to_thread(
+                rsc_parser.parse_url,
+                url,
+                timeout=timeout,
+                cookies=None,
+            )
+            if retry_result.success:
+                return retry_result
+            result = retry_result
 
         return result
 
@@ -496,7 +320,9 @@ class Scheduler:
             )
             # На каждом цикле подтягиваем свежие cookies из .env,
             # чтобы не требовать перезапуска процесса после обновления.
-            await self._sync_cookies_from_env()
+            synced_from_env = await self._sync_cookies_from_env()
+            if not synced_from_env:
+                await self._reload_cookies_from_backup()
             runtime = self._runtime()
             state = self._state()
 
@@ -511,12 +337,6 @@ class Scheduler:
                 )
                 storage.increment_skip_count(profile_id=self.profile_id)
                 return
-
-            if runtime.COMPETITOR_COOKIES or config.AUTO_UPDATE_COOKIES:
-                cookies_ok = await self._check_and_update_cookies()
-                if not cookies_ok:
-                    storage.increment_skip_count(profile_id=self.profile_id)
-                    return
 
             logger.info(
                 '[%s] Парсинг %s конкурентов...',
