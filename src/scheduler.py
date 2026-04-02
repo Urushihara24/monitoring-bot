@@ -360,6 +360,19 @@ class Scheduler:
                 self.profile_name,
                 len(runtime.COMPETITOR_URLS),
             )
+            if not runtime.COMPETITOR_URLS:
+                logger.warning(
+                    '[%s] Список конкурентов пуст, цикл пропущен',
+                    self.profile_name,
+                )
+                storage.update_state(
+                    profile_id=self.profile_id,
+                    last_competitor_error='no_competitor_urls',
+                    last_competitor_block_reason=None,
+                    last_competitor_status_code=None,
+                )
+                storage.increment_skip_count(profile_id=self.profile_id)
+                return
             competitor_results = await asyncio.gather(*[
                 self._parse_competitor_price(url, runtime=runtime, timeout=15)
                 for url in runtime.COMPETITOR_URLS

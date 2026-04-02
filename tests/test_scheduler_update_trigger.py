@@ -195,6 +195,76 @@ async def test_run_cycle_recalculates_when_competitor_changed(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_run_cycle_skips_cleanly_when_competitor_urls_empty(monkeypatch):
+    api_client = SimpleNamespace(
+        get_my_price=Mock(return_value=0.2649),
+        update_price=Mock(),
+    )
+    scheduler = Scheduler(
+        api_client,
+        DummyTelegramBot(),
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=123,
+        competitor_urls=[],
+    )
+
+    runtime = make_runtime(COMPETITOR_URLS=[])
+    state = {
+        'auto_mode': True,
+        'last_competitor_min': None,
+        'last_update': None,
+        'last_price': 0.2649,
+    }
+
+    monkeypatch.setattr(scheduler, '_runtime', lambda: runtime)
+    monkeypatch.setattr(scheduler, '_state', lambda: state)
+    monkeypatch.setattr(
+        scheduler_module,
+        'validate_runtime_config',
+        lambda _runtime: (True, []),
+    )
+    monkeypatch.setattr(
+        scheduler,
+        '_sync_cookies_from_env',
+        AsyncMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        scheduler,
+        '_reload_cookies_from_backup',
+        AsyncMock(return_value=False),
+    )
+    parse_mock = AsyncMock()
+    monkeypatch.setattr(scheduler, '_parse_competitor_price', parse_mock)
+    notify_error_mock = AsyncMock()
+    monkeypatch.setattr(scheduler, '_notify_error_throttled', notify_error_mock)
+
+    skip_calls = []
+    update_state_calls = []
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'increment_skip_count',
+        lambda **kwargs: skip_calls.append(kwargs),
+    )
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'update_state',
+        lambda **kwargs: update_state_calls.append(kwargs),
+    )
+
+    await scheduler.run_cycle()
+
+    assert skip_calls, 'skip counter should be incremented'
+    assert parse_mock.await_count == 0
+    assert notify_error_mock.await_count == 0
+    assert api_client.get_my_price.call_count == 0
+    assert any(
+        call.get('last_competitor_error') == 'no_competitor_urls'
+        for call in update_state_calls
+    )
+
+
+@pytest.mark.asyncio
 async def test_run_cycle_reconciles_when_unchanged_but_price_drift(monkeypatch):
     api_client = SimpleNamespace(
         get_my_price=Mock(return_value=0.26),
