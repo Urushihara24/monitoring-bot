@@ -6,6 +6,10 @@ class FakeResponse:
         self._payload = payload
         self.status_code = status_code
 
+    @property
+    def ok(self):
+        return 200 <= self.status_code < 300
+
     def json(self):
         return self._payload
 
@@ -62,3 +66,74 @@ def test_check_api_access_false_on_unauthorized(monkeypatch):
         lambda *_a, **_kw: FakeResponse({}, status_code=401),
     )
     assert client.check_api_access() is False
+
+
+def test_update_price_payload_uses_float(monkeypatch):
+    client = make_client()
+    captured = {}
+
+    def fake_authorized_request(*_args, **kwargs):
+        captured['json'] = kwargs.get('json')
+        return FakeResponse({'retval': 0}, status_code=200)
+
+    monkeypatch.setattr(client, '_authorized_request', fake_authorized_request)
+
+    ok = client.update_price(product_id=123, new_price=0.2649)
+
+    assert ok is True
+    assert captured['json'][0]['product_id'] == 123
+    assert captured['json'][0]['price'] == 0.2649
+
+
+def test_update_price_async_status_3_done(monkeypatch):
+    client = make_client()
+    client.task_poll_interval = 0.0
+    client.task_poll_timeout = 0.2
+
+    monkeypatch.setattr(
+        client,
+        '_authorized_request',
+        lambda *_args, **_kwargs: FakeResponse({'taskId': 'task-1'}),
+    )
+
+    statuses = iter([
+        {
+            'Status': 1,
+            'SuccessCount': 0,
+            'ErrorCount': 0,
+            'TotalCount': 1,
+        },
+        {
+            'Status': 3,
+            'SuccessCount': 1,
+            'ErrorCount': 0,
+            'TotalCount': 1,
+        },
+    ])
+    monkeypatch.setattr(client, 'get_update_task_status', lambda *_a, **_k: next(statuses))
+
+    assert client.update_price(product_id=123, new_price=0.2649) is True
+
+
+def test_update_price_async_status_2_error(monkeypatch):
+    client = make_client()
+    client.task_poll_interval = 0.0
+    client.task_poll_timeout = 0.2
+
+    monkeypatch.setattr(
+        client,
+        '_authorized_request',
+        lambda *_args, **_kwargs: FakeResponse({'taskId': 'task-1'}),
+    )
+    monkeypatch.setattr(
+        client,
+        'get_update_task_status',
+        lambda *_a, **_k: {
+            'Status': 2,
+            'SuccessCount': 0,
+            'ErrorCount': 1,
+            'TotalCount': 1,
+        },
+    )
+
+    assert client.update_price(product_id=123, new_price=0.2649) is False
