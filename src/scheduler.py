@@ -430,6 +430,14 @@ class Scheduler:
             competitor_prices = [item[1].price for item in considered]
 
             previous_min = state.get('last_competitor_min')
+            competitor_changed = (
+                previous_min is None
+                or abs(min_price - previous_min) >= getattr(
+                    runtime,
+                    'COMPETITOR_CHANGE_DELTA',
+                    0.0001,
+                )
+            )
             competitor_rebound = (
                 previous_min is not None
                 and (min_price - previous_min) >= getattr(
@@ -458,6 +466,19 @@ class Scheduler:
                 last_competitor_block_reason=None,
                 last_competitor_status_code=selected.status_code,
             )
+
+            if (
+                getattr(runtime, 'UPDATE_ONLY_ON_COMPETITOR_CHANGE', True)
+                and not competitor_changed
+            ):
+                logger.info(
+                    '[%s] Цена конкурента не изменилась (%.4f), '
+                    'пропускаю пересчёт/обновление цены',
+                    self.profile_name,
+                    min_price,
+                )
+                storage.increment_skip_count(profile_id=self.profile_id)
+                return
 
             current_price = self.api_client.get_my_price(self.product_id)
             if current_price is None:

@@ -79,8 +79,6 @@ class Config:
     FIXED_PRICE: float = float(os.getenv('FIXED_PRICE', '0.35'))
     STEP_UP_VALUE: float = float(os.getenv('STEP_UP_VALUE', '0.05'))
     
-    # Фильтр слабого конкурента
-    LOW_PRICE_THRESHOLD: float = float(os.getenv('LOW_PRICE_THRESHOLD', '0'))
     # До какого уровня считаем логику "ceil(до 0.1) - undercut"
     WEAK_PRICE_CEIL_LIMIT: float = float(os.getenv('WEAK_PRICE_CEIL_LIMIT', '0.3'))
     # Фильтр по позиции в выдаче категории
@@ -106,6 +104,10 @@ class Config:
     NOTIFY_COMPETITOR_CHANGE: bool = _env_bool('NOTIFY_COMPETITOR_CHANGE', True)
     COMPETITOR_CHANGE_DELTA: float = float(os.getenv('COMPETITOR_CHANGE_DELTA', '0.0001'))
     COMPETITOR_CHANGE_COOLDOWN_SECONDS: int = int(os.getenv('COMPETITOR_CHANGE_COOLDOWN_SECONDS', '60'))
+    UPDATE_ONLY_ON_COMPETITOR_CHANGE: bool = _env_bool(
+        'UPDATE_ONLY_ON_COMPETITOR_CHANGE',
+        True,
+    )
     NOTIFY_PARSER_ISSUES: bool = _env_bool('NOTIFY_PARSER_ISSUES', True)
     PARSER_ISSUE_COOLDOWN_SECONDS: int = int(os.getenv('PARSER_ISSUE_COOLDOWN_SECONDS', '300'))
 

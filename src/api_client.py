@@ -613,25 +613,3 @@ class GGSELClient:
 
         logger.info("API доступен")
         return True
-
-
-def create_api_client(
-    api_key: str,
-    seller_id: int,
-    base_url: str,
-    lang: str = "ru-RU",
-    access_token: str = "",
-) -> GGSELClient:
-    """
-    Фабрика для создания экземпляра GGSELClient.
-    """
-    return GGSELClient(
-        api_key=api_key,
-        seller_id=seller_id,
-        base_url=base_url,
-        lang=lang,
-        access_token=access_token,
-    )
-
-
-api_client: Optional[GGSELClient] = None

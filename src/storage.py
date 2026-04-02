@@ -8,7 +8,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 DEFAULT_PROFILE = 'ggsel'
 
@@ -333,12 +333,6 @@ class Storage:
             )
             conn.commit()
 
-    def get_last_update(self, profile_id: str = DEFAULT_PROFILE) -> Optional[datetime]:
-        return self.get_state(profile_id).get('last_update')
-
-    def get_last_price(self, profile_id: str = DEFAULT_PROFILE) -> Optional[float]:
-        return self.get_state(profile_id).get('last_price')
-
     # ================================
     # Runtime settings
     # ================================
@@ -460,11 +454,6 @@ class Storage:
                 base_config.STEP_UP_VALUE,
                 profile,
             ),
-            'LOW_PRICE_THRESHOLD': self._get_float(
-                'LOW_PRICE_THRESHOLD',
-                base_config.LOW_PRICE_THRESHOLD,
-                profile,
-            ),
             'WEAK_PRICE_CEIL_LIMIT': self._get_float(
                 'WEAK_PRICE_CEIL_LIMIT',
                 base_config.WEAK_PRICE_CEIL_LIMIT,
@@ -535,6 +524,11 @@ class Storage:
                 base_config.COMPETITOR_CHANGE_COOLDOWN_SECONDS,
                 profile,
             ),
+            'UPDATE_ONLY_ON_COMPETITOR_CHANGE': self._get_bool(
+                'UPDATE_ONLY_ON_COMPETITOR_CHANGE',
+                base_config.UPDATE_ONLY_ON_COMPETITOR_CHANGE,
+                profile,
+            ),
             'NOTIFY_PARSER_ISSUES': self._get_bool(
                 'NOTIFY_PARSER_ISSUES',
                 base_config.NOTIFY_PARSER_ISSUES,
@@ -599,23 +593,6 @@ class Storage:
         if value is None:
             return default
         return value.strip().lower() in ('1', 'true', 'yes', 'on')
-
-    def get_all_runtime_settings(
-        self,
-        profile_id: str = DEFAULT_PROFILE,
-    ) -> Dict[str, str]:
-        profile = self._normalize_profile(profile_id)
-        with sqlite3.connect(str(self.db_path)) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                '''
-                SELECT key, value FROM runtime_settings
-                WHERE profile_id = ?
-                ORDER BY key
-                ''',
-                (profile,),
-            ).fetchall()
-            return {row['key']: row['value'] for row in rows}
 
     def get_settings_history(
         self,
