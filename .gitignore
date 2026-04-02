@@ -44,6 +44,8 @@ logs/.*audit.json
 data/*.db
 data/cookies_backup.json
 data/backups/
+data/backup/
+data/*.bak
 
 # IDE
 .idea/

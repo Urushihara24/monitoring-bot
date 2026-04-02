@@ -56,8 +56,6 @@ class Config:
     
     # Конкуренты (список URL)
     COMPETITOR_URLS: List[str] = None
-    # Google Watchlist URL для fallback (если основной парсинг не работает)
-    WATCHLIST_URLS: List[str] = None
     # Cookies для доступа к защищенным страницам конкурента
     # Формат: "name1=value1; name2=value2"
     COMPETITOR_COOKIES: str = os.getenv('COMPETITOR_COOKIES', '')
@@ -65,26 +63,9 @@ class Config:
         'COMPETITOR_COOKIES_BACKUP_PATH',
         'data/cookies_backup.json',
     )
-    # Selenium/Chrome profile mode (для обхода anti-bot без proxy)
-    SELENIUM_USE_REAL_PROFILE: bool = _env_bool('SELENIUM_USE_REAL_PROFILE', False)
-    SELENIUM_CHROME_USER_DATA_DIR: str = os.getenv('SELENIUM_CHROME_USER_DATA_DIR', '')
-    SELENIUM_CHROME_PROFILE_DIR: str = os.getenv('SELENIUM_CHROME_PROFILE_DIR', 'Default')
-    SELENIUM_HEADLESS: bool = _env_bool('SELENIUM_HEADLESS', True)
-    
-    # Playwright fallback (для RSC парсера)
-    RSC_USE_PLAYWRIGHT: bool = _env_bool('RSC_USE_PLAYWRIGHT', True)
-    RSC_USE_SELENIUM_FALLBACK: bool = _env_bool('RSC_USE_SELENIUM_FALLBACK', True)
-    RSC_MAX_RETRIES: int = int(os.getenv('RSC_MAX_RETRIES', '2'))
 
-    # Distill.io fallback
-    DISTILL_API_KEY: str = os.getenv('DISTILL_API_KEY', '')
-    DISTILL_MONITOR_IDS: str = os.getenv('DISTILL_MONITOR_IDS', '')
-    DISTILL_LOCAL_DATA_DIR: str = os.getenv('DISTILL_LOCAL_DATA_DIR', '')
-    DISTILL_EMAIL_ENABLED: bool = _env_bool('DISTILL_EMAIL_ENABLED', False)
-    DISTILL_EMAIL_IMAP_SERVER: str = os.getenv('DISTILL_EMAIL_IMAP_SERVER', '')
-    DISTILL_EMAIL_IMAP_PORT: int = int(os.getenv('DISTILL_EMAIL_IMAP_PORT', '993'))
-    DISTILL_EMAIL_USERNAME: str = os.getenv('DISTILL_EMAIL_USERNAME', '')
-    DISTILL_EMAIL_PASSWORD: str = os.getenv('DISTILL_EMAIL_PASSWORD', '')
+    # RSC parser
+    RSC_MAX_RETRIES: int = int(os.getenv('RSC_MAX_RETRIES', '2'))
     
     # Основные настройки цен
     MIN_PRICE: float = float(os.getenv('MIN_PRICE', '0.25'))
@@ -122,10 +103,6 @@ class Config:
     NOTIFY_SKIP: bool = _env_bool('NOTIFY_SKIP', False)
     NOTIFY_SKIP_COOLDOWN_SECONDS: int = int(os.getenv('NOTIFY_SKIP_COOLDOWN_SECONDS', '300'))
     
-    # Автообновление cookies
-    COOKIES_EXPIRE_SECONDS: int = int(os.getenv('COOKIES_EXPIRE_SECONDS', '21600'))  # 6 часов
-    AUTO_UPDATE_COOKIES: bool = _env_bool('AUTO_UPDATE_COOKIES', False)
-    COOKIES_UPDATE_SCRIPT: str = os.getenv('COOKIES_UPDATE_SCRIPT', 'scripts/cron_update_cookies.sh')
     NOTIFY_COMPETITOR_CHANGE: bool = _env_bool('NOTIFY_COMPETITOR_CHANGE', True)
     COMPETITOR_CHANGE_DELTA: float = float(os.getenv('COMPETITOR_CHANGE_DELTA', '0.0001'))
     COMPETITOR_CHANGE_COOLDOWN_SECONDS: int = int(os.getenv('COMPETITOR_CHANGE_COOLDOWN_SECONDS', '60'))
@@ -156,10 +133,6 @@ class Config:
             urls_str = os.getenv('COMPETITOR_URLS', '')
             self.COMPETITOR_URLS = [x.strip() for x in urls_str.split(',') if x.strip()]
         
-        if self.WATCHLIST_URLS is None:
-            wl_str = os.getenv('WATCHLIST_URLS', '')
-            self.WATCHLIST_URLS = [x.strip() for x in wl_str.split(',') if x.strip()]
-
         if self.DIGISELLER_COMPETITOR_URLS is None:
             d_urls_str = os.getenv('DIGISELLER_COMPETITOR_URLS', '')
             self.DIGISELLER_COMPETITOR_URLS = [

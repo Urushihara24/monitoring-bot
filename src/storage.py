@@ -510,36 +510,6 @@ class Storage:
                 base_config.COMPETITOR_COOKIES,
                 profile,
             ),
-            'SELENIUM_USE_REAL_PROFILE': self._get_bool(
-                'SELENIUM_USE_REAL_PROFILE',
-                base_config.SELENIUM_USE_REAL_PROFILE,
-                profile,
-            ),
-            'SELENIUM_CHROME_USER_DATA_DIR': self._get_str(
-                'SELENIUM_CHROME_USER_DATA_DIR',
-                base_config.SELENIUM_CHROME_USER_DATA_DIR,
-                profile,
-            ),
-            'SELENIUM_CHROME_PROFILE_DIR': self._get_str(
-                'SELENIUM_CHROME_PROFILE_DIR',
-                base_config.SELENIUM_CHROME_PROFILE_DIR,
-                profile,
-            ),
-            'SELENIUM_HEADLESS': self._get_bool(
-                'SELENIUM_HEADLESS',
-                base_config.SELENIUM_HEADLESS,
-                profile,
-            ),
-            'RSC_USE_PLAYWRIGHT': self._get_bool(
-                'RSC_USE_PLAYWRIGHT',
-                base_config.RSC_USE_PLAYWRIGHT,
-                profile,
-            ),
-            'RSC_USE_SELENIUM_FALLBACK': self._get_bool(
-                'RSC_USE_SELENIUM_FALLBACK',
-                base_config.RSC_USE_SELENIUM_FALLBACK,
-                profile,
-            ),
             'NOTIFY_SKIP': self._get_bool(
                 'NOTIFY_SKIP',
                 base_config.NOTIFY_SKIP,
