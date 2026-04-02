@@ -31,6 +31,8 @@ class Storage:
                     last_price REAL,
                     last_update TIMESTAMP,
                     last_cycle TIMESTAMP,
+                    last_target_price REAL,
+                    last_target_competitor_min REAL,
                     last_competitor_price REAL,
                     last_competitor_min REAL,
                     last_competitor_rank INTEGER,
@@ -100,11 +102,27 @@ class Storage:
 
             # Миграция legacy таблицы state -> profile_state[ggsel].
             self._migrate_legacy_state(conn)
+            self._migrate_profile_state_columns(conn)
 
             # Создаём базовые записи профилей.
             self._ensure_profile_state(conn, 'ggsel')
             self._ensure_profile_state(conn, 'digiseller')
             conn.commit()
+
+    def _migrate_profile_state_columns(self, conn: sqlite3.Connection):
+        """Добавляет новые колонки в profile_state без потери данных."""
+        rows = conn.execute('PRAGMA table_info(profile_state)').fetchall()
+        existing = {row[1] for row in rows}
+        required = {
+            'last_target_price': 'REAL',
+            'last_target_competitor_min': 'REAL',
+        }
+        for column, type_def in required.items():
+            if column in existing:
+                continue
+            conn.execute(
+                f'ALTER TABLE profile_state ADD COLUMN {column} {type_def}'
+            )
 
     def _migrate_legacy_state(self, conn: sqlite3.Connection):
         """Перенос legacy state(id=1) в profile_state[ggsel]."""
@@ -200,6 +218,8 @@ class Storage:
                 'last_price': row['last_price'],
                 'last_update': self._parse_dt(row['last_update']),
                 'last_cycle': self._parse_dt(row['last_cycle']),
+                'last_target_price': row['last_target_price'],
+                'last_target_competitor_min': row['last_target_competitor_min'],
                 'last_competitor_price': row['last_competitor_price'],
                 'last_competitor_min': row['last_competitor_min'],
                 'last_competitor_rank': row['last_competitor_rank'],
@@ -222,6 +242,8 @@ class Storage:
             'last_price': None,
             'last_update': None,
             'last_cycle': None,
+            'last_target_price': None,
+            'last_target_competitor_min': None,
             'last_competitor_price': None,
             'last_competitor_min': None,
             'last_competitor_rank': None,
@@ -243,6 +265,8 @@ class Storage:
             'last_price',
             'last_update',
             'last_cycle',
+            'last_target_price',
+            'last_target_competitor_min',
             'last_competitor_price',
             'last_competitor_min',
             'last_competitor_rank',

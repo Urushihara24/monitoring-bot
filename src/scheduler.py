@@ -507,12 +507,31 @@ class Scheduler:
                 and not competitor_changed
             ):
                 ignore_delta = getattr(runtime, 'IGNORE_DELTA', 0.001)
+                change_delta = getattr(runtime, 'COMPETITOR_CHANGE_DELTA', 0.0001)
                 if decision.action != 'update' or decision.price is None:
                     logger.info(
                         '[%s] Цена конкурента не изменилась (%.4f), '
                         'обновление не требуется',
                         self.profile_name,
                         min_price,
+                    )
+                    storage.increment_skip_count(profile_id=self.profile_id)
+                    return
+
+                last_target_price = state.get('last_target_price')
+                last_target_comp = state.get('last_target_competitor_min')
+                if (
+                    last_target_price is not None
+                    and last_target_comp is not None
+                    and abs(decision.price - last_target_price) < ignore_delta
+                    and abs(min_price - last_target_comp) < change_delta
+                ):
+                    logger.info(
+                        '[%s] Цена конкурента не изменилась (%.4f), '
+                        'целевая цена %.4f уже применена',
+                        self.profile_name,
+                        min_price,
+                        decision.price,
                     )
                     storage.increment_skip_count(profile_id=self.profile_id)
                     return
@@ -560,6 +579,8 @@ class Scheduler:
                         profile_id=self.profile_id,
                         last_price=decision.price,
                         last_update=datetime.now(),
+                        last_target_price=decision.price,
+                        last_target_competitor_min=decision.competitor_price,
                     )
                     storage.add_price_history(
                         old_price=decision.old_price,
