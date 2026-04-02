@@ -1,77 +1,168 @@
 """
-Telegram бот с Reply Keyboard (кнопки внизу)
-Чистая структура с полным функционалом
+Telegram бот с Reply Keyboard.
+Поддерживает профильный режим (GGSEL / DIGISELLER).
 """
 
-import logging
-import re
-import asyncio
-from datetime import datetime
-from typing import Optional, Dict, Any
+from __future__ import annotations
 
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+import asyncio
+import logging
+import unicodedata
+from datetime import datetime
+from typing import Dict, Optional
+
+from telegram import (
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+    Update,
+)
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
     CommandHandler,
-    MessageHandler,
     ContextTypes,
+    MessageHandler,
     filters,
 )
 
 from .config import config
-from .storage import storage
+from .storage import DEFAULT_PROFILE, storage
 from .validator import validate_runtime_config
 
 logger = logging.getLogger(__name__)
 
+# Главное меню
+BTN_STATUS = '📊 Статус'
+BTN_UP = '⬆ +0.01₽'
+BTN_DOWN = '⬇ -0.01₽'
+BTN_AUTO_ON = '🔔 Авто: ВКЛ'
+BTN_AUTO_OFF = '🔕 Авто: ВЫКЛ'
+BTN_PROFILE = '🧩 Профиль'
+BTN_SETTINGS = '⚙ Настройки'
+BTN_DIAGNOSTICS = '🩺 Диагностика'
+BTN_BACK = '🔙 Назад'
 
-# ===== КНОПКИ: ГЛАВНОЕ МЕНЮ =====
-BTN_STATUS = "📊 Статус"
-BTN_UP = "⬆ +0.01₽"  # унифицированный текст (без вариационного селектора)
-BTN_DOWN = "⬇ -0.01₽"
-BTN_AUTO_ON = "🔔 Авто: ВКЛ"
-BTN_AUTO_OFF = "🔕 Авто: ВЫКЛ"
-BTN_SETTINGS = "⚙ Настройки"
-BTN_DIAGNOSTICS = "🩺 Диагностика"
-BTN_BACK = "🔙 Назад"
-
-# ===== КНОПКИ: НАСТРОЙКИ =====
-BTN_PRICE = "🎯 Цена"
-BTN_STEP = "➖ Шаг"
-BTN_MIN = "📉 Мин"
-BTN_MAX = "📈 Макс"
-BTN_MODE = "🔀 Режим"
-BTN_POSITION = "📍 Позиция"
-BTN_ADD_URL = "🔗 Добавить URL"
-BTN_REMOVE_URL = "🗑 Удалить URL"
-BTN_EXPORT = "📤 Экспорт"
-BTN_IMPORT = "📥 Импорт"
-BTN_HISTORY = "🧾 История"
+# Настройки
+BTN_PRICE = '🎯 Цена'
+BTN_STEP = '➖ Шаг'
+BTN_MIN = '📉 Мин'
+BTN_MAX = '📈 Макс'
+BTN_INTERVAL = '⏱ Интервал'
+BTN_MODE = '🔀 Режим'
+BTN_POSITION = '📍 Позиция'
+BTN_ADD_URL = '🔗 Добавить URL'
+BTN_REMOVE_URL = '🗑 Удалить URL'
+BTN_EXPORT = '📤 Экспорт'
+BTN_IMPORT = '📥 Импорт'
+BTN_HISTORY = '🧾 История'
 
 
 class TelegramBot:
-    """Telegram бот с Reply Keyboard"""
+    """Telegram бот управления."""
 
-    def __init__(self, api_client=None):
+    def __init__(
+        self,
+        api_client=None,
+        *,
+        api_clients: Optional[Dict[str, object]] = None,
+        profile_products: Optional[Dict[str, int]] = None,
+        profile_default_urls: Optional[Dict[str, list]] = None,
+        profile_labels: Optional[Dict[str, str]] = None,
+    ):
         self.bot_token = config.TELEGRAM_BOT_TOKEN
-        self.admin_ids = set(config.TELEGRAM_ADMIN_IDS)  # для быстрой проверки
-        self.api_client = api_client
+        self.admin_ids = set(config.TELEGRAM_ADMIN_IDS)
         self._app: Optional[Application] = None
-        self.pending_actions: Dict[int, str] = {}  # chat_id -> action
-        # Убираем self.auto_mode – будем всегда брать актуальное из storage
+        self.pending_actions: Dict[int, str] = {}
+        self.chat_profile: Dict[int, str] = {}
 
-    # ===== КЛАВИАТУРЫ =====
-    def get_main_keyboard(self):
-        """Главная клавиатура с актуальным состоянием авторежима"""
-        auto_mode = storage.get_state().get("auto_mode", True)
+        if api_clients is None:
+            api_clients = {DEFAULT_PROFILE: api_client} if api_client else {}
+        self.api_clients: Dict[str, object] = {
+            k.strip().lower(): v
+            for k, v in api_clients.items()
+            if v is not None
+        }
+        self.profile_products = {
+            (k or '').strip().lower(): int(v or 0)
+            for k, v in (profile_products or {}).items()
+        }
+        self.profile_default_urls = {
+            (k or '').strip().lower(): (v or [])
+            for k, v in (profile_default_urls or {}).items()
+        }
+        self.profile_labels = {
+            (k or '').strip().lower(): str(v)
+            for k, v in (profile_labels or {}).items()
+        }
+        if not self.profile_labels:
+            self.profile_labels = {
+                'ggsel': 'GGSEL',
+                'digiseller': 'DIGISELLER',
+            }
+        self.available_profiles = sorted(self.api_clients.keys()) or [DEFAULT_PROFILE]
+        self.default_profile = (
+            DEFAULT_PROFILE
+            if DEFAULT_PROFILE in self.available_profiles
+            else self.available_profiles[0]
+        )
+
+    # ================================
+    # Helpers
+    # ================================
+    def _normalize_text(self, text: str) -> str:
+        text_clean = unicodedata.normalize('NFKC', text or '')
+        for ch in ('\ufe0f', '\ufe0e', '\u200d', '\u200b'):
+            text_clean = text_clean.replace(ch, '')
+        return text_clean.strip()
+
+    def _profile_name(self, profile_id: str) -> str:
+        return self.profile_labels.get(profile_id, profile_id.upper())
+
+    def _active_profile(self, chat_id: Optional[int]) -> str:
+        if chat_id is None:
+            return self.default_profile
+        profile = self.chat_profile.get(chat_id)
+        if profile in self.available_profiles:
+            return profile
+        return self.default_profile
+
+    def _set_profile(self, chat_id: int, profile_id: str):
+        profile = (profile_id or '').strip().lower()
+        if profile in self.available_profiles:
+            self.chat_profile[chat_id] = profile
+
+    def _runtime(self, profile_id: str):
+        return storage.get_runtime_config(
+            config,
+            profile_id=profile_id,
+            default_urls=self.profile_default_urls.get(profile_id, []),
+        )
+
+    def _state(self, profile_id: str):
+        return storage.get_state(profile_id=profile_id)
+
+    def _api_client(self, profile_id: str):
+        return self.api_clients.get(profile_id)
+
+    def _product_id(self, profile_id: str) -> int:
+        return int(self.profile_products.get(profile_id, 0))
+
+    # ================================
+    # Keyboards
+    # ================================
+    def _profile_button(self, profile_id: str) -> str:
+        return f'🧩 {self._profile_name(profile_id)}'
+
+    def get_main_keyboard(self, profile_id: str):
+        auto_mode = self._state(profile_id).get('auto_mode', True)
         auto_btn = BTN_AUTO_ON if auto_mode else BTN_AUTO_OFF
         return ReplyKeyboardMarkup(
             [
                 [BTN_STATUS],
                 [BTN_UP, BTN_DOWN],
                 [auto_btn],
-                [BTN_SETTINGS, BTN_DIAGNOSTICS],
+                [BTN_PROFILE, BTN_SETTINGS],
+                [BTN_DIAGNOSTICS],
             ],
             resize_keyboard=True,
         )
@@ -81,7 +172,8 @@ class TelegramBot:
             [
                 [BTN_PRICE, BTN_STEP],
                 [BTN_MIN, BTN_MAX],
-                [BTN_MODE, BTN_POSITION],
+                [BTN_INTERVAL, BTN_MODE],
+                [BTN_POSITION],
                 [BTN_ADD_URL, BTN_REMOVE_URL],
                 [BTN_EXPORT, BTN_IMPORT],
                 [BTN_HISTORY],
@@ -90,7 +182,14 @@ class TelegramBot:
             resize_keyboard=True,
         )
 
-    # ===== INIT APP =====
+    def get_profile_keyboard(self):
+        profile_rows = [[self._profile_button(pid)] for pid in self.available_profiles]
+        profile_rows.append([BTN_BACK])
+        return ReplyKeyboardMarkup(profile_rows, resize_keyboard=True)
+
+    # ================================
+    # Telegram setup
+    # ================================
     @property
     def app(self):
         if self._app is None:
@@ -99,349 +198,425 @@ class TelegramBot:
         return self._app
 
     def _setup_handlers(self):
-        self.app.add_handler(CommandHandler("start", self.cmd_start))
-        self.app.add_handler(CommandHandler("status", self.cmd_status))
-        self.app.add_handler(CommandHandler("set_competitor", self.cmd_set_competitor_price))
+        self.app.add_handler(CommandHandler('start', self.cmd_start))
+        self.app.add_handler(CommandHandler('status', self.cmd_status))
+        self.app.add_handler(CommandHandler('set_competitor', self.cmd_set_competitor_price))
         self.app.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
         )
 
-    # ===== ACCESS =====
     def _check_access(self, user_id: int) -> bool:
         if user_id not in self.admin_ids:
-            logger.warning(f"Доступ запрещён для user_id={user_id}")
+            logger.warning('Доступ запрещён для user_id=%s', user_id)
             return False
         return True
 
-    def _runtime(self):
-        return storage.get_runtime_config(config)
-
-    # ===== COMMANDS =====
+    # ================================
+    # Commands
+    # ================================
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not update.effective_user or not update.message:
             return
-        user_id = update.effective_user.id
-        if not self._check_access(user_id):
-            # Неавторизованным не показываем клавиатуру
+        if not self._check_access(update.effective_user.id):
             await update.message.reply_text(
-                "❌ Нет доступа", reply_markup=ReplyKeyboardRemove()
+                '❌ Нет доступа',
+                reply_markup=ReplyKeyboardRemove(),
             )
             return
+        chat_id = update.effective_chat.id if update.effective_chat else None
+        profile_id = self._active_profile(chat_id)
         await update.message.reply_text(
-            "👋 Бот запущен\nВыбери действие:", reply_markup=self.get_main_keyboard()
+            (
+                '👋 Бот запущен\n'
+                f'Профиль: {self._profile_name(profile_id)}\n'
+                'Выбери действие:'
+            ),
+            reply_markup=self.get_main_keyboard(profile_id),
         )
 
     async def cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if update.effective_chat:
-            await self.send_status(update.effective_chat.id, update)
+        if not update.effective_chat:
+            return
+        await self.send_status(update.effective_chat.id, update)
 
-    # ===== MESSAGE HANDLER =====
+    # ================================
+    # Message handler
+    # ================================
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not update.effective_user or not update.effective_chat or not update.message:
             return
         user_id = update.effective_user.id
         chat_id = update.effective_chat.id
-        text = update.message.text or ""
+        raw_text = update.message.text or ''
+        text = self._normalize_text(raw_text)
+        profile_id = self._active_profile(chat_id)
 
-        # Нормализация текста (убираем variation selectors и прочее)
-        import unicodedata
-
-        text_clean = unicodedata.normalize("NFKC", text)
-        for ch in ("\ufe0f", "\ufe0e", "\u200d", "\u200b"):
-            text_clean = text_clean.replace(ch, "")
-
-        logger.info(f"Получено: {text!r} → {text_clean!r}")
-
+        logger.info('Получено: %r -> %r', raw_text, text)
         if not self._check_access(user_id):
             await update.message.reply_text(
-                "❌ Нет доступа", reply_markup=ReplyKeyboardRemove()
+                '❌ Нет доступа',
+                reply_markup=ReplyKeyboardRemove(),
             )
             return
 
-        # ===== ГЛАВНОЕ МЕНЮ (сравниваем только нормализованный текст) =====
-        if text_clean == BTN_STATUS:
+        # Главное меню
+        if text == BTN_STATUS:
             await self.send_status(chat_id, update)
-
-        elif text_clean == BTN_UP:
+            return
+        if text == BTN_UP:
             await self.handle_price_change(chat_id, 0.01, update)
-
-        elif text_clean == BTN_DOWN:
+            return
+        if text == BTN_DOWN:
             await self.handle_price_change(chat_id, -0.01, update)
-
-        elif text_clean in (BTN_AUTO_ON, BTN_AUTO_OFF):
+            return
+        if text in (BTN_AUTO_ON, BTN_AUTO_OFF):
             await self.toggle_auto(update)
-
-        elif text_clean == BTN_SETTINGS:
+            return
+        if text == BTN_PROFILE:
+            await update.message.reply_text(
+                'Выбери профиль:',
+                reply_markup=self.get_profile_keyboard(),
+            )
+            return
+        if text == BTN_SETTINGS:
             await self.send_settings(chat_id, update)
-
-        elif text_clean == BTN_DIAGNOSTICS:
+            return
+        if text == BTN_DIAGNOSTICS:
             await self.send_diagnostics(chat_id, update)
+            return
 
-        # ===== НАСТРОЙКИ =====
-        elif text_clean == BTN_PRICE:
-            self.pending_actions[chat_id] = "DESIRED_PRICE"
+        # Выбор профиля
+        for pid in self.available_profiles:
+            if text == self._profile_button(pid):
+                self._set_profile(chat_id, pid)
+                await update.message.reply_text(
+                    f'✅ Активный профиль: {self._profile_name(pid)}',
+                    reply_markup=self.get_main_keyboard(pid),
+                )
+                return
+
+        # Настройки
+        if text == BTN_PRICE:
+            self.pending_actions[chat_id] = 'DESIRED_PRICE'
             await update.message.reply_text(
-                "Введи желаемую цену (например 0.35):",
+                'Введи желаемую цену (например 0.35):',
                 reply_markup=self.get_settings_keyboard(),
             )
-
-        elif text_clean == BTN_STEP:
-            self.pending_actions[chat_id] = "UNDERCUT_VALUE"
+            return
+        if text == BTN_STEP:
+            self.pending_actions[chat_id] = 'UNDERCUT_VALUE'
             await update.message.reply_text(
-                "Введи шаг снижения (например 0.0051):",
+                'Введи шаг снижения (например 0.0051):',
                 reply_markup=self.get_settings_keyboard(),
             )
-
-        elif text_clean == BTN_MIN:
-            self.pending_actions[chat_id] = "MIN_PRICE"
+            return
+        if text == BTN_MIN:
+            self.pending_actions[chat_id] = 'MIN_PRICE'
             await update.message.reply_text(
-                "Введи минимальную цену:", reply_markup=self.get_settings_keyboard()
+                'Введи минимальную цену:',
+                reply_markup=self.get_settings_keyboard(),
             )
-
-        elif text_clean == BTN_MAX:
-            self.pending_actions[chat_id] = "MAX_PRICE"
+            return
+        if text == BTN_MAX:
+            self.pending_actions[chat_id] = 'MAX_PRICE'
             await update.message.reply_text(
-                "Введи максимальную цену:", reply_markup=self.get_settings_keyboard()
+                'Введи максимальную цену:',
+                reply_markup=self.get_settings_keyboard(),
             )
-
-        elif text_clean == BTN_MODE:
+            return
+        if text == BTN_INTERVAL:
+            self.pending_actions[chat_id] = 'CHECK_INTERVAL'
+            runtime = self._runtime(profile_id)
+            await update.message.reply_text(
+                (
+                    'Введи интервал проверки в секундах '
+                    f'({runtime.FAST_CHECK_INTERVAL_MIN}..'
+                    f'{runtime.FAST_CHECK_INTERVAL_MAX}):'
+                ),
+                reply_markup=self.get_settings_keyboard(),
+            )
+            return
+        if text == BTN_MODE:
             await self.toggle_mode(chat_id, user_id, update)
-
-        elif text_clean == BTN_POSITION:
+            return
+        if text == BTN_POSITION:
             await self.toggle_position_filter(chat_id, user_id, update)
-
-        elif text_clean == BTN_ADD_URL:
-            self.pending_actions[chat_id] = "ADD_URL"
+            return
+        if text == BTN_ADD_URL:
+            self.pending_actions[chat_id] = 'ADD_URL'
             await update.message.reply_text(
-                "Отправь URL конкурента:", reply_markup=self.get_settings_keyboard()
-            )
-
-        elif text_clean == BTN_REMOVE_URL:
-            await self.start_remove_url(chat_id, update)
-
-        elif text_clean == BTN_EXPORT:
-            await self.export_settings(chat_id, update)
-
-        elif text_clean == BTN_IMPORT:
-            self.pending_actions[chat_id] = "IMPORT_SETTINGS"
-            await update.message.reply_text(
-                "Отправь настройки в формате key=value\nПример:\nMIN_PRICE=0.25\nMAX_PRICE=10",
+                'Отправь URL конкурента:',
                 reply_markup=self.get_settings_keyboard(),
             )
-
-        elif text_clean == BTN_HISTORY:
+            return
+        if text == BTN_REMOVE_URL:
+            await self.start_remove_url(chat_id, update)
+            return
+        if text == BTN_EXPORT:
+            await self.export_settings(chat_id, update)
+            return
+        if text == BTN_IMPORT:
+            self.pending_actions[chat_id] = 'IMPORT_SETTINGS'
+            await update.message.reply_text(
+                'Отправь настройки в формате key=value',
+                reply_markup=self.get_settings_keyboard(),
+            )
+            return
+        if text == BTN_HISTORY:
             await self.show_settings_history(chat_id, update)
-
-        elif text_clean == BTN_BACK:
+            return
+        if text == BTN_BACK:
             self.pending_actions.pop(chat_id, None)
             await update.message.reply_text(
-                "📋 Главное меню", reply_markup=self.get_main_keyboard()
+                '📋 Главное меню',
+                reply_markup=self.get_main_keyboard(profile_id),
             )
+            return
 
-        # ===== PENDING ACTIONS =====
-        elif chat_id in self.pending_actions:
-            await self.handle_pending_action(chat_id, user_id, text_clean, update)
+        if chat_id in self.pending_actions:
+            await self.handle_pending_action(chat_id, user_id, text, update)
+            return
 
-        else:
-            logger.warning(f"❌ Нераспознанная кнопка: {text!r} (clean={text_clean!r})")
-            await update.message.reply_text(
-                "Используй кнопки 👇", reply_markup=self.get_main_keyboard()
-            )
+        await update.message.reply_text(
+            'Используй кнопки 👇',
+            reply_markup=self.get_main_keyboard(profile_id),
+        )
 
-    # ===== STATUS =====
+    # ================================
+    # Status and diagnostics
+    # ================================
     async def send_status(self, chat_id: int, update: Update):
         if not update.message:
             return
-        state = storage.get_state()
-        runtime = self._runtime()
-        auto_mode = state.get("auto_mode", True)  # берём актуальное
+        profile_id = self._active_profile(chat_id)
+        profile_name = self._profile_name(profile_id)
+        state = self._state(profile_id)
+        runtime = self._runtime(profile_id)
 
-        competitor_info = "N/A"
-        if state.get("last_competitor_min"):
-            rank = state.get("last_competitor_rank")
-            competitor_info = f"#{rank}" if rank else "N/A"
+        competitor_rank = state.get('last_competitor_rank')
+        competitor_info = f'#{competitor_rank}' if competitor_rank else 'N/A'
+        last_update = state.get('last_update')
+        update_str = last_update.strftime('%Y-%m-%d %H:%M') if last_update else 'Никогда'
 
-        last_update = state.get("last_update")
-        update_str = last_update.strftime("%Y-%m-%d %H:%M") if last_update else "Никогда"
+        parse_at = state.get('last_competitor_parse_at')
+        parse_at_str = parse_at.strftime('%Y-%m-%d %H:%M:%S') if parse_at else 'Никогда'
+        competitor_url = state.get('last_competitor_url') or 'N/A'
+        parse_method = state.get('last_competitor_method') or 'N/A'
+
+        my_price = state.get('last_price')
+        competitor_price = state.get('last_competitor_min')
+        my_price_str = f'{my_price:.4f}' if my_price is not None else 'N/A'
+        competitor_price_str = (
+            f'{competitor_price:.4f}'
+            if competitor_price is not None else 'N/A'
+        )
 
         text = f"""📊 Статус
 
-💰 Моя цена: {state.get('last_price') or 'N/A'}₽
-📈 Цена конкурента: {state.get('last_competitor_min') or 'N/A'}₽
+🧩 Профиль: {profile_name}
+💰 Моя цена: {my_price_str}₽
+📈 Цена конкурента: {competitor_price_str}₽
 🔍 Позиция: {competitor_info}
+🔗 URL: {competitor_url}
+🧪 Метод парсинга: {parse_method}
+🕓 Последний парс: {parse_at_str}
 
-🔔 Авто: {'ВКЛ' if auto_mode else 'ВЫКЛ'}
+🔔 Авто: {'ВКЛ' if state.get('auto_mode', True) else 'ВЫКЛ'}
 🎯 Режим: {runtime.MODE}
 🕐 Обновление: {update_str}
+⏲️ Интервал: {runtime.CHECK_INTERVAL}s
 
 📊 Обновлений: {state.get('update_count', 0)}
 ⏭️ Пропусков: {state.get('skip_count', 0)}
 """
-        await update.message.reply_text(text, reply_markup=self.get_main_keyboard())
+        await update.message.reply_text(
+            text,
+            reply_markup=self.get_main_keyboard(profile_id),
+        )
 
-    # ===== SETTINGS =====
     async def send_settings(self, chat_id: int, update: Update):
         if not update.message:
             return
-        runtime = self._runtime()
+        profile_id = self._active_profile(chat_id)
+        profile_name = self._profile_name(profile_id)
+        runtime = self._runtime(profile_id)
+
         text = f"""⚙️ Настройки
 
-📉 MIN: {runtime.MIN_PRICE}₽
-📈 MAX: {runtime.MAX_PRICE}₽
-🎯 Желаемая: {runtime.DESIRED_PRICE}₽
-↘️ Шаг: {runtime.UNDERCUT_VALUE}
+🧩 Профиль: {profile_name}
+📉 MIN: {runtime.MIN_PRICE:.4f}₽
+📈 MAX: {runtime.MAX_PRICE:.4f}₽
+🎯 Желаемая: {runtime.DESIRED_PRICE:.4f}₽
+↘️ Шаг: {runtime.UNDERCUT_VALUE:.4f}
 
 🔹 Режим: {runtime.MODE}
-   - FIXED: {runtime.FIXED_PRICE}₽
-   - STEP_UP: {runtime.STEP_UP_VALUE}₽
+   - FIXED: {runtime.FIXED_PRICE:.4f}₽
+   - STEP_UP: {runtime.STEP_UP_VALUE:.4f}₽
 
-🚫 Слабый конкурент: {runtime.LOW_PRICE_THRESHOLD or 'Выкл'}
-📍 Фильтр позиции: {'Вкл' if runtime.POSITION_FILTER_ENABLED else 'Выкл'}
-⏱️ Cooldown: {runtime.COOLDOWN_SECONDS}с
+⏱️ CHECK_INTERVAL: {runtime.CHECK_INTERVAL}s
+⛑️ MAX_DOWN_STEP: {runtime.MAX_DOWN_STEP:.4f}₽
+🚀 FAST_REBOUND_DELTA: {runtime.FAST_REBOUND_DELTA:.4f}₽
+📍 Позиция: {'Вкл' if runtime.POSITION_FILTER_ENABLED else 'Выкл'}
 🔗 Конкурентов: {len(runtime.COMPETITOR_URLS)}
 """
-        await update.message.reply_text(text, reply_markup=self.get_settings_keyboard())
+        await update.message.reply_text(
+            text,
+            reply_markup=self.get_settings_keyboard(),
+        )
 
-    # ===== DIAGNOSTICS =====
     async def send_diagnostics(self, chat_id: int, update: Update):
         if not update.message:
             return
-        state = storage.get_state()
-        runtime = self._runtime()
+        profile_id = self._active_profile(chat_id)
+        profile_name = self._profile_name(profile_id)
+        state = self._state(profile_id)
+        runtime = self._runtime(profile_id)
         is_valid, errors = validate_runtime_config(runtime)
 
         api_ok = False
         product_price = None
-        if self.api_client:
+        client = self._api_client(profile_id)
+        product_id = self._product_id(profile_id)
+        if client:
             try:
-                api_ok = await asyncio.to_thread(self.api_client.check_api_access)
-                if api_ok:
-                    product = await asyncio.to_thread(
-                        self.api_client.get_product, config.GGSEL_PRODUCT_ID
-                    )
+                api_ok = await asyncio.to_thread(client.check_api_access)
+                if api_ok and product_id:
+                    product = await asyncio.to_thread(client.get_product, product_id)
                     product_price = product.price if product else None
             except Exception as e:
-                logger.error(f"Ошибка API в диагностике: {e}")
-                api_ok = False
+                logger.error('Ошибка API в диагностике: %s', e)
 
         now = datetime.now()
-        last_cycle = state.get("last_cycle")
+        last_cycle = state.get('last_cycle')
         age = int((now - last_cycle).total_seconds()) if last_cycle else 0
-
         lines = [
-            "🩺 Диагностика",
-            "",
+            '🩺 Диагностика',
+            '',
+            f'Профиль: {profile_name}',
             f'API: {"OK" if api_ok else "FAIL"}',
             f'Product: {"OK" if product_price else "FAIL"} ({product_price}₽)',
             f'Config: {"OK" if is_valid else "INVALID"}',
-            f"Heartbeat: {age}s",
+            f'Heartbeat: {age}s',
             f'Auto: {"ON" if state.get("auto_mode", True) else "OFF"}',
-            f"Competitors: {len(runtime.COMPETITOR_URLS)}",
+            f'Competitors: {len(runtime.COMPETITOR_URLS)}',
+            f'Last parser error: {state.get("last_competitor_error") or "N/A"}',
+            (
+                'Last block reason: '
+                f'{state.get("last_competitor_block_reason") or "N/A"}'
+            ),
         ]
         if errors:
-            lines.append("Errors: " + "; ".join(errors[:3]))
+            lines.append('Errors: ' + '; '.join(errors[:3]))
+        await update.message.reply_text(
+            '\n'.join(lines),
+            reply_markup=self.get_main_keyboard(profile_id),
+        )
 
-        text = "\n".join(lines)
-        await update.message.reply_text(text, reply_markup=self.get_main_keyboard())
-
-    # ===== PRICE CHANGE =====
+    # ================================
+    # Actions
+    # ================================
     async def handle_price_change(self, chat_id: int, delta: float, update: Update):
         if not update.message:
             return
-        runtime = self._runtime()
-        state = storage.get_state()
-        current_price = state.get("last_price")
+        profile_id = self._active_profile(chat_id)
+        runtime = self._runtime(profile_id)
+        state = self._state(profile_id)
+        client = self._api_client(profile_id)
+        product_id = self._product_id(profile_id)
+        current_price = state.get('last_price')
 
-        if not current_price and self.api_client:
+        if current_price is None and client and product_id:
             try:
-                current_price = await asyncio.to_thread(
-                    self.api_client.get_my_price, config.GGSEL_PRODUCT_ID
-                )
-            except Exception as e:
-                logger.error(f"Ошибка получения текущей цены: {e}")
-                await update.message.reply_text(
-                    "❌ Ошибка получения цены", reply_markup=self.get_main_keyboard()
-                )
-                return
+                current_price = await asyncio.to_thread(client.get_my_price, product_id)
+            except Exception:
+                current_price = None
 
-        if not current_price:
+        if current_price is None:
             await update.message.reply_text(
-                "❌ Нет цены", reply_markup=self.get_main_keyboard()
+                '❌ Нет текущей цены',
+                reply_markup=self.get_main_keyboard(profile_id),
             )
             return
 
         new_price = round(max(current_price + delta, runtime.MIN_PRICE), 4)
-
         if new_price == current_price:
             await update.message.reply_text(
-                f"⚠️ Минимум {runtime.MIN_PRICE}₽", reply_markup=self.get_main_keyboard()
+                f'⚠️ Минимум {runtime.MIN_PRICE}₽',
+                reply_markup=self.get_main_keyboard(profile_id),
             )
             return
 
-        if self.api_client:
-            try:
-                success = await asyncio.to_thread(
-                    self.api_client.update_price, config.GGSEL_PRODUCT_ID, new_price
-                )
-                if success:
-                    storage.update_state(
-                        last_price=new_price, last_update=datetime.now()
-                    )
-                    await update.message.reply_text(
-                        f"✅ {current_price:.4f}₽ → {new_price:.4f}₽",
-                        reply_markup=self.get_main_keyboard(),
-                    )
-                else:
-                    await update.message.reply_text(
-                        "❌ Ошибка API", reply_markup=self.get_main_keyboard()
-                    )
-            except Exception as e:
-                logger.error(f"Ошибка обновления цены: {e}")
-                await update.message.reply_text(
-                    "❌ Ошибка API", reply_markup=self.get_main_keyboard()
-                )
+        if not client or not product_id:
+            await update.message.reply_text(
+                '❌ Нет API клиента/товара для профиля',
+                reply_markup=self.get_main_keyboard(profile_id),
+            )
+            return
+
+        success = await asyncio.to_thread(client.update_price, product_id, new_price)
+        if success:
+            storage.update_state(
+                profile_id=profile_id,
+                last_price=new_price,
+                last_update=datetime.now(),
+            )
+            await update.message.reply_text(
+                (
+                    f'✅ [{self._profile_name(profile_id)}] '
+                    f'{current_price:.4f}₽ → {new_price:.4f}₽'
+                ),
+                reply_markup=self.get_main_keyboard(profile_id),
+            )
         else:
             await update.message.reply_text(
-                "❌ Нет API клиента", reply_markup=self.get_main_keyboard()
+                '❌ Ошибка API',
+                reply_markup=self.get_main_keyboard(profile_id),
             )
 
-    # ===== AUTO MODE =====
     async def toggle_auto(self, update: Update):
-        if not update.message:
+        if not update.message or not update.effective_chat:
             return
-        state = storage.get_state()
-        new_auto = not state.get("auto_mode", True)
-        storage.update_state(auto_mode=new_auto)
-        status = "ВКЛ" if new_auto else "ВЫКЛ"
+        chat_id = update.effective_chat.id
+        profile_id = self._active_profile(chat_id)
+        state = self._state(profile_id)
+        new_auto = not state.get('auto_mode', True)
+        storage.update_state(profile_id=profile_id, auto_mode=new_auto)
         await update.message.reply_text(
-            f"🔔 Авто {status}", reply_markup=self.get_main_keyboard()
+            f'🔔 Авто: {"ВКЛ" if new_auto else "ВЫКЛ"}',
+            reply_markup=self.get_main_keyboard(profile_id),
         )
 
-    # ===== MODE TOGGLE =====
     async def toggle_mode(self, chat_id: int, user_id: int, update: Update):
         if not update.message:
             return
-        runtime = self._runtime()
-        new_mode = "STEP_UP" if runtime.MODE == "FIXED" else "FIXED"
+        profile_id = self._active_profile(chat_id)
+        runtime = self._runtime(profile_id)
+        new_mode = 'STEP_UP' if runtime.MODE == 'FIXED' else 'FIXED'
         storage.set_runtime_setting(
-            "MODE", new_mode, user_id=user_id, source="telegram"
+            'MODE',
+            new_mode,
+            user_id=user_id,
+            source='telegram',
+            profile_id=profile_id,
         )
         await update.message.reply_text(
-            f"✅ Режим: {new_mode}", reply_markup=self.get_settings_keyboard()
+            f'✅ Режим: {new_mode}',
+            reply_markup=self.get_settings_keyboard(),
         )
         await self.send_settings(chat_id, update)
 
-    # ===== POSITION FILTER =====
     async def toggle_position_filter(self, chat_id: int, user_id: int, update: Update):
         if not update.message:
             return
-        runtime = self._runtime()
+        profile_id = self._active_profile(chat_id)
+        runtime = self._runtime(profile_id)
         new_value = not runtime.POSITION_FILTER_ENABLED
         storage.set_runtime_setting(
-            "POSITION_FILTER_ENABLED",
-            "true" if new_value else "false",
+            'POSITION_FILTER_ENABLED',
+            'true' if new_value else 'false',
             user_id=user_id,
-            source="telegram",
+            source='telegram',
+            profile_id=profile_id,
         )
         await update.message.reply_text(
             f'✅ Позиция: {"Вкл" if new_value else "Выкл"}',
@@ -449,69 +624,265 @@ class TelegramBot:
         )
         await self.send_settings(chat_id, update)
 
-    # ===== REMOVE URL =====
     async def start_remove_url(self, chat_id: int, update: Update):
         if not update.message:
             return
-        urls = storage.get_competitor_urls(config.COMPETITOR_URLS)
+        profile_id = self._active_profile(chat_id)
+        urls = storage.get_competitor_urls(
+            self.profile_default_urls.get(profile_id, []),
+            profile_id=profile_id,
+        )
         if not urls:
             await update.message.reply_text(
-                "Список пуст", reply_markup=self.get_settings_keyboard()
-            )
-            return
-        lines = ["Удали номер URL:"] + [f"{i}. {u}" for i, u in enumerate(urls, 1)]
-        self.pending_actions[chat_id] = "REMOVE_URL"
-        await update.message.reply_text(
-            "\n".join(lines), reply_markup=self.get_settings_keyboard()
-        )
-
-    # ===== EXPORT =====
-    async def export_settings(self, chat_id: int, update: Update):
-        if not update.message:
-            return
-        settings = storage.get_all_runtime_settings()
-        if not settings:
-            await update.message.reply_text(
-                "Настройки пусты (используется .env)",
+                'Список пуст',
                 reply_markup=self.get_settings_keyboard(),
             )
             return
-        lines = ["Настройки:"] + [f"{k}={v}" for k, v in sorted(settings.items())]
+        self.pending_actions[chat_id] = 'REMOVE_URL'
+        lines = ['Удали номер URL:'] + [f'{i}. {u}' for i, u in enumerate(urls, 1)]
         await update.message.reply_text(
-            "\n".join(lines), reply_markup=self.get_settings_keyboard()
+            '\n'.join(lines),
+            reply_markup=self.get_settings_keyboard(),
         )
 
-    # ===== HISTORY =====
+    async def export_settings(self, chat_id: int, update: Update):
+        if not update.message:
+            return
+        profile_id = self._active_profile(chat_id)
+        settings = storage.get_all_runtime_settings(profile_id=profile_id)
+        if not settings:
+            await update.message.reply_text(
+                'Настройки пусты (используется .env)',
+                reply_markup=self.get_settings_keyboard(),
+            )
+            return
+        lines = [
+            f'Профиль: {self._profile_name(profile_id)}',
+            'Настройки:',
+        ] + [f'{k}={v}' for k, v in sorted(settings.items())]
+        await update.message.reply_text(
+            '\n'.join(lines),
+            reply_markup=self.get_settings_keyboard(),
+        )
+
     async def show_settings_history(self, chat_id: int, update: Update):
         if not update.message:
             return
-        rows = storage.get_settings_history(limit=15)
+        profile_id = self._active_profile(chat_id)
+        rows = storage.get_settings_history(limit=15, profile_id=profile_id)
         if not rows:
             await update.message.reply_text(
-                "История пуста", reply_markup=self.get_settings_keyboard()
+                'История пуста',
+                reply_markup=self.get_settings_keyboard(),
             )
             return
-        lines = ["История:"] + [
-            f"{r['timestamp']} | {r['key']}: {r['old_value']} → {r['new_value']}"
+        lines = [f'История ({self._profile_name(profile_id)}):'] + [
+            (
+                f"{r['timestamp']} | {r['key']}: "
+                f"{r['old_value']} → {r['new_value']}"
+            )
             for r in rows
         ]
         await update.message.reply_text(
-            "\n".join(lines), reply_markup=self.get_settings_keyboard()
+            '\n'.join(lines),
+            reply_markup=self.get_settings_keyboard(),
         )
 
-    # ===== NOTIFICATIONS =====
+    async def handle_pending_action(
+        self,
+        chat_id: int,
+        user_id: int,
+        text: str,
+        update: Update,
+    ):
+        if not update.message:
+            return
+        action = self.pending_actions.get(chat_id)
+        if not action:
+            return
+        profile_id = self._active_profile(chat_id)
+        runtime = self._runtime(profile_id)
+
+        if action in {'DESIRED_PRICE', 'UNDERCUT_VALUE', 'MIN_PRICE', 'MAX_PRICE'}:
+            try:
+                value = float(text.replace(',', '.'))
+            except ValueError:
+                await update.message.reply_text(
+                    '❌ Введи число',
+                    reply_markup=self.get_settings_keyboard(),
+                )
+                return
+            if value <= 0:
+                await update.message.reply_text(
+                    '❌ Значение должно быть > 0',
+                    reply_markup=self.get_settings_keyboard(),
+                )
+                return
+            storage.set_runtime_setting(
+                action,
+                str(value),
+                user_id=user_id,
+                source='telegram',
+                profile_id=profile_id,
+            )
+            self.pending_actions.pop(chat_id, None)
+            await update.message.reply_text(
+                f'✅ {action} = {value}',
+                reply_markup=self.get_settings_keyboard(),
+            )
+            await self.send_settings(chat_id, update)
+            return
+
+        if action == 'CHECK_INTERVAL':
+            try:
+                value = int(float(text.replace(',', '.')))
+            except ValueError:
+                await update.message.reply_text(
+                    '❌ Введи целое число секунд',
+                    reply_markup=self.get_settings_keyboard(),
+                )
+                return
+            if value < runtime.FAST_CHECK_INTERVAL_MIN or (
+                value > runtime.FAST_CHECK_INTERVAL_MAX
+            ):
+                await update.message.reply_text(
+                    (
+                        '❌ Интервал должен быть в диапазоне '
+                        f'{runtime.FAST_CHECK_INTERVAL_MIN}..'
+                        f'{runtime.FAST_CHECK_INTERVAL_MAX} секунд'
+                    ),
+                    reply_markup=self.get_settings_keyboard(),
+                )
+                return
+            storage.set_runtime_setting(
+                'CHECK_INTERVAL',
+                str(value),
+                user_id=user_id,
+                source='telegram',
+                profile_id=profile_id,
+            )
+            self.pending_actions.pop(chat_id, None)
+            await update.message.reply_text(
+                f'✅ CHECK_INTERVAL = {value}s',
+                reply_markup=self.get_settings_keyboard(),
+            )
+            await self.send_settings(chat_id, update)
+            return
+
+        if action == 'ADD_URL':
+            if not text.startswith('http'):
+                await update.message.reply_text(
+                    '❌ Нужен URL',
+                    reply_markup=self.get_settings_keyboard(),
+                )
+                return
+            urls = storage.get_competitor_urls(
+                self.profile_default_urls.get(profile_id, []),
+                profile_id=profile_id,
+            )
+            if text not in urls:
+                urls.append(text)
+                storage.set_competitor_urls(
+                    urls,
+                    user_id=user_id,
+                    source='telegram',
+                    profile_id=profile_id,
+                )
+            self.pending_actions.pop(chat_id, None)
+            await update.message.reply_text(
+                '✅ URL добавлен',
+                reply_markup=self.get_settings_keyboard(),
+            )
+            await self.send_settings(chat_id, update)
+            return
+
+        if action == 'REMOVE_URL':
+            try:
+                idx = int(text) - 1
+            except ValueError:
+                await update.message.reply_text(
+                    '❌ Введи номер',
+                    reply_markup=self.get_settings_keyboard(),
+                )
+                return
+            urls = storage.get_competitor_urls(
+                self.profile_default_urls.get(profile_id, []),
+                profile_id=profile_id,
+            )
+            if 0 <= idx < len(urls):
+                removed = urls.pop(idx)
+                storage.set_competitor_urls(
+                    urls,
+                    user_id=user_id,
+                    source='telegram',
+                    profile_id=profile_id,
+                )
+                self.pending_actions.pop(chat_id, None)
+                await update.message.reply_text(
+                    f'✅ Удалён: {removed}',
+                    reply_markup=self.get_settings_keyboard(),
+                )
+                await self.send_settings(chat_id, update)
+            return
+
+        if action == 'IMPORT_SETTINGS':
+            allowed = {
+                'MIN_PRICE',
+                'MAX_PRICE',
+                'DESIRED_PRICE',
+                'UNDERCUT_VALUE',
+                'MODE',
+                'FIXED_PRICE',
+                'STEP_UP_VALUE',
+                'LOW_PRICE_THRESHOLD',
+                'WEAK_PRICE_CEIL_LIMIT',
+                'POSITION_FILTER_ENABLED',
+                'WEAK_POSITION_THRESHOLD',
+                'COOLDOWN_SECONDS',
+                'IGNORE_DELTA',
+                'CHECK_INTERVAL',
+                'COMPETITOR_COOKIES',
+                'MAX_DOWN_STEP',
+                'FAST_REBOUND_DELTA',
+            }
+            imported = 0
+            for line in text.splitlines():
+                if '=' not in line:
+                    continue
+                key, value = line.split('=', 1)
+                key = key.strip()
+                value = value.strip()
+                if key not in allowed:
+                    continue
+                storage.set_runtime_setting(
+                    key,
+                    value,
+                    user_id=user_id,
+                    source='telegram',
+                    profile_id=profile_id,
+                )
+                imported += 1
+            self.pending_actions.pop(chat_id, None)
+            await update.message.reply_text(
+                f'✅ Импорт завершён (импортировано {imported})',
+                reply_markup=self.get_settings_keyboard(),
+            )
+            await self.send_settings(chat_id, update)
+            return
+
+    # ================================
+    # Notifications
+    # ================================
     async def notify(self, message: str):
-        """Уведомление всем администраторам (без клавиатуры, чтобы не сбивать контекст)"""
         for admin_id in self.admin_ids:
             try:
                 await self.app.bot.send_message(
                     chat_id=admin_id,
                     text=message,
                     parse_mode=ParseMode.MARKDOWN,
-                    # Не передаём reply_markup, чтобы не менять текущую клавиатуру пользователя
                 )
             except Exception as e:
-                logger.error(f"Ошибка отправки уведомления admin_id={admin_id}: {e}")
+                logger.error('Ошибка отправки уведомления admin_id=%s: %s', admin_id, e)
 
     async def notify_price_updated(
         self,
@@ -519,13 +890,16 @@ class TelegramBot:
         new_price: float,
         competitor_price: float,
         reason: str,
+        profile_name: Optional[str] = None,
     ):
+        profile = profile_name or 'default'
         text = (
-            "💰 *Цена обновлена*\n\n"
-            f"Старая: `{old_price:.4f}₽`\n"
-            f"Новая: `{new_price:.4f}₽`\n"
-            f"Конкурент: `{competitor_price:.4f}₽`\n"
-            f"Причина: `{reason}`"
+            '💰 *Цена обновлена*\n\n'
+            f'Профиль: `{profile}`\n'
+            f'Старая: `{old_price:.4f}₽`\n'
+            f'Новая: `{new_price:.4f}₽`\n'
+            f'Конкурент: `{competitor_price:.4f}₽`\n'
+            f'Причина: `{reason}`'
         )
         await self.notify(text)
 
@@ -535,18 +909,21 @@ class TelegramBot:
         target_price: float,
         competitor_price: float,
         reason: str,
+        profile_name: Optional[str] = None,
     ):
+        profile = profile_name or 'default'
         text = (
-            "⏭️ *Пропуск обновления*\n\n"
-            f"Текущая: `{current_price:.4f}₽`\n"
-            f"Целевая: `{target_price:.4f}₽`\n"
-            f"Конкурент: `{competitor_price:.4f}₽`\n"
-            f"Причина: `{reason}`"
+            '⏭️ *Пропуск обновления*\n\n'
+            f'Профиль: `{profile}`\n'
+            f'Текущая: `{current_price:.4f}₽`\n'
+            f'Целевая: `{target_price:.4f}₽`\n'
+            f'Конкурент: `{competitor_price:.4f}₽`\n'
+            f'Причина: `{reason}`'
         )
         await self.notify(text)
 
     async def notify_error(self, error: str):
-        await self.notify(f"❌ *Ошибка*\n\n`{error}`")
+        await self.notify(f'❌ *Ошибка*\n\n`{error}`')
 
     async def notify_competitor_price_changed(
         self,
@@ -554,201 +931,113 @@ class TelegramBot:
         new_price: float,
         delta: float,
         rank: Optional[int] = None,
+        url: Optional[str] = None,
+        profile_name: Optional[str] = None,
     ):
-        rank_text = f"`#{rank}`" if rank is not None else "`N/A`"
+        rank_text = f'#{rank}' if rank is not None else 'N/A'
+        profile = profile_name or 'default'
         text = (
-            "📡 *Изменение цены конкурента*\n\n"
-            f"Было: `{old_price:.4f}₽`\n"
-            f"Стало: `{new_price:.4f}₽`\n"
-            f"Δ: `{delta:.4f}₽`\n"
-            f"Позиция: {rank_text}"
+            '📡 *Изменение цены конкурента*\n\n'
+            f'Профиль: `{profile}`\n'
+            f'Было: `{old_price:.4f}₽`\n'
+            f'Стало: `{new_price:.4f}₽`\n'
+            f'Δ: `{delta:.4f}₽`\n'
+            f'Позиция: `{rank_text}`\n'
+            f'URL: `{url or "N/A"}`'
         )
         await self.notify(text)
 
-    async def notify_startup(self):
-        runtime = self._runtime()
+    async def notify_parser_issue(
+        self,
+        *,
+        url: str,
+        method: str,
+        reason: str,
+        error: str,
+        status_code: Optional[int] = None,
+        profile_name: Optional[str] = None,
+    ):
+        profile = profile_name or 'default'
+        status = status_code if status_code is not None else 'N/A'
         text = (
-            "🚀 *Auto-Pricing Bot запущен*\n\n"
-            f"Товар: `{config.GGSEL_PRODUCT_ID}`\n"
-            f"Конкурентов: `{len(runtime.COMPETITOR_URLS)}`\n"
-            f"Интервал: `{runtime.CHECK_INTERVAL}s`"
+            '🚫 *Проблема парсинга конкурента*\n\n'
+            f'Профиль: `{profile}`\n'
+            f'URL: `{url}`\n'
+            f'Метод: `{method}`\n'
+            f'Причина: `{reason}`\n'
+            f'HTTP: `{status}`\n'
+            f'Ошибка: `{error}`'
         )
         await self.notify(text)
 
-    # ===== PENDING ACTIONS =====
-    async def handle_pending_action(
-        self, chat_id: int, user_id: int, text: str, update: Update
-    ):
-        if not update.message:
-            return
-        action = self.pending_actions.get(chat_id)
-        if not action:
-            return
-
-        if action in {"DESIRED_PRICE", "UNDERCUT_VALUE", "MIN_PRICE", "MAX_PRICE"}:
-            try:
-                value = float(text.replace(",", "."))
-            except ValueError:
-                await update.message.reply_text(
-                    "❌ Введи число", reply_markup=self.get_settings_keyboard()
-                )
-                return
-            if value <= 0:
-                await update.message.reply_text(
-                    "❌ > 0", reply_markup=self.get_settings_keyboard()
-                )
-                return
-            storage.set_runtime_setting(
-                action, str(value), user_id=user_id, source="telegram"
-            )
-            self.pending_actions.pop(chat_id, None)
-            await update.message.reply_text(
-                f"✅ {action} = {value}", reply_markup=self.get_settings_keyboard()
-            )
-            await self.send_settings(chat_id, update)
-
-        elif action == "ADD_URL":
-            if not text.startswith("http"):
-                await update.message.reply_text(
-                    "❌ Нужен URL", reply_markup=self.get_settings_keyboard()
-                )
-                return
-            urls = storage.get_competitor_urls(config.COMPETITOR_URLS)
-            if text not in urls:
-                urls.append(text)
-                storage.set_competitor_urls(urls, user_id=user_id, source="telegram")
-            self.pending_actions.pop(chat_id, None)
-            await update.message.reply_text(
-                "✅ URL добавлен", reply_markup=self.get_settings_keyboard()
-            )
-            await self.send_settings(chat_id, update)
-
-        elif action == "REMOVE_URL":
-            try:
-                idx = int(text) - 1
-            except ValueError:
-                await update.message.reply_text(
-                    "❌ Введи номер", reply_markup=self.get_settings_keyboard()
-                )
-                return
-            urls = storage.get_competitor_urls(config.COMPETITOR_URLS)
-            if 0 <= idx < len(urls):
-                removed = urls.pop(idx)
-                storage.set_competitor_urls(urls, user_id=user_id, source="telegram")
-                self.pending_actions.pop(chat_id, None)
-                await update.message.reply_text(
-                    f"✅ Удалён: {removed}", reply_markup=self.get_settings_keyboard()
-                )
-                await self.send_settings(chat_id, update)
-
-        elif action == "IMPORT_SETTINGS":
-            allowed = {
-                "MIN_PRICE",
-                "MAX_PRICE",
-                "DESIRED_PRICE",
-                "UNDERCUT_VALUE",
-                "MODE",
-                "FIXED_PRICE",
-                "STEP_UP_VALUE",
-                "LOW_PRICE_THRESHOLD",
-                "WEAK_PRICE_CEIL_LIMIT",
-                "POSITION_FILTER_ENABLED",
-                "WEAK_POSITION_THRESHOLD",
-                "COOLDOWN_SECONDS",
-                "IGNORE_DELTA",
-                "CHECK_INTERVAL",
-                "COMPETITOR_COOKIES",
-            }
-            imported = 0
-            for line in text.splitlines():
-                if "=" in line:
-                    k, v = line.split("=", 1)
-                    k = k.strip()
-                    if k in allowed:
-                        # Простая валидация типов
-                        if k in {
-                            "MIN_PRICE",
-                            "MAX_PRICE",
-                            "DESIRED_PRICE",
-                            "UNDERCUT_VALUE",
-                            "FIXED_PRICE",
-                            "STEP_UP_VALUE",
-                            "LOW_PRICE_THRESHOLD",
-                            "WEAK_PRICE_CEIL_LIMIT",
-                            "WEAK_POSITION_THRESHOLD",
-                            "COOLDOWN_SECONDS",
-                            "IGNORE_DELTA",
-                            "CHECK_INTERVAL",
-                        }:
-                            try:
-                                float(v)
-                            except ValueError:
-                                continue
-                        elif k in {"POSITION_FILTER_ENABLED"}:
-                            if v.lower() not in ("true", "false", "1", "0"):
-                                continue
-                        storage.set_runtime_setting(
-                            k, v.strip(), user_id=user_id, source="telegram"
-                        )
-                        imported += 1
-            self.pending_actions.pop(chat_id, None)
-            await update.message.reply_text(
-                f"✅ Импорт завершён (импортировано {imported})",
-                reply_markup=self.get_settings_keyboard(),
-            )
-            await self.send_settings(chat_id, update)
-
-    # ===== START / STOP =====
+    # ================================
+    # Lifecycle
+    # ================================
     async def start(self):
         app = self.app
         await app.initialize()
         await app.start()
         if app.updater:
             await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-        logger.info("Telegram бот запущен")
+        logger.info('Telegram бот запущен')
 
     async def stop(self):
-        if self._app:
-            if self._app.updater and self._app.updater.running:
-                await self._app.updater.stop()
-            if self._app.running:
-                await self._app.stop()
-            await self._app.shutdown()
-
-    # ===== РУЧНАЯ УСТАНОВКА ЦЕНЫ КОНКУРЕНТА =====
-    async def cmd_set_competitor_price(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Ручная установка цены конкурента через /set_competitor <цена>"""
-        if not update.message or not self._check_access(update.effective_user.id):
+        if not self._app:
             return
+        if self._app.updater and self._app.updater.running:
+            await self._app.updater.stop()
+        if self._app.running:
+            await self._app.stop()
+        await self._app.shutdown()
 
-        if not context.args or len(context.args) == 0:
+    # ================================
+    # Commands
+    # ================================
+    async def cmd_set_competitor_price(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+        if not update.message or not update.effective_user:
+            return
+        if not self._check_access(update.effective_user.id):
+            return
+        chat_id = update.effective_chat.id if update.effective_chat else None
+        profile_id = self._active_profile(chat_id)
+        if not context.args:
             await update.message.reply_text(
-                "Использование: /set_competitor <цена>\nПример: /set_competitor 0.35",
-                reply_markup=self.get_main_keyboard()
+                'Использование: /set_competitor <цена>',
+                reply_markup=self.get_main_keyboard(profile_id),
             )
             return
-
         try:
             price = float(context.args[0].replace(',', '.'))
             if price <= 0:
-                raise ValueError()
-
-            storage.update_state(
-                last_competitor_price=price,
-                last_competitor_min=price,
-            )
-            await update.message.reply_text(
-                f"✅ Цена конкурента установлена: {price}₽",
-                reply_markup=self.get_main_keyboard()
-            )
-            logger.info(f"Установлена цена конкурента: {price}₽ (вручную)")
-
+                raise ValueError
         except ValueError:
             await update.message.reply_text(
-                "❌ Ошибка: введите число больше 0",
-                reply_markup=self.get_main_keyboard()
+                '❌ Введи число > 0',
+                reply_markup=self.get_main_keyboard(profile_id),
             )
+            return
+
+        storage.update_state(
+            profile_id=profile_id,
+            last_competitor_price=price,
+            last_competitor_min=price,
+            last_competitor_parse_at=datetime.now(),
+            last_competitor_method='manual',
+            last_competitor_error=None,
+            last_competitor_block_reason=None,
+            last_competitor_status_code=None,
+        )
+        await update.message.reply_text(
+            (
+                f'✅ [{self._profile_name(profile_id)}] '
+                f'Цена конкурента установлена: {price:.4f}₽'
+            ),
+            reply_markup=self.get_main_keyboard(profile_id),
+        )
 
 
-# Глобальный экземпляр (можно оставить, но лучше использовать dependency injection)
 telegram_bot: Optional[TelegramBot] = None

@@ -35,6 +35,24 @@ class Config:
     GGSEL_BASE_URL: str = 'https://seller.ggsel.com/api_sellers/api'
     GGSEL_LANG: str = os.getenv('GGSEL_LANG', 'ru-RU')
     GGSEL_REQUIRE_API_ON_START: bool = _env_bool('GGSEL_REQUIRE_API_ON_START', False)
+    GGSEL_ENABLED: bool = _env_bool('GGSEL_ENABLED', True)
+
+    # DigiSeller API (второй профиль)
+    DIGISELLER_API_KEY: str = os.getenv('DIGISELLER_API_KEY', '')
+    DIGISELLER_ACCESS_TOKEN: str = os.getenv('DIGISELLER_ACCESS_TOKEN', '')
+    DIGISELLER_SELLER_ID: int = int(os.getenv('DIGISELLER_SELLER_ID', '0'))
+    DIGISELLER_PRODUCT_ID: int = int(os.getenv('DIGISELLER_PRODUCT_ID', '0'))
+    DIGISELLER_BASE_URL: str = os.getenv(
+        'DIGISELLER_BASE_URL',
+        'https://api.digiseller.com/api',
+    )
+    DIGISELLER_LANG: str = os.getenv('DIGISELLER_LANG', 'ru-RU')
+    DIGISELLER_REQUIRE_API_ON_START: bool = _env_bool(
+        'DIGISELLER_REQUIRE_API_ON_START',
+        False,
+    )
+    DIGISELLER_ENABLED: bool = _env_bool('DIGISELLER_ENABLED', False)
+    DIGISELLER_COMPETITOR_URLS: List[str] = None
     
     # Конкуренты (список URL)
     COMPETITOR_URLS: List[str] = None
@@ -43,6 +61,10 @@ class Config:
     # Cookies для доступа к защищенным страницам конкурента
     # Формат: "name1=value1; name2=value2"
     COMPETITOR_COOKIES: str = os.getenv('COMPETITOR_COOKIES', '')
+    COMPETITOR_COOKIES_BACKUP_PATH: str = os.getenv(
+        'COMPETITOR_COOKIES_BACKUP_PATH',
+        'data/cookies_backup.json',
+    )
     # Selenium/Chrome profile mode (для обхода anti-bot без proxy)
     SELENIUM_USE_REAL_PROFILE: bool = _env_bool('SELENIUM_USE_REAL_PROFILE', False)
     SELENIUM_CHROME_USER_DATA_DIR: str = os.getenv('SELENIUM_CHROME_USER_DATA_DIR', '')
@@ -51,6 +73,7 @@ class Config:
     
     # Playwright fallback (для RSC парсера)
     RSC_USE_PLAYWRIGHT: bool = _env_bool('RSC_USE_PLAYWRIGHT', True)
+    RSC_USE_SELENIUM_FALLBACK: bool = _env_bool('RSC_USE_SELENIUM_FALLBACK', True)
     RSC_MAX_RETRIES: int = int(os.getenv('RSC_MAX_RETRIES', '2'))
 
     # Distill.io fallback
@@ -90,7 +113,10 @@ class Config:
     IGNORE_DELTA: float = float(os.getenv('IGNORE_DELTA', '0.001'))
     
     # Интервал проверки (секунды)
-    CHECK_INTERVAL: int = int(os.getenv('CHECK_INTERVAL', '600'))  # 10 минут по умолчанию
+    CHECK_INTERVAL: int = int(os.getenv('CHECK_INTERVAL', '30'))
+    # Быстрый интервал (секунды): используется как рекомендуемый диапазон в UI
+    FAST_CHECK_INTERVAL_MIN: int = int(os.getenv('FAST_CHECK_INTERVAL_MIN', '20'))
+    FAST_CHECK_INTERVAL_MAX: int = int(os.getenv('FAST_CHECK_INTERVAL_MAX', '60'))
 
     # Уведомления
     NOTIFY_SKIP: bool = _env_bool('NOTIFY_SKIP', False)
@@ -103,6 +129,17 @@ class Config:
     NOTIFY_COMPETITOR_CHANGE: bool = _env_bool('NOTIFY_COMPETITOR_CHANGE', True)
     COMPETITOR_CHANGE_DELTA: float = float(os.getenv('COMPETITOR_CHANGE_DELTA', '0.0001'))
     COMPETITOR_CHANGE_COOLDOWN_SECONDS: int = int(os.getenv('COMPETITOR_CHANGE_COOLDOWN_SECONDS', '60'))
+    NOTIFY_PARSER_ISSUES: bool = _env_bool('NOTIFY_PARSER_ISSUES', True)
+    PARSER_ISSUE_COOLDOWN_SECONDS: int = int(os.getenv('PARSER_ISSUE_COOLDOWN_SECONDS', '300'))
+
+    # Защита от убытков и резких колебаний
+    HARD_FLOOR_ENABLED: bool = _env_bool('HARD_FLOOR_ENABLED', True)
+    MAX_DOWN_STEP: float = float(os.getenv('MAX_DOWN_STEP', '0.03'))
+    FAST_REBOUND_DELTA: float = float(os.getenv('FAST_REBOUND_DELTA', '0.01'))
+    FAST_REBOUND_BYPASS_COOLDOWN: bool = _env_bool(
+        'FAST_REBOUND_BYPASS_COOLDOWN',
+        True,
+    )
     
     # Логирование
     LOG_LEVEL: str = os.getenv('LOG_LEVEL', 'INFO')
@@ -122,6 +159,12 @@ class Config:
         if self.WATCHLIST_URLS is None:
             wl_str = os.getenv('WATCHLIST_URLS', '')
             self.WATCHLIST_URLS = [x.strip() for x in wl_str.split(',') if x.strip()]
+
+        if self.DIGISELLER_COMPETITOR_URLS is None:
+            d_urls_str = os.getenv('DIGISELLER_COMPETITOR_URLS', '')
+            self.DIGISELLER_COMPETITOR_URLS = [
+                x.strip() for x in d_urls_str.split(',') if x.strip()
+            ]
 
 
 # Глобальный экземпляр конфигурации

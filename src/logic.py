@@ -48,6 +48,7 @@ def calculate_price(
     config: Config,
     target_competitor_rank: Optional[int] = None,
     force_weak_mode: bool = False,
+    allow_fast_rebound: bool = False,
 ) -> PriceDecision:
     """
     Расчёт целевой цены согласно бизнес-логике
@@ -123,19 +124,34 @@ def calculate_price(
             new_price = config.MAX_PRICE
             reason += f'_max_capped({config.MAX_PRICE})'
             logger.info(f'Цена ограничена MAX_PRICE: {config.MAX_PRICE}')
-        
-        # === ШАГ 9: Проверить cooldown ===
+
+        # === ШАГ 9: Применить hard floor / max-down-step ===
+        new_price, reason = _apply_loss_protection(
+            new_price=new_price,
+            current_price=current_price,
+            reason=reason,
+            config=config,
+        )
+
+        # === ШАГ 10: Проверить cooldown ===
         if last_update and (now - last_update).total_seconds() < config.COOLDOWN_SECONDS:
-            logger.info(f'Cooldown активен ({config.COOLDOWN_SECONDS}s)')
-            return PriceDecision(
-                action='skip',
-                price=new_price,
-                reason=f'cooldown_active_{reason}',
-                old_price=current_price,
-                competitor_price=min_competitor_price,
-            )
+            if not (
+                allow_fast_rebound
+                and current_price is not None
+                and new_price > current_price
+            ):
+                logger.info(f'Cooldown активен ({config.COOLDOWN_SECONDS}s)')
+                return PriceDecision(
+                    action='skip',
+                    price=new_price,
+                    reason=f'cooldown_active_{reason}',
+                    old_price=current_price,
+                    competitor_price=min_competitor_price,
+                )
+            reason = f'fast_rebound_{reason}'
+            logger.info('Cooldown bypass для быстрого отката вверх')
         
-        # === ШАГ 10: Проверить ignore delta ===
+        # === ШАГ 11: Проверить ignore delta ===
         if current_price is not None:
             delta = abs(new_price - current_price)
             if delta < config.IGNORE_DELTA:
@@ -158,56 +174,44 @@ def calculate_price(
     
     # === ШАГ 4: Применить базовую формулу (-0.0051) ===
     new_price = _to_price(min_competitor_price_d - undercut_value_d)
+    reason = 'base_formula'
     logger.info(
         f'Базовая формула: {min_competitor_price} - {config.UNDERCUT_VALUE} = {new_price}'
     )
     
-    # === ШАГ 5: Проверить MIN_PRICE ===
-    if new_price < config.MIN_PRICE:
-        logger.info(f'Цена ниже MIN_PRICE ({config.MIN_PRICE})')
-        
-        # === ШАГ 6: Применить MODE (FIXED/STEP_UP) ===
-        if config.MODE == 'FIXED':
-            new_price = _to_price(_d(config.FIXED_PRICE))
-            reason = f'min_price_fixed({config.FIXED_PRICE})'
-            logger.info(f'MODE=FIXED: цена={config.FIXED_PRICE}')
-            
-        elif config.MODE == 'STEP_UP':
-            if current_price is not None:
-                new_price = current_price + config.STEP_UP_VALUE
-                new_price = _to_price(_d(new_price))
-                reason = f'min_price_step_up({current_price}+{config.STEP_UP_VALUE})'
-                logger.info(f'MODE=STEP_UP: {current_price} + {config.STEP_UP_VALUE} = {new_price}')
-            else:
-                new_price = config.MIN_PRICE + config.STEP_UP_VALUE
-                new_price = _to_price(_d(new_price))
-                reason = f'min_price_step_up_default({new_price})'
-                logger.info(f'MODE=STEP_UP (нет текущей): цена={new_price}')
-        else:
-            logger.warning(f'Неизвестный MODE={config.MODE}, используем FIXED')
-            new_price = _to_price(_d(config.FIXED_PRICE))
-            reason = f'min_price_fixed_default({config.FIXED_PRICE})'
-    else:
-        reason = 'base_formula'
-    
-    # === ШАГ 7: Проверить MAX_PRICE ===
+    # === ШАГ 5: Проверить MAX_PRICE ===
     if new_price > config.MAX_PRICE:
         new_price = _to_price(_d(config.MAX_PRICE))
         reason += f'_max_capped({config.MAX_PRICE})'
         logger.info(f'Цена ограничена MAX_PRICE: {config.MAX_PRICE}')
-    
-    # === ШАГ 8: Проверить cooldown ===
+
+    # === ШАГ 6: Применить hard floor / max-down-step ===
+    new_price, reason = _apply_loss_protection(
+        new_price=new_price,
+        current_price=current_price,
+        reason=reason,
+        config=config,
+    )
+
+    # === ШАГ 7: Проверить cooldown ===
     if last_update and (now - last_update).total_seconds() < config.COOLDOWN_SECONDS:
-        logger.info(f'Cooldown активен ({config.COOLDOWN_SECONDS}s)')
-        return PriceDecision(
-            action='skip',
-            price=new_price,
-            reason=f'cooldown_active_{reason}',
-            old_price=current_price,
-            competitor_price=min_competitor_price,
-        )
+        if not (
+            allow_fast_rebound
+            and current_price is not None
+            and new_price > current_price
+        ):
+            logger.info(f'Cooldown активен ({config.COOLDOWN_SECONDS}s)')
+            return PriceDecision(
+                action='skip',
+                price=new_price,
+                reason=f'cooldown_active_{reason}',
+                old_price=current_price,
+                competitor_price=min_competitor_price,
+            )
+        reason = f'fast_rebound_{reason}'
+        logger.info('Cooldown bypass для быстрого отката вверх')
     
-    # === ШАГ 9: Проверить ignore delta ===
+    # === ШАГ 8: Проверить ignore delta ===
     if current_price is not None:
         delta = abs(new_price - current_price)
         if delta < config.IGNORE_DELTA:
@@ -219,8 +223,8 @@ def calculate_price(
                 old_price=current_price,
                 competitor_price=min_competitor_price,
             )
-    
-    # === ШАГ 10: Вернуть решение ===
+
+    # === ШАГ 9: Вернуть решение ===
     return PriceDecision(
         action='update',
         price=new_price,
@@ -238,3 +242,52 @@ def calculate(
 ) -> PriceDecision:
     """Обёртка для calculate_price с глобальным config"""
     return calculate_price(competitor_prices, current_price, last_update, config)
+
+
+def _apply_loss_protection(
+    *,
+    new_price: float,
+    current_price: Optional[float],
+    reason: str,
+    config: Config,
+) -> tuple[float, str]:
+    """
+    Применяет ограничения на убыточные/слишком резкие движения цены.
+    """
+    candidate = _d(new_price)
+    reason_out = reason
+
+    # Hard floor: цена не может уйти ниже MIN_PRICE.
+    if getattr(config, 'HARD_FLOOR_ENABLED', True):
+        min_price = _d(config.MIN_PRICE)
+        if candidate < min_price:
+            if config.MODE == 'FIXED':
+                fixed_target = max(_d(config.FIXED_PRICE), min_price)
+                candidate = fixed_target
+                reason_out += f'_hard_floor_fixed({float(candidate)})'
+            elif config.MODE == 'STEP_UP' and current_price is not None:
+                step_target = max(_d(current_price) + _d(config.STEP_UP_VALUE), min_price)
+                candidate = step_target
+                reason_out += f'_hard_floor_step_up({float(candidate)})'
+            else:
+                candidate = min_price
+                reason_out += f'_hard_floor_min({config.MIN_PRICE})'
+
+    # Ограничение резкого снижения за цикл.
+    max_down_step = max(getattr(config, 'MAX_DOWN_STEP', 0.0), 0.0)
+    if (
+        max_down_step > 0
+        and current_price is not None
+        and candidate < _d(current_price)
+    ):
+        max_allowed = _d(current_price) - _d(max_down_step)
+        if candidate < max_allowed:
+            candidate = max_allowed
+            reason_out += f'_max_down_step({max_down_step})'
+
+    # Дополнительный контроль MAX_PRICE после модификаций.
+    if candidate > _d(config.MAX_PRICE):
+        candidate = _d(config.MAX_PRICE)
+        reason_out += f'_max_capped({config.MAX_PRICE})'
+
+    return _to_price(candidate), reason_out
