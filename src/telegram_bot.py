@@ -389,7 +389,9 @@ class TelegramBot:
         competitor_url = state.get('last_competitor_url') or 'N/A'
         parse_method = state.get('last_competitor_method') or 'N/A'
 
-        my_price = state.get('last_price')
+        my_price = state.get('last_target_price')
+        if my_price is None:
+            my_price = state.get('last_price')
         competitor_price = state.get('last_competitor_min')
         my_price_str = f'{my_price:.4f}' if my_price is not None else 'N/A'
         competitor_price_str = (
@@ -547,6 +549,8 @@ class TelegramBot:
             storage.update_state(
                 profile_id=profile_id,
                 last_price=new_price,
+                last_target_price=new_price,
+                last_target_competitor_min=state.get('last_competitor_min'),
                 last_update=datetime.now(),
             )
             await update.message.reply_text(

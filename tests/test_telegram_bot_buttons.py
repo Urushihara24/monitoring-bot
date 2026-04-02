@@ -215,3 +215,32 @@ async def test_removed_export_button_is_treated_as_unknown_text():
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert args[0] == 'Используй кнопки 👇'
+
+
+@pytest.mark.asyncio
+async def test_status_prefers_last_target_price():
+    bot = make_bot()
+    bot._state = lambda _profile: {
+        'last_target_price': 0.2649,
+        'last_price': 0.26,
+        'last_competitor_min': 0.27,
+        'last_update': None,
+        'last_competitor_rank': None,
+        'last_competitor_parse_at': None,
+        'last_competitor_url': 'https://example.com/item-1',
+        'last_competitor_method': 'api4_goods',
+        'auto_mode': True,
+        'update_count': 1,
+        'skip_count': 2,
+    }
+    bot._runtime = lambda _profile: SimpleNamespace(
+        MODE='STEP_UP',
+        CHECK_INTERVAL=60,
+    )
+    update = make_update(BTN_STATUS)
+
+    await bot.send_status(100, update)
+
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert '💰 Моя цена: 0.2649₽' in args[0]
