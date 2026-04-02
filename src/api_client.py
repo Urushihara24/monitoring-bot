@@ -10,7 +10,7 @@ import base64
 import json
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any
+from typing import Optional, Dict, Any
 from dataclasses import dataclass
 
 import requests
@@ -316,75 +316,6 @@ class GGSELClient:
 
         logger.error(f"Все попытки исчерпаны: {last_error}")
         return None
-
-    def get_products(
-        self, page: int = 1, count: int = 10, timeout: int = 10
-    ) -> List[Product]:
-        """
-        Получение списка товаров
-
-        GET /api_sellers/api/products/list
-        """
-        url = f"{self.base_url}/products/list"
-        params = {
-            "page": page,
-            "count": count,
-        }
-
-        logger.debug(f"Запрос товаров: page={page}, count={count}")
-
-        response = self._authorized_request(
-            "GET",
-            url,
-            params=params,
-            headers=self._lang_headers(),
-            timeout=timeout,
-        )
-
-        if response is None:
-            return []
-
-        if response.status_code == 404:
-            logger.error("GGSEL API endpoint не найден (404)")
-            logger.error("Возможно API требует активации в личном кабинете")
-            return []
-
-        try:
-            data = response.json()
-            rows = data.get("products")
-            if rows is None:
-                rows = data.get("rows")
-
-            if data.get("retval") != 0 or not isinstance(rows, list):
-                logger.error(f"GGSEL API error: {data}")
-                return []
-
-            products = []
-            for p in rows:
-                if "num_in_stock" in p:
-                    stock_value = p["num_in_stock"]
-                elif "in_stock" in p:
-                    stock_value = p["in_stock"]
-                else:
-                    stock_value = 0
-                products.append(
-                    Product(
-                        id=int(p.get("id_goods", p.get("id", 0)) or 0),
-                        name=str(p.get("name_goods", p.get("name", "")) or ""),
-                        price=float(p.get("price", 0) or 0),
-                        currency=str(p.get("currency", "RUB") or "RUB"),
-                        stock=int(stock_value or 0),
-                        status=(
-                            "active" if int(p.get("visible", 1) or 0) == 1 else "hidden"
-                        ),
-                    )
-                )
-            logger.info(f"Получено товаров: {len(products)}")
-            return products
-
-        except Exception as e:
-            logger.error(f"Ошибка парсинга JSON get_products: {e}")
-            return []
 
     def get_product(self, product_id: int, timeout: int = 10) -> Optional[Product]:
         """
