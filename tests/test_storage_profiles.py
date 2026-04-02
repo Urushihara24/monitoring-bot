@@ -98,3 +98,22 @@ def test_target_state_fields_are_persisted(tmp_path):
 
     assert state['last_target_price'] == 0.2649
     assert state['last_target_competitor_min'] == 0.27
+
+
+def test_target_state_backfilled_from_existing_values(tmp_path):
+    db = tmp_path / 'state.db'
+    storage = Storage(db_path=str(db))
+    storage.update_state(
+        profile_id='ggsel',
+        last_price=0.2649,
+        last_competitor_min=0.27,
+        last_target_price=None,
+        last_target_competitor_min=None,
+    )
+
+    # Переинициализация должна выполнить backfill target-полей.
+    storage_reloaded = Storage(db_path=str(db))
+    state = storage_reloaded.get_state(profile_id='ggsel')
+
+    assert state['last_target_price'] == 0.2649
+    assert state['last_target_competitor_min'] == 0.27
