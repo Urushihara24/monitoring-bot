@@ -69,6 +69,48 @@ def cookies_to_header_string(cookies: list) -> str:
     return '; '.join(parts)
 
 
+def update_env_file(cookie_string: str, env_path: Path):
+    """
+    Обновляет COMPETITOR_COOKIES в .env файле
+
+    Если ключ есть — обновляет значение
+    Если ключа нет — добавляет в конец файла
+    """
+    if not env_path.exists():
+        logger.warning(f'.env файл не найден: {env_path}')
+        return False
+
+    try:
+        # Читаем текущее содержимое
+        with open(env_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        # Ищем строку с COMPETITOR_COOKIES
+        found = False
+        new_lines = []
+        for line in lines:
+            if line.strip().startswith('COMPETITOR_COOKIES='):
+                new_lines.append(f'COMPETITOR_COOKIES={cookie_string}\n')
+                found = True
+            else:
+                new_lines.append(line)
+
+        # Если не нашли — добавляем в конец
+        if not found:
+            new_lines.append(f'COMPETITOR_COOKIES={cookie_string}\n')
+
+        # Записываем обратно
+        with open(env_path, 'w', encoding='utf-8') as f:
+            f.writelines(new_lines)
+
+        logger.info(f'✅ COMPETITOR_COOKIES обновлён в {env_path}')
+        return True
+
+    except Exception as e:
+        logger.error(f'Ошибка обновления .env: {e}')
+        return False
+
+
 def fetch_cookies_interactive(competitor_url: str) -> list:
     """
     Интерактивный режим: открывает браузер, пользователь входит в аккаунт.
@@ -79,6 +121,7 @@ def fetch_cookies_interactive(competitor_url: str) -> list:
     from selenium.webdriver.common.by import By
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
+    import os
 
     logger.info('=== Интерактивный режим ===')
     logger.info('1. Откроется браузер Chrome')
@@ -91,6 +134,11 @@ def fetch_cookies_interactive(competitor_url: str) -> list:
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--window-size=1920,1080')
     # НЕ используем headless для интерактивного режима
+
+    # Для Docker: указываем путь к Chrome
+    chrome_bin = os.environ.get('CHROME_BIN', '/usr/bin/google-chrome')
+    if os.path.exists(chrome_bin):
+        options.binary_location = chrome_bin
 
     driver = None
     try:
@@ -133,16 +181,23 @@ def fetch_cookies_headless(competitor_url: str, existing_cookies: list = None) -
     """
     from selenium import webdriver
     from selenium.webdriver.chrome.options import Options
+    import os
 
     options = Options()
     options.add_argument('--headless=new')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
     options.add_argument('--window-size=1920,1080')
     options.add_argument('--disable-blink-features=AutomationControlled')
     options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
     options.add_experimental_option('excludeSwitches', ['enable-automation'])
     options.add_experimental_option('useAutomationExtension', False)
+
+    # Для Docker: указываем путь к Chrome
+    chrome_bin = os.environ.get('CHROME_BIN', '/usr/bin/google-chrome')
+    if os.path.exists(chrome_bin):
+        options.binary_location = chrome_bin
 
     driver = None
     try:
@@ -264,6 +319,10 @@ def main():
     logger.info('=== Добавьте в .env ===')
     logger.info(f'COMPETITOR_COOKIES={cookie_string}')
     logger.info('')
+
+    # Автоматически обновляем .env
+    env_file = PROJECT_DIR / '.env'
+    update_env_file(cookie_string, env_file)
 
     return 0
 

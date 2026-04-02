@@ -37,6 +37,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && mkdir -p /usr/share/fonts \
     && fc-cache -f
 
+# Selenium + Chrome (для обновления cookies)
+RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
+    && echo "deb http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        google-chrome-stable \
+        chromium-chromedriver \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV CHROME_BIN=/usr/bin/google-chrome \
+    CHROMEDRIVER=/usr/bin/chromedriver
+
 # Копирование requirements
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
