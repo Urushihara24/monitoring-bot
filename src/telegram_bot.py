@@ -263,11 +263,17 @@ class TelegramBot:
 
         last_update = state.get("last_update")
         update_str = last_update.strftime("%Y-%m-%d %H:%M") if last_update else "Никогда"
+        
+        # Форматирование цен с 4 знаками
+        my_price = state.get('last_price')
+        competitor_price = state.get('last_competitor_min')
+        my_price_str = f"{my_price:.4f}" if my_price else 'N/A'
+        competitor_price_str = f"{competitor_price:.4f}" if competitor_price else 'N/A'
 
         text = f"""📊 Статус
 
-💰 Моя цена: {state.get('last_price') or 'N/A'}₽
-📈 Цена конкурента: {state.get('last_competitor_min') or 'N/A'}₽
+💰 Моя цена: {my_price_str}₽
+📈 Цена конкурента: {competitor_price_str}₽
 🔍 Позиция: {competitor_info}
 
 🔔 Авто: {'ВКЛ' if auto_mode else 'ВЫКЛ'}
@@ -286,14 +292,14 @@ class TelegramBot:
         runtime = self._runtime()
         text = f"""⚙️ Настройки
 
-📉 MIN: {runtime.MIN_PRICE}₽
-📈 MAX: {runtime.MAX_PRICE}₽
-🎯 Желаемая: {runtime.DESIRED_PRICE}₽
-↘️ Шаг: {runtime.UNDERCUT_VALUE}
+📉 MIN: {runtime.MIN_PRICE:.4f}₽
+📈 MAX: {runtime.MAX_PRICE:.4f}₽
+🎯 Желаемая: {runtime.DESIRED_PRICE:.4f}₽
+↘️ Шаг: {runtime.UNDERCUT_VALUE:.4f}
 
 🔹 Режим: {runtime.MODE}
-   - FIXED: {runtime.FIXED_PRICE}₽
-   - STEP_UP: {runtime.STEP_UP_VALUE}₽
+   - FIXED: {runtime.FIXED_PRICE:.4f}₽
+   - STEP_UP: {runtime.STEP_UP_VALUE:.4f}₽
 
 🚫 Слабый конкурент: {runtime.LOW_PRICE_THRESHOLD or 'Выкл'}
 📍 Фильтр позиции: {'Вкл' if runtime.POSITION_FILTER_ENABLED else 'Выкл'}
