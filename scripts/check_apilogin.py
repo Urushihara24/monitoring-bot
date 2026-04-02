@@ -6,7 +6,6 @@ from __future__ import annotations
 import hashlib
 import time
 import sys
-import json
 from pathlib import Path
 
 import requests

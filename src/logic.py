@@ -5,7 +5,7 @@
 1. Базовая формула: my_price = competitor_price - 0.0051
 2. Нижний порог: MIN_PRICE + MODE (FIXED/STEP_UP)
 3. Множество конкурентов: min(competitor_prices)
-4. Фильтр слабого конкурента: LOW_PRICE_THRESHOLD
+4. Фильтр слабого конкурента: только при слабой позиции (force_weak_mode)
 5. Cooldown: не чаще COOLDOWN_SECONDS
 6. Ignore delta: если |new - current| < 0.001 → skip
 """
@@ -55,7 +55,7 @@ def calculate_price(
     
     Приоритет выполнения:
     1. Получить min цену конкурента
-    2. Проверить LOW_PRICE_THRESHOLD
+    2. Проверить режим слабой позиции (force_weak_mode)
     3. Применить special logic (фильтр слабого конкурента)
     4. Применить базовую формулу (-0.0051)
     5. Проверить MIN_PRICE
@@ -85,15 +85,11 @@ def calculate_price(
     undercut_value_d = _d(config.UNDERCUT_VALUE)
     logger.info(f'Минимальная цена конкурента: {min_competitor_price}')
     
-    # === ШАГ 2: Проверить LOW_PRICE_THRESHOLD / слабую позицию ===
-    weak_by_price = config.LOW_PRICE_THRESHOLD > 0 and min_competitor_price < config.LOW_PRICE_THRESHOLD
+    # === ШАГ 2: Проверить слабую позицию ===
     weak_by_position = bool(force_weak_mode)
 
-    if weak_by_price or weak_by_position:
-        if weak_by_price:
-            logger.info(f'Конкурент ниже порога {config.LOW_PRICE_THRESHOLD}')
-        if weak_by_position:
-            logger.info(f'Конкурент в слабой позиции (rank={target_competitor_rank})')
+    if weak_by_position:
+        logger.info(f'Конкурент в слабой позиции (rank={target_competitor_rank})')
 
         # === ШАГ 3: Применить special logic (фильтр слабого конкурента) ===
         if min_competitor_price < config.WEAK_PRICE_CEIL_LIMIT:
@@ -101,9 +97,8 @@ def calculate_price(
             ceil_price = _d(math.ceil(min_competitor_price * 10) / 10)
             new_price_d = ceil_price - undercut_value_d
             new_price = _to_price(new_price_d)
-            reason_prefix = 'weak_position' if weak_by_position else 'weak_competitor'
             reason = (
-                f'{reason_prefix}_ceil({min_competitor_price}→'
+                f'weak_position_ceil({min_competitor_price}→'
                 f'{_to_price(ceil_price)}-{config.UNDERCUT_VALUE})'
             )
             logger.info(
@@ -112,8 +107,7 @@ def calculate_price(
             )
         else:
             new_price = _to_price(_d(config.DESIRED_PRICE))
-            reason_prefix = 'weak_position' if weak_by_position else 'weak_competitor'
-            reason = f'{reason_prefix}_desired({config.DESIRED_PRICE})'
+            reason = f'weak_position_desired({config.DESIRED_PRICE})'
             logger.info(
                 f'Слабый конкурент (>={config.WEAK_PRICE_CEIL_LIMIT}): '
                 f'desired={config.DESIRED_PRICE}'
@@ -232,17 +226,6 @@ def calculate_price(
         old_price=current_price,
         competitor_price=min_competitor_price,
     )
-
-
-# Глобальная функция для удобства
-def calculate(
-    competitor_prices: List[float],
-    current_price: Optional[float],
-    last_update: Optional[datetime],
-) -> PriceDecision:
-    """Обёртка для calculate_price с глобальным config"""
-    return calculate_price(competitor_prices, current_price, last_update, config)
-
 
 def _apply_loss_protection(
     *,

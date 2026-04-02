@@ -431,23 +431,4 @@ class RSCParser:
         )
         return result
 
-    def get_stats(self) -> dict:
-        total = self.success_count + self.fail_count
-        return {
-            'success_count': self.success_count,
-            'fail_count': self.fail_count,
-            'success_rate': (
-                round(self.success_count / total * 100, 2) if total > 0 else 0
-            ),
-            'method_success_count': dict(self.method_success_count),
-            'method_fail_count': dict(self.method_fail_count),
-        }
-
-    def reset_stats(self):
-        self.fail_count = 0
-        self.success_count = 0
-        self.method_success_count.clear()
-        self.method_fail_count.clear()
-
-
 rsc_parser = RSCParser(max_retries=2)
