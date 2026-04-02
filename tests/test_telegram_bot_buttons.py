@@ -25,6 +25,7 @@ from src.telegram_bot import (
     BTN_UP,
     TelegramBot,
 )
+import src.telegram_bot as telegram_module
 
 
 def make_bot() -> TelegramBot:
@@ -244,3 +245,45 @@ async def test_status_prefers_last_target_price():
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert '💰 Моя цена: 0.2649₽' in args[0]
+
+
+@pytest.mark.asyncio
+async def test_pending_price_action_formats_to_4dp(monkeypatch):
+    bot = make_bot()
+    bot.pending_actions[100] = 'UNDERCUT_VALUE'
+    bot._runtime = lambda _profile: SimpleNamespace(
+        FAST_CHECK_INTERVAL_MIN=20,
+        FAST_CHECK_INTERVAL_MAX=60,
+    )
+    bot.send_settings = AsyncMock()
+
+    captured = {}
+
+    def fake_set_runtime_setting(
+        key,
+        value,
+        user_id=None,
+        source='system',
+        profile_id='ggsel',
+    ):
+        captured['key'] = key
+        captured['value'] = value
+        captured['user_id'] = user_id
+        captured['source'] = source
+        captured['profile_id'] = profile_id
+
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_runtime_setting',
+        fake_set_runtime_setting,
+    )
+    update = make_update('0.00514')
+
+    await bot.handle_pending_action(100, 1, '0.00514', update)
+
+    assert captured['key'] == 'UNDERCUT_VALUE'
+    assert captured['value'] == '0.0051'
+    assert 100 not in bot.pending_actions
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert args[0] == '✅ UNDERCUT_VALUE = 0.0051'

@@ -691,6 +691,7 @@ class TelegramBot:
                     reply_markup=self.get_settings_keyboard(),
                 )
                 return
+            value = round(value, 4)
             storage.set_runtime_setting(
                 action,
                 str(value),
@@ -700,7 +701,7 @@ class TelegramBot:
             )
             self.pending_actions.pop(chat_id, None)
             await update.message.reply_text(
-                f'✅ {action} = {value}',
+                f'✅ {action} = {value:.4f}',
                 reply_markup=self.get_settings_keyboard(),
             )
             await self.send_settings(chat_id, update)
