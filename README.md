@@ -92,6 +92,7 @@ docker compose logs -f
 - `🧩 Профиль`
 - `⚙ Настройки`
 - `🩺 Диагностика`
+- `🧪 Smoke API` (ручная проверка `read + write probe` для активного профиля)
 
 Настройки:
 - `🎯 Цена` (`DESIRED_PRICE`)
@@ -122,6 +123,18 @@ Smoke API активных профилей:
 
 ```bash
 python3 scripts/smoke_profiles_api.py
+```
+
+Проверить только DigiSeller:
+
+```bash
+python3 scripts/smoke_profiles_api.py --profile digiseller
+```
+
+С реальным тестовым изменением и rollback:
+
+```bash
+python3 scripts/smoke_profiles_api.py --profile digiseller --mutate --delta 0.0001 --verify-read
 ```
 
 ## Тесты и проверки
