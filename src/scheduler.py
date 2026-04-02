@@ -74,6 +74,16 @@ class Scheduler:
     def _tag(self, message: str) -> str:
         return f'[{self.profile_name}] {message}'
 
+    def _normalize_cookies_value(self, value: Optional[str]) -> str:
+        """
+        Нормализует строку cookies из .env.
+        Docker Compose использует '$$' для экранирования '$' в значениях.
+        """
+        raw = (value or '').strip()
+        if not raw:
+            return ''
+        return raw.replace('$$', '$')
+
     async def _notify_error_throttled(
         self,
         key: str,
@@ -282,7 +292,9 @@ class Scheduler:
             return False
         try:
             env_data = dotenv_values(str(env_path))
-            env_cookies = str(env_data.get('COMPETITOR_COOKIES') or '').strip()
+            env_cookies = self._normalize_cookies_value(
+                str(env_data.get('COMPETITOR_COOKIES') or '')
+            )
             if not env_cookies:
                 return False
             current = storage.get_runtime_setting(
@@ -367,7 +379,8 @@ class Scheduler:
         logger.info('[%s] 🔍 Парсинг цены: %s', self.profile_name, url)
         cookies = runtime.COMPETITOR_COOKIES or config.COMPETITOR_COOKIES or None
 
-        result = rsc_parser.parse_url(
+        result = await asyncio.to_thread(
+            rsc_parser.parse_url,
             url,
             timeout=timeout,
             cookies=cookies,
@@ -412,7 +425,8 @@ class Scheduler:
                     or config.COMPETITOR_COOKIES
                     or None
                 )
-                retry_result = rsc_parser.parse_url(
+                retry_result = await asyncio.to_thread(
+                    rsc_parser.parse_url,
                     url,
                     timeout=timeout,
                     cookies=refreshed_cookies,

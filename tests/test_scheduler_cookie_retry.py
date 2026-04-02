@@ -181,7 +181,7 @@ async def test_parse_skips_refresh_when_auto_update_disabled(monkeypatch):
 @pytest.mark.asyncio
 async def test_sync_cookies_from_env_updates_runtime(monkeypatch, tmp_path):
     """Cookies из .env должны попадать в runtime без перезапуска."""
-    env_text = 'COMPETITOR_COOKIES=fresh_cookie=1; another=2\n'
+    env_text = 'COMPETITOR_COOKIES=fresh_cookie=1$$o6; another=2\n'
     (tmp_path / '.env').write_text(env_text, encoding='utf-8')
     monkeypatch.chdir(tmp_path)
 
@@ -214,7 +214,7 @@ async def test_sync_cookies_from_env_updates_runtime(monkeypatch, tmp_path):
     assert len(set_calls) == 1
     key, value, kwargs = set_calls[0]
     assert key == 'COMPETITOR_COOKIES'
-    assert value == 'fresh_cookie=1; another=2'
+    assert value == 'fresh_cookie=1$o6; another=2'
     assert kwargs.get('profile_id') == 'ggsel'
     assert kwargs.get('source') == 'env_sync'
 

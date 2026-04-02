@@ -32,7 +32,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Используем chromium из репозитория Debian
 ENV CHROME_BIN=/usr/bin/chromium \
-    CHROMEDRIVER=/usr/bin/chromedriver
+    CHROMEDRIVER=/usr/bin/chromedriver \
+    PLAYWRIGHT_BROWSERS_PATH=/app/.ms-playwright
 
 # Копирование requirements
 COPY requirements.txt .
@@ -40,6 +41,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir stealth-requests
 
 # Установка Playwright браузеров
+RUN mkdir -p /app/.ms-playwright
 RUN playwright install chromium
 RUN playwright install-deps chromium 2>/dev/null || true
 
@@ -47,7 +49,7 @@ RUN playwright install-deps chromium 2>/dev/null || true
 COPY src/ ./src/
 COPY scripts/ ./scripts/
 COPY healthcheck.py ./
-COPY .env .env.example ./
+COPY .env.example ./
 
 # Создание директорий
 RUN mkdir -p /app/data /app/logs

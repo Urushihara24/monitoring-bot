@@ -6,10 +6,12 @@ stealth_requests -> Playwright -> Selenium.
 from __future__ import annotations
 
 import logging
+import os
 import random
 import re
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import stealth_requests
@@ -410,6 +412,7 @@ class RSCParser:
         try:
             from selenium import webdriver
             from selenium.webdriver.chrome.options import Options
+            from selenium.webdriver.chrome.service import Service
         except Exception as e:
             return ParseResult(
                 success=False,
@@ -428,13 +431,27 @@ class RSCParser:
             options.add_argument('--disable-blink-features=AutomationControlled')
             options.add_argument('--window-size=1920,1080')
             options.add_argument(f'--user-agent={self._get_random_user_agent()}')
+            options.add_argument('--disable-gpu')
+            options.add_argument('--remote-debugging-port=0')
+
+            chrome_bin = os.environ.get('CHROME_BIN', '/usr/bin/chromium')
+            if Path(chrome_bin).exists():
+                options.binary_location = chrome_bin
 
             if use_real_profile and user_data_dir:
                 options.add_argument(f'--user-data-dir={user_data_dir}')
                 if profile_dir:
                     options.add_argument(f'--profile-directory={profile_dir}')
 
-            driver = webdriver.Chrome(options=options)
+            chromedriver_path = os.environ.get(
+                'CHROMEDRIVER',
+                '/usr/bin/chromedriver',
+            )
+            if Path(chromedriver_path).exists():
+                service = Service(executable_path=chromedriver_path)
+                driver = webdriver.Chrome(service=service, options=options)
+            else:
+                driver = webdriver.Chrome(options=options)
             driver.set_page_load_timeout(timeout)
             if cookies:
                 driver.get('https://ggsel.net')
