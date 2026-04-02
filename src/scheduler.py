@@ -307,10 +307,10 @@ class Scheduler:
             # === ШАГ 1: Получить цены конкурентов (каскадный парсинг) ===
             logger.info(f'Парсинг {len(runtime.COMPETITOR_URLS)} конкурентов (каскад: RSC → Distill)...')
 
-            competitor_results = []
-            for url in runtime.COMPETITOR_URLS:
-                result = self._parse_competitor_price(url, timeout=15)
-                competitor_results.append(result)
+            competitor_results = await asyncio.gather(*[
+                self._parse_competitor_price(url, timeout=15)
+                for url in runtime.COMPETITOR_URLS
+            ])
 
             valid_competitors = [
                 r for r in competitor_results
