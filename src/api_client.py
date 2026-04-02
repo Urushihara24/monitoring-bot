@@ -8,6 +8,7 @@ import time
 import hashlib
 import base64
 import json
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
@@ -478,6 +479,14 @@ class GGSELClient:
             logger.error(f"Ошибка парсинга JSON task status: {e}")
             return None
 
+    def _format_price_4dp(self, price: float) -> str:
+        """Строгое форматирование цены в 4 знака после запятой."""
+        normalized = Decimal(str(price)).quantize(
+            Decimal("0.0001"),
+            rounding=ROUND_HALF_UP,
+        )
+        return format(normalized, "f")
+
     def update_price(
         self, product_id: int, new_price: float, timeout: int = 10
     ) -> bool:
@@ -487,15 +496,21 @@ class GGSELClient:
         POST /api_sellers/api/product/edit/prices
         """
         url = f"{self.base_url}/product/edit/prices"
+        price_4dp = self._format_price_4dp(new_price)
         data = [
             {
                 "product_id": product_id,
-                "price": new_price,
+                # Для GGSEL отправляем строку с фиксированной точностью.
+                "price": price_4dp,
                 "variants": [],
             }
         ]
 
-        logger.info(f"Обновление цены: product={product_id}, price={new_price}")
+        logger.info(
+            "Обновление цены: product=%s, price=%s",
+            product_id,
+            price_4dp,
+        )
 
         response = self._authorized_request(
             "POST",
@@ -546,7 +561,7 @@ class GGSELClient:
                 if status == 2:
                     if error_count == 0 and (success_count > 0 or total_count == 0):
                         logger.info(
-                            f"✅ Цена обновлена: {new_price} (taskId={task_id})"
+                            f"✅ Цена обновлена: {price_4dp} (taskId={task_id})"
                         )
                         return True
                     logger.error(
@@ -574,7 +589,7 @@ class GGSELClient:
         # Фоллбек: API вернул синхронный успешный ответ
         # (иногда обновление применяется без асинхронной задачи).
         if response.ok and result.get("retval") in (None, 0):
-            logger.info(f"✅ Цена обновлена: {new_price}")
+            logger.info(f"✅ Цена обновлена: {price_4dp}")
             return True
 
         logger.error(f"GGSEL API update error: {result}")
