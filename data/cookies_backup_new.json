@@ -1,0 +1,16 @@
+{
+  "updated_at": "2026-03-30T23:10:50.774518",
+  "domain": "ggsel.net",
+  "cookies": [
+    {
+      "name": "qrator_jsr",
+      "value": "v2.0.1774901449.705.97f6c4c5sMSgaanG|USodr4iToYTMFARx|g5oAzKNpAjK1pgih29OpxpIINNBQZX8G0Vo4WsHeQJVSbymwT2Ps0rTYgYfc9huJtvKCbj6Zgo6F+2qXwSn9ww==-ilefLV/JdvZEtvJZJCQGzDcbsTU=-00",
+      "domain": ".ggsel.net",
+      "path": "/",
+      "expires": 1774901747.471936,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ]
+}
