@@ -37,6 +37,7 @@ def make_runtime(**kwargs):
         'COMPETITOR_CHANGE_DELTA': 0.0001,
         'UPDATE_ONLY_ON_COMPETITOR_CHANGE': True,
         'NOTIFY_SKIP': False,
+        'IGNORE_DELTA': 0.001,
     }
     data.update(kwargs)
     return SimpleNamespace(**data)
@@ -45,7 +46,7 @@ def make_runtime(**kwargs):
 @pytest.mark.asyncio
 async def test_run_cycle_skips_price_update_when_competitor_unchanged(monkeypatch):
     api_client = SimpleNamespace(
-        get_my_price=Mock(side_effect=AssertionError('must not be called')),
+        get_my_price=Mock(return_value=0.2649),
         update_price=Mock(),
     )
     scheduler = Scheduler(
@@ -88,6 +89,17 @@ async def test_run_cycle_skips_price_update_when_competitor_unchanged(monkeypatc
     )
     monkeypatch.setattr(scheduler, '_notify_competitor_change_if_needed', AsyncMock())
     monkeypatch.setattr(scheduler, '_notify_parser_issue_if_needed', AsyncMock())
+    monkeypatch.setattr(
+        scheduler_module,
+        'calculate_price',
+        lambda **_kwargs: PriceDecision(
+            action='update',
+            price=0.2649,
+            reason='base_formula',
+            old_price=0.2649,
+            competitor_price=0.27,
+        ),
+    )
 
     skip_calls = []
     monkeypatch.setattr(
@@ -104,7 +116,7 @@ async def test_run_cycle_skips_price_update_when_competitor_unchanged(monkeypatc
     await scheduler.run_cycle()
 
     assert skip_calls, 'skip counter should be incremented'
-    assert api_client.get_my_price.call_count == 0
+    assert api_client.get_my_price.call_count == 1
     assert api_client.update_price.call_count == 0
 
 
@@ -180,3 +192,96 @@ async def test_run_cycle_recalculates_when_competitor_changed(monkeypatch):
     await scheduler.run_cycle()
 
     assert api_client.get_my_price.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_reconciles_when_unchanged_but_price_drift(monkeypatch):
+    api_client = SimpleNamespace(
+        get_my_price=Mock(return_value=0.26),
+        update_price=Mock(return_value=True),
+    )
+    scheduler = Scheduler(
+        api_client,
+        DummyTelegramBot(),
+        profile_id='ggsel',
+        profile_name='GGSEL',
+        product_id=4697439,
+        competitor_urls=['https://example.com/item-1'],
+    )
+
+    runtime = make_runtime()
+    state = {
+        'auto_mode': True,
+        'last_competitor_min': 0.27,
+        'last_update': None,
+        'last_price': 0.26,
+    }
+
+    monkeypatch.setattr(scheduler, '_runtime', lambda: runtime)
+    monkeypatch.setattr(scheduler, '_state', lambda: state)
+    monkeypatch.setattr(
+        scheduler_module,
+        'validate_runtime_config',
+        lambda _runtime: (True, []),
+    )
+    monkeypatch.setattr(
+        scheduler,
+        '_sync_cookies_from_env',
+        AsyncMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        scheduler,
+        '_reload_cookies_from_backup',
+        AsyncMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        scheduler,
+        '_parse_competitor_price',
+        AsyncMock(
+            return_value=ParseResult(
+                success=True,
+                price=0.27,
+                url='https://example.com/item-1',
+                method='stealth_requests',
+            )
+        ),
+    )
+    monkeypatch.setattr(scheduler, '_notify_competitor_change_if_needed', AsyncMock())
+    monkeypatch.setattr(scheduler, '_notify_parser_issue_if_needed', AsyncMock())
+    monkeypatch.setattr(scheduler, '_notify_skip_throttled', AsyncMock())
+    monkeypatch.setattr(scheduler, '_update_price', AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        scheduler_module,
+        'calculate_price',
+        lambda **_kwargs: PriceDecision(
+            action='update',
+            price=0.2649,
+            reason='base_formula',
+            old_price=0.26,
+            competitor_price=0.27,
+        ),
+    )
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'update_state',
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'increment_skip_count',
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'increment_update_count',
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'add_price_history',
+        lambda **_kwargs: None,
+    )
+
+    await scheduler.run_cycle()
+
+    scheduler._update_price.assert_awaited_once()

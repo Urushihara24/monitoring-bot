@@ -467,19 +467,6 @@ class Scheduler:
                 last_competitor_status_code=selected.status_code,
             )
 
-            if (
-                getattr(runtime, 'UPDATE_ONLY_ON_COMPETITOR_CHANGE', True)
-                and not competitor_changed
-            ):
-                logger.info(
-                    '[%s] Цена конкурента не изменилась (%.4f), '
-                    'пропускаю пересчёт/обновление цены',
-                    self.profile_name,
-                    min_price,
-                )
-                storage.increment_skip_count(profile_id=self.profile_id)
-                return
-
             current_price = self.api_client.get_my_price(self.product_id)
             if current_price is None:
                 current_price = state.get('last_price')
@@ -514,6 +501,56 @@ class Scheduler:
                 decision.action,
                 decision.reason,
             )
+
+            if (
+                getattr(runtime, 'UPDATE_ONLY_ON_COMPETITOR_CHANGE', True)
+                and not competitor_changed
+            ):
+                ignore_delta = getattr(runtime, 'IGNORE_DELTA', 0.001)
+                if decision.action != 'update' or decision.price is None:
+                    logger.info(
+                        '[%s] Цена конкурента не изменилась (%.4f), '
+                        'обновление не требуется',
+                        self.profile_name,
+                        min_price,
+                    )
+                    storage.increment_skip_count(profile_id=self.profile_id)
+                    return
+
+                last_requested = state.get('last_price')
+                if (
+                    last_requested is not None
+                    and abs(decision.price - last_requested) < ignore_delta
+                ):
+                    logger.info(
+                        '[%s] Цена конкурента не изменилась (%.4f), '
+                        'целевая цена %.4f уже была выставлена ранее',
+                        self.profile_name,
+                        min_price,
+                        decision.price,
+                    )
+                    storage.increment_skip_count(profile_id=self.profile_id)
+                    return
+
+                drift = abs(decision.price - current_price)
+                if drift < ignore_delta:
+                    logger.info(
+                        '[%s] Цена конкурента не изменилась (%.4f), '
+                        'текущая цена уже целевая (drift=%.4f)',
+                        self.profile_name,
+                        min_price,
+                        drift,
+                    )
+                    storage.increment_skip_count(profile_id=self.profile_id)
+                    return
+
+                decision.reason = f'reconcile_{decision.reason}'
+                logger.info(
+                    '[%s] Цена конкурента не изменилась, '
+                    'но есть дрейф %.4f -> синхронизирую цену',
+                    self.profile_name,
+                    drift,
+                )
 
             if decision.action == 'update' and decision.price is not None:
                 success = await self._update_price(decision.price, decision)
