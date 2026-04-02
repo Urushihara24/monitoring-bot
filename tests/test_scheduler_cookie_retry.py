@@ -31,7 +31,7 @@ async def test_parse_retries_after_cookie_refresh(monkeypatch):
 
     parse_calls = []
 
-    def fake_parse(url, timeout=15, cookies=None):
+    def fake_parse(url, timeout=15, cookies=None, **kwargs):
         parse_calls.append(cookies)
         if len(parse_calls) == 1:
             return ParseResult(
@@ -57,7 +57,15 @@ async def test_parse_retries_after_cookie_refresh(monkeypatch):
     monkeypatch.setattr(
         scheduler_module.storage,
         'get_runtime_config',
-        lambda _cfg: SimpleNamespace(COMPETITOR_COOKIES='fresh_cookie=1'),
+        lambda *_args, **_kwargs: SimpleNamespace(
+            COMPETITOR_COOKIES='fresh_cookie=1',
+            RSC_USE_PLAYWRIGHT=True,
+            RSC_USE_SELENIUM_FALLBACK=True,
+            SELENIUM_USE_REAL_PROFILE=False,
+            SELENIUM_CHROME_USER_DATA_DIR='',
+            SELENIUM_CHROME_PROFILE_DIR='Default',
+            SELENIUM_HEADLESS=True,
+        ),
     )
 
     refresh_mock = AsyncMock(return_value=True)
@@ -83,7 +91,7 @@ async def test_parse_uses_distill_fallback_when_refresh_failed(monkeypatch):
 
     parse_calls = []
 
-    def fake_parse(url, timeout=15, cookies=None):
+    def fake_parse(url, timeout=15, cookies=None, **kwargs):
         parse_calls.append(cookies)
         return ParseResult(
             success=False,
@@ -131,7 +139,7 @@ async def test_parse_skips_refresh_when_auto_update_disabled(monkeypatch):
     scheduler = Scheduler(DummyApiClient(), DummyTelegramBot())
     runtime = SimpleNamespace(COMPETITOR_COOKIES='old_cookie=1')
 
-    def fake_parse(url, timeout=15, cookies=None):
+    def fake_parse(url, timeout=15, cookies=None, **kwargs):
         return ParseResult(
             success=False,
             error='expired',

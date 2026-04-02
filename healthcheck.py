@@ -1,192 +1,95 @@
 #!/usr/bin/env python3
 """
-Health check скрипт для Docker контейнера
-
-Проверяет:
-1. Последний цикл планировщика (не старше 5 минут)
-2. Доступность GGSEL API
-3. Наличие cookies
-
-Использование:
-    python healthcheck.py
-
-Возвращает:
-    0 - HEALTHY
-    1 - UNHEALTHY
+Health check для контейнера/сервиса.
+Проверяет heartbeat и API доступность активных профилей.
 """
 
-import sys
+from __future__ import annotations
+
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
 
-# Добавляем корень проекта
-sys.path.insert(0, str(Path(__file__).parent / 'src'))
+sys.path.insert(0, str(Path(__file__).parent))
 
-from storage import storage
-from config import config
+from src.api_client import GGSELClient
+from src.config import config
+from src.digiseller_client import DigiSellerClient
+from src.storage import Storage
+
+DB_PATH = os.getenv('HEALTHCHECK_DB_PATH', 'data/state.db')
+storage = Storage(DB_PATH)
 
 
-def check_last_cycle() -> bool:
-    """Проверка последнего цикла планировщика"""
-    max_age_seconds = int(os.getenv('HEALTHCHECK_MAX_AGE_SECONDS', '300'))
-    state = storage.get_state()
+def check_profile_cycle(profile_id: str, max_age_seconds: int) -> bool:
+    state = storage.get_state(profile_id=profile_id)
     last_cycle = state.get('last_cycle')
-    
     if not last_cycle:
-        print("⚠️ Last cycle: не найден (бот ещё не запускался)")
-        return True  # Не считаем ошибкой на старте
-    
-    # Конвертируем строку в datetime
-    try:
-        if isinstance(last_cycle, str):
-            last_cycle = datetime.fromisoformat(last_cycle)
-    except (ValueError, TypeError):
-        print(f"❌ Last cycle: некорректный формат ({last_cycle})")
-        return False
-    
-    # Проверяем возраст
+        print(f'[{profile_id}] ⚠ last_cycle: нет данных')
+        return True
     age = (datetime.now() - last_cycle).total_seconds()
-    
     if age > max_age_seconds:
         print(
-            "⚠️ Last cycle: "
-            f"{age:.0f}s назад (старше {max_age_seconds} секунд)"
+            f'[{profile_id}] ⚠ last_cycle устарел: '
+            f'{int(age)}s > {max_age_seconds}s'
         )
-        return True  # Предупреждение, но не критично
-    
-    print(f"✅ Last cycle: {age:.0f}s назад")
+        return False
+    print(f'[{profile_id}] ✅ heartbeat {int(age)}s')
     return True
 
 
-def check_api() -> bool:
-    """Проверка доступности GGSEL API"""
+def check_ggsel_api() -> bool:
+    if not config.GGSEL_ENABLED:
+        return True
     if not config.GGSEL_API_KEY and not config.GGSEL_ACCESS_TOKEN:
-        print("⚠️ API: GGSEL_API_KEY и GGSEL_ACCESS_TOKEN не указаны")
-        return True  # Не считаем ошибкой
-    
-    try:
-        from api_client import GGSELClient
-        
-        api_client = GGSELClient(
-            api_key=config.GGSEL_API_KEY or '',
-            seller_id=config.GGSEL_SELLER_ID,
-            base_url=config.GGSEL_BASE_URL,
-            lang=config.GGSEL_LANG,
-            access_token=config.GGSEL_ACCESS_TOKEN or '',
-        )
-        
-        # Быстрая проверка (без таймаута)
-        product_id = config.GGSEL_PRODUCT_ID
-        if product_id and product_id > 0:
-            product = api_client.get_product(product_id)
-            if product:
-                print(f"✅ API: товар {product_id} доступен (цена: {product.price})")
-                return True
-            else:
-                print(f"⚠️ API: товар {product_id} не найден")
-                return True  # Не считаем критичной ошибкой
-        
-        # Если product_id не указан, просто проверяем соединение
-        if api_client.check_api_access():
-            print("✅ API: соединение установлено")
-            return True
-        else:
-            print("❌ API: соединение не установлено")
-            return False
-            
-    except Exception as e:
-        print(f"❌ API: ошибка ({e})")
+        print('[ggsel] ⚠ credentials не заданы')
         return False
+    client = GGSELClient(
+        api_key=config.GGSEL_API_KEY or '',
+        seller_id=config.GGSEL_SELLER_ID,
+        base_url=config.GGSEL_BASE_URL,
+        lang=config.GGSEL_LANG,
+        access_token=config.GGSEL_ACCESS_TOKEN or '',
+    )
+    ok = client.check_api_access()
+    print(f'[ggsel] {"✅" if ok else "❌"} api_access={ok}')
+    return ok
 
 
-def check_cookies() -> bool:
-    """Проверка наличия cookies"""
-    cookies_backup_path = Path('data/cookies_backup.json')
-    
-    if not cookies_backup_path.exists():
-        print("⚠️ Cookies: файл не найден (не критично)")
+def check_digiseller_api() -> bool:
+    if not config.DIGISELLER_ENABLED:
         return True
-    
-    if config.COMPETITOR_COOKIES:
-        print("✅ Cookies: указаны в COMPETITOR_COOKIES")
-        return True
-    
-    # Проверяем возраст cookies
-    try:
-        file_mtime = datetime.fromtimestamp(cookies_backup_path.stat().st_mtime)
-        age_seconds = (datetime.now() - file_mtime).total_seconds()
-        
-        if age_seconds > config.COOKIES_EXPIRE_SECONDS:
-            print(f"⚠️ Cookies: протухли ({age_seconds/3600:.1f}ч назад)")
-            return True  # Не считаем критичной ошибкой
-        
-        print(f"✅ Cookies: актуальны ({age_seconds/3600:.1f}ч назад)")
-        return True
-        
-    except Exception as e:
-        print(f"⚠️ Cookies: ошибка проверки ({e})")
-        return True
+    if not config.DIGISELLER_API_KEY and not config.DIGISELLER_ACCESS_TOKEN:
+        print('[digiseller] ⚠ credentials не заданы')
+        return False
+    client = DigiSellerClient(
+        api_key=config.DIGISELLER_API_KEY or '',
+        seller_id=config.DIGISELLER_SELLER_ID,
+        base_url=config.DIGISELLER_BASE_URL,
+        lang=config.DIGISELLER_LANG,
+        access_token=config.DIGISELLER_ACCESS_TOKEN or '',
+        default_product_id=config.DIGISELLER_PRODUCT_ID,
+    )
+    ok = client.check_api_access()
+    print(f'[digiseller] {"✅" if ok else "❌"} api_access={ok}')
+    return ok
 
 
-def check_disk_space() -> bool:
-    """Проверка свободного места на диске"""
-    try:
-        import shutil
-        total, used, free = shutil.disk_usage('/')
-        
-        free_gb = free / (1024 ** 3)
-        free_percent = (free / total) * 100
-        
-        if free_percent < 5:
-            print(f"❌ Disk: критически мало места ({free_gb:.2f}GB, {free_percent:.1f}%)")
-            return False
-        
-        if free_percent < 10:
-            print(f"⚠️ Disk: мало места ({free_gb:.2f}GB, {free_percent:.1f}%)")
-            return True
-        
-        print(f"✅ Disk: {free_gb:.2f}GB свободно ({free_percent:.1f}%)")
-        return True
-        
-    except Exception as e:
-        print(f"⚠️ Disk: ошибка проверки ({e})")
-        return True
-
-
-def main():
-    """Основная функция"""
-    print(f"\n🏥 Health Check ({datetime.now().isoformat()})")
-    print("=" * 50)
-    
-    checks = [
-        ("Last Cycle", check_last_cycle),
-        ("API", check_api),
-        ("Cookies", check_cookies),
-        ("Disk Space", check_disk_space),
-    ]
-    
+def main() -> int:
+    max_age_seconds = int(os.getenv('HEALTHCHECK_MAX_AGE_SECONDS', '300'))
+    print(f'Healthcheck @ {datetime.now().isoformat()}')
     results = []
-    
-    for name, check_func in checks:
-        print(f"\n📋 Проверка: {name}")
-        print("-" * 30)
-        result = check_func()
-        results.append(result)
-    
-    print("\n" + "=" * 50)
-    
-    # Итог
-    healthy_count = sum(results)
-    total_count = len(results)
-    
-    if all(results):
-        print(f"✅ HEALTHY ({healthy_count}/{total_count} проверок)")
-        sys.exit(0)
-    else:
-        print(f"❌ UNHEALTHY ({healthy_count}/{total_count} проверок)")
-        sys.exit(1)
+    if config.GGSEL_ENABLED:
+        results.append(check_profile_cycle('ggsel', max_age_seconds))
+    if config.DIGISELLER_ENABLED:
+        results.append(check_profile_cycle('digiseller', max_age_seconds))
+    results.append(check_ggsel_api())
+    results.append(check_digiseller_api())
+    healthy = all(results) if results else False
+    print('HEALTHY' if healthy else 'UNHEALTHY')
+    return 0 if healthy else 1
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())

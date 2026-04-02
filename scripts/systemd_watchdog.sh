@@ -24,7 +24,7 @@ if ! HEALTHCHECK_DB_PATH="${APP_DIR}/data/state.db" \
 fi
 
 if [[ -z "${restart_reason}" && "${WATCHDOG_RUN_SMOKE}" == "1" ]]; then
-  if ! (cd "${APP_DIR}" && PYTHONPATH=. "${PYTHON_BIN}" scripts/smoke_seller_api.py >/dev/null 2>&1); then
+  if ! (cd "${APP_DIR}" && PYTHONPATH=. "${PYTHON_BIN}" scripts/smoke_profiles_api.py >/dev/null 2>&1); then
     restart_reason="seller_api_smoke_failed"
   fi
 fi

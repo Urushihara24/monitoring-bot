@@ -1,43 +1,40 @@
 """
-Auto-Pricing Bot - точка входа
-Интеграция с Telegram ботом
+Auto-Pricing Bot - точка входа.
+Запуск мультипрофильного контура (GGSEL + DigiSeller).
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
-import sys
 import signal
+import sys
 from datetime import datetime
-from pathlib import Path
-from typing import Optional
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
+from typing import Dict, List, Optional
 
-from .config import config
 from .api_client import GGSELClient
-from .telegram_bot import TelegramBot
+from .config import config
+from .digiseller_client import DigiSellerClient
 from .scheduler import Scheduler
 from .storage import storage
+from .telegram_bot import TelegramBot
 
 # Глобальные компоненты
-api_client: Optional[GGSELClient] = None
+api_clients: Dict[str, object] = {}
 telegram_bot: Optional[TelegramBot] = None
-scheduler: Optional[Scheduler] = None
+schedulers: List[Scheduler] = []
 
 # Флаг остановки
 shutdown_event = asyncio.Event()
 
 
-# ============================================================================
-# ЛОГИРОВАНИЕ
-# ============================================================================
-
 def setup_logging():
-    """Настройка логирования"""
+    """Настройка логирования."""
     log_dir = Path('logs')
     log_dir.mkdir(exist_ok=True)
-
     log_file = log_dir / f'bot-{datetime.now().strftime("%Y-%m-%d")}.log'
-
     logging.basicConfig(
         level=getattr(logging, config.LOG_LEVEL.upper(), logging.INFO),
         format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
@@ -51,175 +48,249 @@ def setup_logging():
             logging.StreamHandler(sys.stdout),
         ],
     )
-
-    # Логгеры для httpx (тише)
     logging.getLogger('httpx').setLevel(logging.WARNING)
     logging.getLogger('httpcore').setLevel(logging.WARNING)
     logging.getLogger('telegram').setLevel(logging.WARNING)
 
 
-# ============================================================================
-# ОБРАБОТКА СИГНАЛОВ
-# ============================================================================
-
 def setup_signal_handlers():
-    """Настройка обработки сигналов"""
+    """Настройка обработки сигналов остановки."""
     loop = asyncio.get_event_loop()
-
     for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(
-            sig,
-            lambda: asyncio.create_task(shutdown())
-        )
+        loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown()))
 
 
 async def shutdown():
-    """Корректная остановка бота"""
+    """Корректная остановка всех компонентов."""
     logger = logging.getLogger(__name__)
-
     if shutdown_event.is_set():
         return
-
-    logger.info('🛑 Получен сигнал остановки, начало корректного завершения...')
     shutdown_event.set()
+    logger.info('🛑 Получен сигнал остановки...')
 
-    # Остановка планировщика
-    if scheduler:
-        logger.info('Остановка планировщика...')
-        scheduler.stop()
+    for sch in schedulers:
+        sch.stop()
 
-    # Остановка Telegram бота
     if telegram_bot:
-        logger.info('Остановка Telegram бота...')
         await telegram_bot.stop()
 
     logger.info('✅ Бот корректно завершил работу')
 
 
-# ============================================================================
-# ТОЧКА ВХОДА
-# ============================================================================
+def _build_profiles(logger: logging.Logger):
+    """
+    Собирает список включённых профилей.
+    Возвращает список словарей со спецификацией профилей.
+    """
+    profiles = []
+
+    if config.GGSEL_ENABLED:
+        ggsel_urls = storage.get_competitor_urls(
+            config.COMPETITOR_URLS,
+            profile_id='ggsel',
+        )
+        if not ggsel_urls:
+            logger.warning('[GGSEL] Профиль включен, но нет COMPETITOR_URLS')
+        if not config.GGSEL_PRODUCT_ID:
+            logger.warning('[GGSEL] Профиль включен, но GGSEL_PRODUCT_ID пуст')
+        if not config.GGSEL_API_KEY and not config.GGSEL_ACCESS_TOKEN:
+            logger.warning('[GGSEL] Профиль включен, но не задан API key/token')
+        else:
+            profiles.append(
+                {
+                    'id': 'ggsel',
+                    'name': 'GGSEL',
+                    'product_id': config.GGSEL_PRODUCT_ID,
+                    'competitor_urls': ggsel_urls,
+                    'require_api_on_start': config.GGSEL_REQUIRE_API_ON_START,
+                    'client': GGSELClient(
+                        api_key=config.GGSEL_API_KEY,
+                        seller_id=config.GGSEL_SELLER_ID,
+                        base_url=config.GGSEL_BASE_URL,
+                        lang=config.GGSEL_LANG,
+                        access_token=config.GGSEL_ACCESS_TOKEN,
+                    ),
+                }
+            )
+
+    if config.DIGISELLER_ENABLED:
+        digi_urls = storage.get_competitor_urls(
+            config.DIGISELLER_COMPETITOR_URLS,
+            profile_id='digiseller',
+        )
+        if not digi_urls:
+            logger.warning(
+                '[DIGISELLER] Профиль включен, но нет DIGISELLER_COMPETITOR_URLS'
+            )
+        if not config.DIGISELLER_PRODUCT_ID:
+            logger.warning(
+                '[DIGISELLER] Профиль включен, но DIGISELLER_PRODUCT_ID пуст'
+            )
+        if not config.DIGISELLER_API_KEY and not config.DIGISELLER_ACCESS_TOKEN:
+            logger.warning(
+                '[DIGISELLER] Профиль включен, но не задан API key/token'
+            )
+        else:
+            profiles.append(
+                {
+                    'id': 'digiseller',
+                    'name': 'DIGISELLER',
+                    'product_id': config.DIGISELLER_PRODUCT_ID,
+                    'competitor_urls': digi_urls,
+                    'require_api_on_start': (
+                        config.DIGISELLER_REQUIRE_API_ON_START
+                    ),
+                    'client': DigiSellerClient(
+                        api_key=config.DIGISELLER_API_KEY,
+                        seller_id=config.DIGISELLER_SELLER_ID,
+                        base_url=config.DIGISELLER_BASE_URL,
+                        lang=config.DIGISELLER_LANG,
+                        access_token=config.DIGISELLER_ACCESS_TOKEN,
+                        default_product_id=config.DIGISELLER_PRODUCT_ID,
+                    ),
+                }
+            )
+
+    return profiles
+
 
 async def main():
-    """Основная функция"""
-    global api_client, telegram_bot, scheduler
+    """Основная функция запуска."""
+    global api_clients, telegram_bot, schedulers
 
     setup_logging()
     logger = logging.getLogger(__name__)
-
     logger.info('🚀 Запуск Auto-Pricing Bot...')
 
-    # Проверка конфигурации
     if not config.TELEGRAM_BOT_TOKEN:
         logger.error('TELEGRAM_BOT_TOKEN не указан')
         return
 
-    if not config.GGSEL_API_KEY and not config.GGSEL_ACCESS_TOKEN:
-        logger.error('Нужно указать GGSEL_API_KEY (secret) или GGSEL_ACCESS_TOKEN')
+    profiles = _build_profiles(logger)
+    if not profiles:
+        logger.error(
+            'Нет валидных профилей для запуска. '
+            'Проверь GGSEL_ENABLED / DIGISELLER_ENABLED и credentials.'
+        )
         return
 
-    if not config.GGSEL_PRODUCT_ID:
-        logger.error('GGSEL_PRODUCT_ID не указан')
-        return
-
-    competitor_urls = storage.get_competitor_urls(config.COMPETITOR_URLS)
-    if not competitor_urls:
-        logger.error('COMPETITOR_URLS не указан')
-        return
-
-    logger.info(f'Конфигурация загружена:')
-    logger.info(f'  - Товар: {config.GGSEL_PRODUCT_ID}')
-    logger.info(f'  - Конкурентов: {len(competitor_urls)}')
-    logger.info(f'  - MIN_PRICE: {config.MIN_PRICE}')
-    logger.info(f'  - MAX_PRICE: {config.MAX_PRICE}')
-    logger.info(f'  - MODE: {config.MODE}')
-    logger.info(f'  - Интервал: {config.CHECK_INTERVAL}s')
-    if config.GGSEL_API_KEY.count('.') == 2 and not config.GGSEL_ACCESS_TOKEN:
-        logger.warning(
-            'GGSEL_API_KEY выглядит как JWT access token. '
-            'По документации для /apilogin нужен секретный API key. '
-            'Если это access token, укажите его в GGSEL_ACCESS_TOKEN.'
+    logger.info('Активных профилей: %s', len(profiles))
+    for p in profiles:
+        logger.info(
+            '[%s] Товар=%s, Конкурентов=%s',
+            p['name'],
+            p['product_id'],
+            len(p['competitor_urls']),
         )
 
-    # Инициализация компонентов
-    logger.info('Инициализация компонентов...')
+    api_clients = {p['id']: p['client'] for p in profiles}
+    profile_products = {p['id']: p['product_id'] for p in profiles}
+    profile_default_urls = {p['id']: p['competitor_urls'] for p in profiles}
+    profile_labels = {p['id']: p['name'] for p in profiles}
 
-    api_client = GGSELClient(
-        api_key=config.GGSEL_API_KEY,
-        seller_id=config.GGSEL_SELLER_ID,
-        base_url=config.GGSEL_BASE_URL,
-        lang=config.GGSEL_LANG,
-        access_token=config.GGSEL_ACCESS_TOKEN,
+    telegram_bot = TelegramBot(
+        api_clients=api_clients,
+        profile_products=profile_products,
+        profile_default_urls=profile_default_urls,
+        profile_labels=profile_labels,
     )
 
-    telegram_bot = TelegramBot(api_client=api_client)
+    # Проверка API и первичная инициализация state по каждому профилю.
+    for profile in profiles:
+        pid = profile['id']
+        pname = profile['name']
+        client = profile['client']
+        product_id = profile['product_id']
+        require_api = profile['require_api_on_start']
 
-    # Проверка связи с GGSEL
-    logger.info('Проверка связи с GGSEL API...')
-    api_accessible = api_client.check_api_access()
-
-    if api_accessible:
-        product = api_client.get_product(config.GGSEL_PRODUCT_ID)
-        if product:
-            logger.info(f'✅ Товар найден: {product.name}')
-            logger.info(f'   Текущая цена: {product.price} {product.currency}')
-            storage.update_state(last_price=product.price)
+        logger.info('[%s] Проверка API...', pname)
+        api_accessible = client.check_api_access()
+        if api_accessible and product_id:
+            product = client.get_product(product_id)
+            if product:
+                logger.info(
+                    '[%s] Товар найден: %s (цена=%s %s)',
+                    pname,
+                    product.name,
+                    product.price,
+                    product.currency,
+                )
+                storage.update_state(
+                    profile_id=pid,
+                    last_price=product.price,
+                )
+            else:
+                logger.warning('[%s] Товар %s не найден', pname, product_id)
         else:
-            logger.warning(f'⚠️ Товар {config.GGSEL_PRODUCT_ID} не найден')
-    else:
-        logger.warning('⚠️ GGSEL API недоступен')
-        logger.warning('   Бот будет работать в режиме мониторинга (без обновления цен)')
-        if config.GGSEL_REQUIRE_API_ON_START:
-            logger.error(
-                'GGSEL_REQUIRE_API_ON_START=true и API недоступен. '
-                'Остановка запуска для fail-fast поведения.'
+            logger.warning('[%s] API недоступен на старте', pname)
+            if require_api:
+                logger.error(
+                    '[%s] require_api_on_start=true, остановка запуска.',
+                    pname,
+                )
+                return
+
+        # runtime init для competitor_urls.
+        if storage.get_runtime_setting(
+            'competitor_urls',
+            profile_id=pid,
+        ) is None and profile['competitor_urls']:
+            storage.set_competitor_urls(
+                profile['competitor_urls'],
+                profile_id=pid,
             )
-            return
 
-    # Инициализация хранилища
-    state = storage.get_state()
-    logger.info(f'Состояние загружено: update_count={state["update_count"]}, skip_count={state["skip_count"]}')
+    schedulers = [
+        Scheduler(
+            profile['client'],
+            telegram_bot,
+            profile_id=profile['id'],
+            profile_name=profile['name'],
+            product_id=profile['product_id'],
+            competitor_urls=profile['competitor_urls'],
+        )
+        for profile in profiles
+    ]
 
-    # Инициализируем runtime competitor_urls из .env при первом запуске
-    if storage.get_runtime_setting('competitor_urls') is None and competitor_urls:
-        storage.set_competitor_urls(competitor_urls)
-
-    # Создание планировщика
-    scheduler = Scheduler(api_client, telegram_bot)
-
-    # Настройка сигналов
     setup_signal_handlers()
 
-    # Запуск Telegram + scheduler в одном event loop
     await telegram_bot.start()
     logger.info('Telegram бот запущен')
-    await telegram_bot.notify_startup()
+    for profile in profiles:
+        await telegram_bot.notify(
+            (
+                f"🚀 *Auto-Pricing Bot запущен*\n\n"
+                f"Профиль: `{profile['name']}`\n"
+                f"Товар: `{profile['product_id']}`\n"
+                f"Конкурентов: `{len(profile['competitor_urls'])}`"
+            )
+        )
 
-    logger.info('Запуск планировщика...')
-    scheduler_task = asyncio.create_task(scheduler.run())
-
+    scheduler_tasks = [asyncio.create_task(s.run()) for s in schedulers]
     try:
         await shutdown_event.wait()
     except KeyboardInterrupt:
-        logger.info('Получен сигнал остановки')
+        pass
     finally:
         await shutdown()
-        if not scheduler_task.done():
-            scheduler_task.cancel()
+        for task in scheduler_tasks:
+            if task.done():
+                continue
+            task.cancel()
             try:
-                await scheduler_task
+                await task
             except asyncio.CancelledError:
                 pass
 
 
 def run():
-    """Запуск бота"""
+    """Запуск бота."""
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
         pass
     except Exception as e:
-        logging.exception(f'Критическая ошибка: {e}')
+        logging.exception('Критическая ошибка: %s', e)
         sys.exit(1)
 
 
