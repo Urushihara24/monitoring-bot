@@ -17,7 +17,7 @@ Health check скрипт для Docker контейнера
 
 import sys
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 # Добавляем корень проекта
@@ -29,6 +29,7 @@ from config import config
 
 def check_last_cycle() -> bool:
     """Проверка последнего цикла планировщика"""
+    max_age_seconds = int(os.getenv('HEALTHCHECK_MAX_AGE_SECONDS', '300'))
     state = storage.get_state()
     last_cycle = state.get('last_cycle')
     
@@ -47,8 +48,11 @@ def check_last_cycle() -> bool:
     # Проверяем возраст
     age = (datetime.now() - last_cycle).total_seconds()
     
-    if age > 300:  # 5 минут
-        print(f"⚠️ Last cycle: {age:.0f}s назад (старше 5 минут)")
+    if age > max_age_seconds:
+        print(
+            "⚠️ Last cycle: "
+            f"{age:.0f}s назад (старше {max_age_seconds} секунд)"
+        )
         return True  # Предупреждение, но не критично
     
     print(f"✅ Last cycle: {age:.0f}s назад")

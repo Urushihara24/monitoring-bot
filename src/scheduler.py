@@ -157,12 +157,23 @@ class Scheduler:
 
             if result.returncode == 0:
                 logger.info('✅ Cookies успешно обновлены')
+                if result.stdout:
+                    logger.debug(
+                        'stdout скрипта обновления cookies: %s',
+                        result.stdout.strip(),
+                    )
                 self._cookies_last_update = datetime.now()
                 # Перечитываем cookies из backup файла и обновляем runtime config
                 await self._reload_cookies_from_backup()
                 return True
             else:
-                logger.error(f'❌ Ошибка обновления cookies: {result.stderr}')
+                logger.error(
+                    '❌ Ошибка обновления cookies (code=%s). '
+                    'stderr=%s stdout=%s',
+                    result.returncode,
+                    (result.stderr or '').strip(),
+                    (result.stdout or '').strip(),
+                )
                 return False
 
         except subprocess.TimeoutExpired:
@@ -210,7 +221,12 @@ class Scheduler:
         except Exception as e:
             logger.error(f'Ошибка перезагрузки cookies: {e}')
 
-    async def _parse_competitor_price(self, url: str, timeout: int = 15) -> 'ParseResult':
+    async def _parse_competitor_price(
+        self,
+        url: str,
+        runtime,
+        timeout: int = 15,
+    ) -> 'ParseResult':
         """
         Каскадный парсинг цены конкурента
 
@@ -230,7 +246,7 @@ class Scheduler:
         logger.info(f"🔍 Парсинг цены: {url}")
 
         # === ПОПЫТКА 1: RSC Parser ===
-        cookies = config.COMPETITOR_COOKIES or None
+        cookies = runtime.COMPETITOR_COOKIES or config.COMPETITOR_COOKIES or None
         result = rsc_parser.parse_url(url, timeout=timeout, cookies=cookies)
 
         if result.success:
@@ -240,10 +256,38 @@ class Scheduler:
         # === ПРОВЕРКА: cookies протухли? ===
         if result.cookies_expired:
             logger.warning(f"🚫 Cookies протухли для {url}, запускаю обновление...")
+            refreshed = False
             if config.AUTO_UPDATE_COOKIES:
-                await self._update_cookies_now()
-            # Возвращаем результат с флагом cookies_expired
-            return result
+                refreshed = await self._update_cookies_now()
+
+            # Если cookies удалось обновить, пробуем сразу повторить парсинг.
+            # Это убирает "слепой" цикл, когда обновление прошло, но цена
+            # конкурента не берётся до следующего интервала.
+            if refreshed:
+                refreshed_runtime = storage.get_runtime_config(config)
+                refreshed_cookies = (
+                    refreshed_runtime.COMPETITOR_COOKIES
+                    or config.COMPETITOR_COOKIES
+                    or None
+                )
+                retry_result = rsc_parser.parse_url(
+                    url,
+                    timeout=timeout,
+                    cookies=refreshed_cookies,
+                )
+                if retry_result.success:
+                    logger.info(
+                        "✅ RSC Parser успешен после refresh cookies: "
+                        f"цена={retry_result.price}₽ "
+                        f"(метод: {retry_result.method})"
+                    )
+                    return retry_result
+
+                logger.warning(
+                    "Повторный парсинг после refresh cookies не удался: "
+                    f"{retry_result.error}"
+                )
+                result = retry_result
 
         logger.warning(f"RSC Parser не удался: {result.error}")
 
@@ -308,7 +352,7 @@ class Scheduler:
             logger.info(f'Парсинг {len(runtime.COMPETITOR_URLS)} конкурентов (каскад: RSC → Distill)...')
 
             competitor_results = await asyncio.gather(*[
-                self._parse_competitor_price(url, timeout=15)
+                self._parse_competitor_price(url, runtime=runtime, timeout=15)
                 for url in runtime.COMPETITOR_URLS
             ])
 
@@ -510,7 +554,7 @@ class Scheduler:
                 logger.error(f'Критическая ошибка в планировщике: {e}', exc_info=True)
 
             # Ожидание следующего цикла
-            logger.debug(f'Ожидание {config.CHECK_INTERVAL} секунд...')
+            logger.debug(f'Ожидание {runtime.CHECK_INTERVAL} секунд...')
             runtime = storage.get_runtime_config(config)
             await asyncio.sleep(runtime.CHECK_INTERVAL)
 

@@ -19,7 +19,7 @@ restart_reason=""
 
 if ! HEALTHCHECK_DB_PATH="${APP_DIR}/data/state.db" \
     HEALTHCHECK_MAX_AGE_SECONDS="${HEALTHCHECK_MAX_AGE_SECONDS}" \
-    "${PYTHON_BIN}" "${APP_DIR}/scripts/healthcheck.py" >/dev/null 2>&1; then
+    "${PYTHON_BIN}" "${APP_DIR}/healthcheck.py" >/dev/null 2>&1; then
   restart_reason="stale_or_missing_heartbeat"
 fi
 
