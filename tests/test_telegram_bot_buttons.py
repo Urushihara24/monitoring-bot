@@ -20,7 +20,6 @@ from src.telegram_bot import (
     BTN_PROFILE,
     BTN_REMOVE_URL,
     BTN_SETTINGS,
-    BTN_SMOKE_API,
     BTN_STATUS,
     BTN_STEP,
     BTN_UP,
@@ -80,7 +79,6 @@ async def test_main_buttons_route_to_handlers():
     bot.toggle_auto = AsyncMock()
     bot.send_settings = AsyncMock()
     bot.send_diagnostics = AsyncMock()
-    bot.send_api_smoke = AsyncMock()
 
     status = make_update(BTN_STATUS)
     await bot.handle_message(status, None)
@@ -105,10 +103,6 @@ async def test_main_buttons_route_to_handlers():
     diagnostics = make_update(BTN_DIAGNOSTICS)
     await bot.handle_message(diagnostics, None)
     bot.send_diagnostics.assert_awaited_once_with(100, diagnostics)
-
-    smoke = make_update(BTN_SMOKE_API)
-    await bot.handle_message(smoke, None)
-    bot.send_api_smoke.assert_awaited_once_with(100, smoke)
 
 
 @pytest.mark.asyncio
@@ -293,44 +287,3 @@ async def test_pending_price_action_formats_to_4dp(monkeypatch):
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert args[0] == '✅ UNDERCUT_VALUE = 0.0051'
-
-
-@pytest.mark.asyncio
-async def test_send_api_smoke_reports_success(monkeypatch):
-    bot = make_bot()
-    bot._api_client = lambda _profile: object()
-    bot._product_id = lambda _profile: 123
-    update = make_update(BTN_SMOKE_API)
-
-    monkeypatch.setattr(
-        telegram_module,
-        'run_profile_smoke',
-        lambda *_a, **_kw: SimpleNamespace(
-            api_access=True,
-            product_read_ok=True,
-            current_price=0.2649,
-            write_probe_ok=True,
-            verify_price=0.2649,
-            error=None,
-        ),
-    )
-
-    await bot.send_api_smoke(100, update)
-
-    assert update.message.reply_text.await_count == 2
-    args, _kwargs = update.message.reply_text.await_args
-    assert '🧪 API Smoke' in args[0]
-    assert 'Write probe (noop): OK' in args[0]
-
-
-@pytest.mark.asyncio
-async def test_send_api_smoke_handles_missing_client():
-    bot = make_bot()
-    bot._api_client = lambda _profile: None
-    update = make_update(BTN_SMOKE_API)
-
-    await bot.send_api_smoke(100, update)
-
-    update.message.reply_text.assert_awaited_once()
-    args, _kwargs = update.message.reply_text.await_args
-    assert args[0] == '❌ Нет API клиента для профиля'

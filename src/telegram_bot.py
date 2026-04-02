@@ -26,7 +26,6 @@ from telegram.ext import (
 )
 
 from .config import config
-from .profile_smoke import run_profile_smoke
 from .storage import DEFAULT_PROFILE, storage
 from .validator import validate_runtime_config
 
@@ -41,7 +40,6 @@ BTN_AUTO_OFF = '🔕 Авто: ВЫКЛ'
 BTN_PROFILE = '🧩 Профиль'
 BTN_SETTINGS = '⚙ Настройки'
 BTN_DIAGNOSTICS = '🩺 Диагностика'
-BTN_SMOKE_API = '🧪 Smoke API'
 BTN_BACK = '🔙 Назад'
 
 # Настройки
@@ -162,7 +160,7 @@ class TelegramBot:
                 [BTN_UP, BTN_DOWN],
                 [auto_btn],
                 [BTN_PROFILE, BTN_SETTINGS],
-                [BTN_DIAGNOSTICS, BTN_SMOKE_API],
+                [BTN_DIAGNOSTICS],
             ],
             resize_keyboard=True,
         )
@@ -281,9 +279,6 @@ class TelegramBot:
             return
         if text == BTN_DIAGNOSTICS:
             await self.send_diagnostics(chat_id, update)
-            return
-        if text == BTN_SMOKE_API:
-            await self.send_api_smoke(chat_id, update)
             return
 
         # Выбор профиля
@@ -503,65 +498,6 @@ class TelegramBot:
         ]
         if errors:
             lines.append('Errors: ' + '; '.join(errors[:3]))
-        await update.message.reply_text(
-            '\n'.join(lines),
-            reply_markup=self.get_main_keyboard(profile_id),
-        )
-
-    async def send_api_smoke(self, chat_id: int, update: Update):
-        if not update.message:
-            return
-        profile_id = self._active_profile(chat_id)
-        profile_name = self._profile_name(profile_id)
-        client = self._api_client(profile_id)
-        product_id = self._product_id(profile_id)
-
-        if not client:
-            await update.message.reply_text(
-                '❌ Нет API клиента для профиля',
-                reply_markup=self.get_main_keyboard(profile_id),
-            )
-            return
-        if not product_id:
-            await update.message.reply_text(
-                '❌ Не задан product_id для профиля',
-                reply_markup=self.get_main_keyboard(profile_id),
-            )
-            return
-
-        await update.message.reply_text(
-            f'⏳ Запускаю API smoke для {profile_name}...',
-            reply_markup=self.get_main_keyboard(profile_id),
-        )
-
-        result = await asyncio.to_thread(
-            run_profile_smoke,
-            client,
-            product_id,
-            mutate=False,
-            delta=0.0001,
-            verify_read=True,
-        )
-        lines = [
-            '🧪 API Smoke',
-            '',
-            f'Профиль: {profile_name}',
-            f'API: {"OK" if result.api_access else "FAIL"}',
-            f'Read price: {"OK" if result.product_read_ok else "FAIL"}',
-            (
-                f'Current price: {result.current_price:.4f}₽'
-                if result.current_price is not None
-                else 'Current price: N/A'
-            ),
-            f'Write probe (noop): {"OK" if result.write_probe_ok else "FAIL"}',
-            (
-                f'Verify price: {result.verify_price:.4f}₽'
-                if result.verify_price is not None
-                else 'Verify price: N/A'
-            ),
-        ]
-        if result.error:
-            lines.append(f'Error: {result.error}')
         await update.message.reply_text(
             '\n'.join(lines),
             reply_markup=self.get_main_keyboard(profile_id),

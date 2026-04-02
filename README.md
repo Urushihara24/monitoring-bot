@@ -92,7 +92,6 @@ docker compose logs -f
 - `🧩 Профиль`
 - `⚙ Настройки`
 - `🩺 Диагностика`
-- `🧪 Smoke API` (ручная проверка `read + write probe` для активного профиля)
 
 Настройки:
 - `🎯 Цена` (`DESIRED_PRICE`)
