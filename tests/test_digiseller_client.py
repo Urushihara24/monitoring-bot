@@ -167,6 +167,41 @@ def test_check_api_access_false_without_perms_and_product(monkeypatch):
     assert client.check_api_access() is False
 
 
+def test_get_token_perms_status_extracts_permissions(monkeypatch):
+    client = make_client()
+    payload = {
+        'retval': 0,
+        'content': {
+            'permissions': ['products.read', 'products.write'],
+        },
+    }
+    monkeypatch.setattr(
+        client,
+        '_authorized_request',
+        lambda *_a, **_kw: FakeResponse(payload, status_code=200),
+    )
+    ok, desc = client.get_token_perms_status()
+    assert ok is True
+    assert 'products.read' in desc
+
+
+def test_get_token_perms_status_handles_non_json(monkeypatch):
+    client = make_client()
+
+    class BrokenJson(FakeResponse):
+        def json(self):
+            raise ValueError('bad json')
+
+    monkeypatch.setattr(
+        client,
+        '_authorized_request',
+        lambda *_a, **_kw: BrokenJson({}, status_code=200),
+    )
+    ok, desc = client.get_token_perms_status()
+    assert ok is True
+    assert desc == 'non_json'
+
+
 def test_update_price_payload_uses_float(monkeypatch):
     client = make_client()
     captured = {}
