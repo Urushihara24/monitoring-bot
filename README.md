@@ -70,6 +70,20 @@ cp .env.example .env
 - cookies конкурента: `GGSEL_COMPETITOR_COOKIES` / `DIGISELLER_COMPETITOR_COOKIES`
   (если не заданы, используется общий `COMPETITOR_COOKIES`)
 
+Профильные дефолты DigiSeller (опционально):
+- `DIGISELLER_MIN_PRICE`
+- `DIGISELLER_MAX_PRICE`
+- `DIGISELLER_DESIRED_PRICE`
+- `DIGISELLER_UNDERCUT_VALUE`
+- `DIGISELLER_MODE`
+- `DIGISELLER_FIXED_PRICE`
+- `DIGISELLER_STEP_UP_VALUE`
+- `DIGISELLER_CHECK_INTERVAL`
+- `DIGISELLER_COOLDOWN_SECONDS`
+
+Эти значения применяются только если соответствующий runtime-ключ ещё не был
+задан ранее в БД (`runtime_settings`).
+
 Запуск:
 
 ```bash
