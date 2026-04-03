@@ -308,6 +308,87 @@ async def test_parse_clears_stale_runtime_cookies_after_no_cookie_success(
 
 
 @pytest.mark.asyncio
+async def test_parse_does_not_clear_fresh_runtime_cookies_after_retry_fail(
+    monkeypatch,
+):
+    """
+    Если в runtime уже подтянулись новые cookies, они не должны очищаться
+    после неуспешного fallback без cookies.
+    """
+    scheduler = Scheduler(DummyApiClient(), DummyTelegramBot())
+    runtime_cookies = {'value': 'old_cookie=1'}
+    runtime = SimpleNamespace(COMPETITOR_COOKIES=runtime_cookies['value'])
+
+    parse_calls = []
+
+    def fake_parse(url, timeout=15, cookies=None):
+        parse_calls.append(cookies)
+        if len(parse_calls) == 1:
+            return ParseResult(
+                success=False,
+                error='expired',
+                url=url,
+                method='stealth_requests',
+                cookies_expired=True,
+            )
+        if len(parse_calls) == 2:
+            return ParseResult(
+                success=False,
+                error='fresh_cookies_still_blocked',
+                url=url,
+                method='stealth_requests',
+                cookies_expired=True,
+            )
+        return ParseResult(
+            success=False,
+            error='HTTP 403',
+            url=url,
+            method='stealth_requests',
+            status_code=403,
+            block_reason='http_403',
+            cookies_expired=True,
+        )
+
+    monkeypatch.setattr(
+        scheduler_module,
+        'rsc_parser',
+        SimpleNamespace(parse_url=fake_parse),
+    )
+
+    async def fake_sync(force_reload=False):
+        runtime_cookies['value'] = 'fresh_cookie=2'
+        return True
+
+    async def fake_reload_backup():
+        raise AssertionError('backup reload should not be called')
+
+    monkeypatch.setattr(scheduler, '_sync_cookies_from_env', fake_sync)
+    monkeypatch.setattr(scheduler, '_reload_cookies_from_backup', fake_reload_backup)
+    monkeypatch.setattr(
+        scheduler,
+        '_runtime',
+        lambda: SimpleNamespace(COMPETITOR_COOKIES=runtime_cookies['value']),
+    )
+
+    set_calls = []
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'set_runtime_setting',
+        lambda *args, **kwargs: set_calls.append((args, kwargs)),
+    )
+
+    result = await scheduler._parse_competitor_price(
+        'https://example.com/product',
+        runtime=runtime,
+        timeout=5,
+    )
+
+    assert result.success is False
+    assert parse_calls == ['old_cookie=1', 'fresh_cookie=2', None]
+    assert set_calls == []
+
+
+@pytest.mark.asyncio
 async def test_parse_does_not_fallback_to_config_cookies_when_runtime_empty(
     monkeypatch,
 ):
