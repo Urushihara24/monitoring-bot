@@ -1,4 +1,5 @@
 import pytest
+from types import SimpleNamespace
 from telegram import ReplyKeyboardMarkup
 
 from src.telegram_bot import (
@@ -168,26 +169,61 @@ async def test_access_denied(bot):
 async def test_cmd_diag_routes_to_send_diagnostics(bot, monkeypatch):
     called = {}
 
-    async def _stub(chat_id, _update):
+    async def _stub(chat_id, _update, profile_id=None):
         called['chat_id'] = chat_id
+        called['profile_id'] = profile_id
 
     monkeypatch.setattr(bot, 'send_diagnostics', _stub)
     upd = DummyUpdate('/diag', chat_id=333)
     await bot.cmd_diag(upd, None)
     assert called.get('chat_id') == 333
+    assert called.get('profile_id') == 'ggsel'
 
 
 @pytest.mark.asyncio
 async def test_cmd_status_routes_to_send_status(bot, monkeypatch):
     called = {}
 
-    async def _stub(chat_id, _update):
+    async def _stub(chat_id, _update, profile_id=None):
         called['chat_id'] = chat_id
+        called['profile_id'] = profile_id
 
     monkeypatch.setattr(bot, 'send_status', _stub)
     upd = DummyUpdate('/status', chat_id=444)
     await bot.cmd_status(upd, None)
     assert called.get('chat_id') == 444
+    assert called.get('profile_id') == 'ggsel'
+
+
+@pytest.mark.asyncio
+async def test_cmd_status_accepts_profile_arg(monkeypatch):
+    bot = TelegramBot(
+        api_clients={'ggsel': object(), 'digiseller': object()},
+        profile_products={'ggsel': 1, 'digiseller': 2},
+        profile_default_urls={'ggsel': [], 'digiseller': []},
+        profile_labels={'ggsel': 'GGSEL', 'digiseller': 'DIGISELLER'},
+    )
+    bot.admin_ids = {1}
+
+    called = {}
+
+    async def _stub(chat_id, _update, profile_id=None):
+        called['chat_id'] = chat_id
+        called['profile_id'] = profile_id
+
+    monkeypatch.setattr(bot, 'send_status', _stub)
+    upd = DummyUpdate('/status digiseller', chat_id=445)
+    await bot.cmd_status(upd, SimpleNamespace(args=['digiseller']))
+    assert called.get('chat_id') == 445
+    assert called.get('profile_id') == 'digiseller'
+
+
+@pytest.mark.asyncio
+async def test_cmd_diag_invalid_profile_arg_shows_error(bot):
+    upd = DummyUpdate('/diag bad', chat_id=446)
+    await bot.cmd_diag(upd, SimpleNamespace(args=['bad']))
+    assert upd.message.replies
+    assert 'Неизвестный профиль' in upd.message.replies[-1][0]
 
 
 @pytest.mark.asyncio
