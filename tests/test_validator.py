@@ -45,3 +45,9 @@ def test_validate_runtime_config_bad_max_down_step():
     ok, errors = validate_runtime_config(make_cfg(MAX_DOWN_STEP=-1))
     assert not ok
     assert any('MAX_DOWN_STEP' in e for e in errors)
+
+
+def test_validate_runtime_config_allows_empty_competitor_urls():
+    ok, errors = validate_runtime_config(make_cfg(COMPETITOR_URLS=[]))
+    assert ok
+    assert errors == []

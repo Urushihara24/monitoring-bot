@@ -44,7 +44,4 @@ def validate_runtime_config(cfg) -> Tuple[bool, List[str]]:
         errors.append('PARSER_ISSUE_COOLDOWN_SECONDS не может быть отрицательным')
     if cfg.WEAK_POSITION_THRESHOLD < 1:
         errors.append('WEAK_POSITION_THRESHOLD должен быть >= 1')
-    if not cfg.COMPETITOR_URLS:
-        errors.append('Список COMPETITOR_URLS пуст')
-
     return len(errors) == 0, errors

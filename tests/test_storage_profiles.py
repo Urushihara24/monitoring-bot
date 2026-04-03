@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import sqlite3
 
 from src.storage import Storage
@@ -221,6 +221,8 @@ def test_migrates_legacy_runtime_settings_without_profile_id(tmp_path):
 
 def test_migrates_legacy_history_and_alert_tables(tmp_path):
     db = tmp_path / 'legacy_misc.db'
+    recent = datetime.now() - timedelta(minutes=10)
+    recent_str = recent.strftime('%Y-%m-%d %H:%M:%S')
     with sqlite3.connect(str(db)) as conn:
         conn.execute(
             '''
@@ -248,7 +250,7 @@ def test_migrates_legacy_history_and_alert_tables(tmp_path):
                 'STEP_UP',
                 1,
                 'test',
-                '2026-04-03 12:00:00',
+                recent_str,
             ),
         )
         conn.execute(
@@ -261,7 +263,7 @@ def test_migrates_legacy_history_and_alert_tables(tmp_path):
         )
         conn.execute(
             "INSERT INTO alert_state (key, last_sent) VALUES (?, ?)",
-            ('x', '2026-04-03 12:00:00'),
+            ('x', recent_str),
         )
         conn.commit()
 

@@ -26,6 +26,7 @@ from telegram.ext import (
 )
 
 from .config import config
+from .profile_smoke import run_profile_smoke
 from .storage import DEFAULT_PROFILE, storage
 from .validator import validate_runtime_config
 
@@ -198,6 +199,7 @@ class TelegramBot:
     def _setup_handlers(self):
         self.app.add_handler(CommandHandler('start', self.cmd_start))
         self.app.add_handler(CommandHandler('status', self.cmd_status))
+        self.app.add_handler(CommandHandler('smoke', self.cmd_smoke))
         self.app.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
         )
@@ -235,6 +237,62 @@ class TelegramBot:
         if not update.effective_chat:
             return
         await self.send_status(update.effective_chat.id, update)
+
+    async def cmd_smoke(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not update.effective_user or not update.effective_chat or not update.message:
+            return
+        if not self._check_access(update.effective_user.id):
+            await update.message.reply_text(
+                '❌ Нет доступа',
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            return
+
+        chat_id = update.effective_chat.id
+        profile_id = self._active_profile(chat_id)
+        profile_name = self._profile_name(profile_id)
+        client = self._api_client(profile_id)
+        product_id = self._product_id(profile_id)
+
+        if not client or not product_id:
+            await update.message.reply_text(
+                (
+                    '❌ Smoke недоступен: не настроены '
+                    'API-клиент или product_id для профиля'
+                ),
+                reply_markup=self.get_main_keyboard(profile_id),
+            )
+            return
+
+        await update.message.reply_text(
+            f'🧪 Запуск smoke API для профиля {profile_name}...',
+            reply_markup=self.get_main_keyboard(profile_id),
+        )
+
+        result = await asyncio.to_thread(
+            run_profile_smoke,
+            client,
+            int(product_id),
+            mutate=False,
+            verify_read=True,
+        )
+        lines = [
+            '🧪 Smoke API',
+            '',
+            f'Профиль: {profile_name}',
+            f'API: {"OK" if result.api_access else "FAIL"}',
+            f'Read: {"OK" if result.product_read_ok else "FAIL"}',
+            f'Write probe: {"OK" if result.write_probe_ok else "FAIL"}',
+            f'Current price: {result.current_price}',
+            f'Probe price: {result.probe_price}',
+            f'Verify price: {result.verify_price}',
+        ]
+        if result.error:
+            lines.append(f'Error: {result.error}')
+        await update.message.reply_text(
+            '\n'.join(lines),
+            reply_markup=self.get_main_keyboard(profile_id),
+        )
 
     # ================================
     # Message handler

@@ -135,6 +135,11 @@ docker compose logs -f
 
 ## Telegram управление (reply-клавиатура)
 
+Команды:
+- `/start`
+- `/status`
+- `/smoke` — безопасный API smoke для активного профиля (read + noop write + verify)
+
 Главное меню:
 - `📊 Статус`
 - `⬆ +0.01₽` / `⬇ -0.01₽`
