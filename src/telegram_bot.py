@@ -478,6 +478,22 @@ class TelegramBot:
             except Exception as e:
                 logger.error('Ошибка API в диагностике: %s', e)
 
+        perms_line = None
+        if profile_id == 'digiseller' and client and hasattr(
+            client,
+            'get_token_perms_status',
+        ):
+            try:
+                perms_ok, perms_desc = await asyncio.to_thread(
+                    client.get_token_perms_status,
+                )
+                perms_line = (
+                    f'Token perms: {"OK" if perms_ok else "FAIL"} '
+                    f'({perms_desc})'
+                )
+            except Exception as e:
+                logger.error('Ошибка token/perms в диагностике: %s', e)
+
         now = datetime.now()
         last_cycle = state.get('last_cycle')
         age = int((now - last_cycle).total_seconds()) if last_cycle else 0
@@ -497,6 +513,8 @@ class TelegramBot:
                 f'{state.get("last_competitor_block_reason") or "N/A"}'
             ),
         ]
+        if perms_line:
+            lines.append(perms_line)
         if errors:
             lines.append('Errors: ' + '; '.join(errors[:3]))
         await update.message.reply_text(

@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import logging
+from collections import deque
 from typing import Any, Dict, Optional
 
 from .api_client import GGSELClient, Product
@@ -98,6 +99,77 @@ class DigiSellerClient(GGSELClient):
             return content
 
         return None
+
+    def _extract_permissions(self, payload: Dict[str, Any]) -> list[str]:
+        """
+        Пытается вытащить список прав из произвольного JSON token/perms.
+        """
+        result: list[str] = []
+        seen: set[str] = set()
+        queue: deque[Any] = deque([payload])
+        keys_of_interest = {'permissions', 'perms', 'scopes', 'scope', 'access'}
+
+        while queue:
+            current = queue.popleft()
+            if isinstance(current, dict):
+                for key, value in current.items():
+                    if key.lower() in keys_of_interest:
+                        if isinstance(value, list):
+                            for item in value:
+                                if isinstance(item, str):
+                                    normalized = item.strip()
+                                    if normalized and normalized not in seen:
+                                        seen.add(normalized)
+                                        result.append(normalized)
+                        elif isinstance(value, str):
+                            normalized = value.strip()
+                            if normalized and normalized not in seen:
+                                seen.add(normalized)
+                                result.append(normalized)
+                    if isinstance(value, (dict, list)):
+                        queue.append(value)
+            elif isinstance(current, list):
+                for item in current:
+                    if isinstance(item, (dict, list)):
+                        queue.append(item)
+        return result
+
+    def get_token_perms_status(self, timeout: int = 8) -> tuple[bool, str]:
+        """
+        Проверяет endpoint /token/perms и возвращает:
+        (is_ok, короткое описание).
+        """
+        perms_url = f'{self.base_url}/token/perms'
+        response = self._authorized_request(
+            'GET',
+            perms_url,
+            timeout=timeout,
+            max_retries=2,
+        )
+        if response is None:
+            return False, 'no_response'
+        if response.status_code in (401, 403):
+            return False, f'http_{response.status_code}'
+        if response.status_code >= 400:
+            return False, f'http_{response.status_code}'
+
+        try:
+            data = response.json()
+        except Exception:
+            return bool(response.ok), 'non_json'
+
+        if not isinstance(data, dict):
+            return bool(response.ok), 'ok'
+
+        retval = self._response_retval(data)
+        if retval is not None and retval != 0:
+            return False, f'retval_{retval}'
+
+        permissions = self._extract_permissions(data)
+        if permissions:
+            preview = ', '.join(permissions[:4])
+            return True, preview
+        return True, 'ok'
 
     def get_product_info(
         self,
@@ -293,26 +365,19 @@ class DigiSellerClient(GGSELClient):
         Проверка доступа к DigiSeller API.
         """
         logger.info('Проверка доступа к DigiSeller API...')
-        # Базовая проверка прав токена.
-        perms_url = f'{self.base_url}/token/perms'
-        response = self._authorized_request(
-            'GET',
-            perms_url,
-            timeout=8,
-            max_retries=2,
-        )
-        if response is not None and response.status_code in (401, 403):
-            logger.error('DigiSeller API: доступ запрещён (%s)', response.status_code)
+        perms_ok, perms_desc = self.get_token_perms_status(timeout=8)
+        if not perms_ok and perms_desc in {'http_401', 'http_403'}:
+            logger.error('DigiSeller API: доступ запрещён (%s)', perms_desc)
             return False
 
-        perms_ok = response is not None and response.ok
         if not perms_ok:
-            status = response.status_code if response is not None else 'no_response'
             logger.warning(
                 'DigiSeller token/perms недоступен (%s), '
                 'перехожу к проверке чтения товара',
-                status,
+                perms_desc,
             )
+        else:
+            logger.info('DigiSeller token/perms: %s', perms_desc)
 
         # Дополнительная проверка чтения товара (если ID задан).
         if self.default_product_id > 0:
