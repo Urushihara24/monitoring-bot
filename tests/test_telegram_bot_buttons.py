@@ -309,7 +309,7 @@ async def test_status_prefers_last_target_price():
 
 
 @pytest.mark.asyncio
-async def test_status_prefers_live_api_price_over_state():
+async def test_status_ignores_live_api_price_and_keeps_last_target():
     class ApiClient:
         def get_my_price(self, product_id):
             assert product_id == 1
@@ -346,11 +346,11 @@ async def test_status_prefers_live_api_price_over_state():
 
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
-    assert '💰 Моя цена: 0.2711₽' in args[0]
+    assert '💰 Моя цена: 0.2649₽' in args[0]
 
 
 @pytest.mark.asyncio
-async def test_status_falls_back_to_state_when_live_api_fails():
+async def test_status_uses_last_price_when_last_target_missing():
     class ApiClient:
         def get_my_price(self, _product_id):
             raise RuntimeError('api timeout')
@@ -363,8 +363,8 @@ async def test_status_falls_back_to_state_when_live_api_fails():
     )
     bot.admin_ids = {1}
     bot._state = lambda _profile: {
-        'last_target_price': 0.2649,
-        'last_price': 0.26,
+        'last_target_price': None,
+        'last_price': 0.2633,
         'last_competitor_min': 0.27,
         'last_update': None,
         'last_competitor_rank': None,
@@ -386,7 +386,7 @@ async def test_status_falls_back_to_state_when_live_api_fails():
 
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
-    assert '💰 Моя цена: 0.2649₽' in args[0]
+    assert '💰 Моя цена: 0.2633₽' in args[0]
 
 
 @pytest.mark.asyncio
