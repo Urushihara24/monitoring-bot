@@ -76,6 +76,23 @@ class GGSELClient:
         """Нормализует access token (обрезает пробелы, если не None)"""
         return token.strip() if token else ""
 
+    def _response_retval(self, payload: Dict[str, Any]) -> Optional[int]:
+        """
+        Возвращает retval из разных форматов API ответа.
+
+        Поддерживаются: retval / retVal / ret_val.
+        """
+        if not isinstance(payload, dict):
+            return None
+        for key in ("retval", "retVal", "ret_val"):
+            if key not in payload:
+                continue
+            try:
+                return int(payload.get(key))
+            except Exception:
+                return None
+        return None
+
     def _is_probably_jwt(self, value: str) -> bool:
         """Грубая эвристика: похоже ли значение на JWT access token"""
         if not value:
@@ -157,7 +174,8 @@ class GGSELClient:
             logger.error(f"Ошибка парсинга JSON ApiLogin: {e}")
             return False
 
-        if data.get("retval") == 0 and data.get("token"):
+        retval = self._response_retval(data)
+        if data.get("token") and retval in (None, 0):
             self.access_token = str(data.get("token"))
             valid_thru = data.get("valid_thru")
             self.token_valid_thru = self._parse_valid_thru(valid_thru)
@@ -363,7 +381,8 @@ class GGSELClient:
             logger.error(f"Ошибка парсинга JSON get_product_info: {e}")
             return None
 
-        if data.get("retval") == 0 and isinstance(data.get("product"), dict):
+        retval = self._response_retval(data)
+        if retval in (None, 0) and isinstance(data.get("product"), dict):
             return data["product"]
 
         logger.error(f"GGSEL get_product_info error: {data}")
@@ -554,7 +573,8 @@ class GGSELClient:
 
         # Фоллбек: API вернул синхронный успешный ответ
         # (иногда обновление применяется без асинхронной задачи).
-        if response.ok and result.get("retval") in (None, 0):
+        retval = self._response_retval(result)
+        if response.ok and retval in (None, 0):
             logger.info(f"✅ Цена обновлена: {price_4dp}")
             return True
 
