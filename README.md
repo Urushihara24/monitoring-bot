@@ -141,6 +141,7 @@ docker compose logs -f
 - `/status`
 - `/smoke` — безопасный API smoke для активного профиля (read + noop write + verify)
   для DigiSeller дополнительно показывает `token/perms`.
+  Можно указать профиль аргументом: `/smoke ggsel` или `/smoke digiseller`.
 
 Главное меню:
 - `📊 Статус`
