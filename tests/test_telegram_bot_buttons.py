@@ -259,6 +259,7 @@ async def test_status_prefers_last_target_price():
     bot._runtime = lambda _profile: SimpleNamespace(
         MODE='STEP_UP',
         CHECK_INTERVAL=60,
+        COMPETITOR_URLS=['https://example.com/item-1'],
     )
     update = make_update(BTN_STATUS)
 
@@ -309,6 +310,36 @@ async def test_pending_price_action_formats_to_4dp(monkeypatch):
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert args[0] == '✅ UNDERCUT_VALUE = 0.0051'
+
+
+@pytest.mark.asyncio
+async def test_status_shows_monitoring_disabled_when_no_urls():
+    bot = make_bot()
+    bot._state = lambda _profile: {
+        'last_target_price': None,
+        'last_price': 0.2649,
+        'last_competitor_min': None,
+        'last_update': None,
+        'last_competitor_rank': None,
+        'last_competitor_parse_at': None,
+        'last_competitor_url': None,
+        'last_competitor_method': None,
+        'auto_mode': True,
+        'update_count': 0,
+        'skip_count': 0,
+    }
+    bot._runtime = lambda _profile: SimpleNamespace(
+        MODE='STEP_UP',
+        CHECK_INTERVAL=60,
+        COMPETITOR_URLS=[],
+    )
+    update = make_update(BTN_STATUS)
+
+    await bot.send_status(100, update)
+
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert '📡 Мониторинг: ВЫКЛ (нет URL)' in args[0]
 
 
 @pytest.mark.asyncio
