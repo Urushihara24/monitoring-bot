@@ -52,8 +52,6 @@ BTN_MODE = '🔀 Режим'
 BTN_POSITION = '📍 Позиция'
 BTN_ADD_URL = '🔗 Добавить URL'
 BTN_REMOVE_URL = '🗑 Удалить URL'
-BTN_EXPORT = '📤 Экспорт'
-BTN_IMPORT = '📥 Импорт'
 BTN_HISTORY = '🧾 История'
 
 
@@ -350,19 +348,6 @@ class TelegramBot:
             return
         if text == BTN_REMOVE_URL:
             await self.start_remove_url(chat_id, update)
-            return
-        if text == BTN_EXPORT:
-            await self.export_settings(chat_id, update)
-            return
-        if text == BTN_IMPORT:
-            self.pending_actions[chat_id] = 'IMPORT_SETTINGS'
-            await update.message.reply_text(
-                (
-                    'Вставь JSON с runtime-настройками '
-                    '(например {"MIN_PRICE":"0.25","MAX_PRICE":"0.40"})'
-                ),
-                reply_markup=self.get_settings_keyboard(),
-            )
             return
         if text == BTN_HISTORY:
             await self.show_settings_history(chat_id, update)
@@ -677,27 +662,6 @@ class TelegramBot:
             reply_markup=self.get_settings_keyboard(),
         )
 
-    async def export_settings(self, chat_id: int, update: Update):
-        if not update.message:
-            return
-        profile_id = self._active_profile(chat_id)
-        runtime = self._runtime(profile_id)
-        payload = {
-            'MIN_PRICE': f'{runtime.MIN_PRICE:.4f}',
-            'MAX_PRICE': f'{runtime.MAX_PRICE:.4f}',
-            'DESIRED_PRICE': f'{runtime.DESIRED_PRICE:.4f}',
-            'UNDERCUT_VALUE': f'{runtime.UNDERCUT_VALUE:.4f}',
-            'MODE': runtime.MODE,
-            'FIXED_PRICE': f'{runtime.FIXED_PRICE:.4f}',
-            'STEP_UP_VALUE': f'{runtime.STEP_UP_VALUE:.4f}',
-            'CHECK_INTERVAL': str(runtime.CHECK_INTERVAL),
-        }
-        text = '📤 Экспорт настроек\n\n' + str(payload)
-        await update.message.reply_text(
-            text,
-            reply_markup=self.get_settings_keyboard(),
-        )
-
     async def handle_pending_action(
         self,
         chat_id: int,
@@ -834,53 +798,6 @@ class TelegramBot:
                     reply_markup=self.get_settings_keyboard(),
                 )
                 await self.send_settings(chat_id, update)
-            return
-
-        if action == 'IMPORT_SETTINGS':
-            import ast
-
-            try:
-                parsed = ast.literal_eval(text)
-            except Exception:
-                await update.message.reply_text(
-                    '❌ Не удалось разобрать JSON/словарь',
-                    reply_markup=self.get_settings_keyboard(),
-                )
-                return
-            if not isinstance(parsed, dict):
-                await update.message.reply_text(
-                    '❌ Нужен JSON-объект',
-                    reply_markup=self.get_settings_keyboard(),
-                )
-                return
-            allowed = {
-                'MIN_PRICE',
-                'MAX_PRICE',
-                'DESIRED_PRICE',
-                'UNDERCUT_VALUE',
-                'MODE',
-                'FIXED_PRICE',
-                'STEP_UP_VALUE',
-                'CHECK_INTERVAL',
-            }
-            applied = 0
-            for key, value in parsed.items():
-                if key not in allowed:
-                    continue
-                storage.set_runtime_setting(
-                    key,
-                    str(value),
-                    user_id=user_id,
-                    source='telegram_import',
-                    profile_id=profile_id,
-                )
-                applied += 1
-            self.pending_actions.pop(chat_id, None)
-            await update.message.reply_text(
-                f'✅ Импортировано ключей: {applied}',
-                reply_markup=self.get_settings_keyboard(),
-            )
-            await self.send_settings(chat_id, update)
             return
 
     # ================================
