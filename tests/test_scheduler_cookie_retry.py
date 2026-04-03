@@ -53,6 +53,23 @@ async def test_parse_retries_without_cookies_after_expired(monkeypatch):
         'rsc_parser',
         SimpleNamespace(parse_url=fake_parse),
     )
+    async def fake_sync(force_reload=False):
+        return False
+
+    async def fake_reload_backup():
+        return False
+
+    monkeypatch.setattr(
+        scheduler,
+        '_sync_cookies_from_env',
+        fake_sync,
+    )
+    monkeypatch.setattr(
+        scheduler,
+        '_reload_cookies_from_backup',
+        fake_reload_backup,
+    )
+    monkeypatch.setattr(scheduler, '_runtime', lambda: runtime)
 
     result = await scheduler._parse_competitor_price(
         'https://example.com/product',
@@ -98,6 +115,23 @@ async def test_parse_returns_error_when_retry_failed(monkeypatch):
         'rsc_parser',
         SimpleNamespace(parse_url=fake_parse),
     )
+    async def fake_sync(force_reload=False):
+        return False
+
+    async def fake_reload_backup():
+        return False
+
+    monkeypatch.setattr(
+        scheduler,
+        '_sync_cookies_from_env',
+        fake_sync,
+    )
+    monkeypatch.setattr(
+        scheduler,
+        '_reload_cookies_from_backup',
+        fake_reload_backup,
+    )
+    monkeypatch.setattr(scheduler, '_runtime', lambda: runtime)
 
     result = await scheduler._parse_competitor_price(
         'https://example.com/product',
@@ -109,6 +143,75 @@ async def test_parse_returns_error_when_retry_failed(monkeypatch):
     assert result.error == 'HTTP 403'
     assert result.status_code == 403
     assert parse_calls == ['old_cookie=1', None]
+
+
+@pytest.mark.asyncio
+async def test_parse_retries_with_refreshed_cookies_before_no_cookies(monkeypatch):
+    """После cookies_expired сначала пробуем свежие cookies из runtime."""
+    scheduler = Scheduler(DummyApiClient(), DummyTelegramBot())
+    runtime_cookies = {'value': 'old_cookie=1'}
+    runtime = SimpleNamespace(COMPETITOR_COOKIES=runtime_cookies['value'])
+
+    parse_calls = []
+
+    def fake_parse(url, timeout=15, cookies=None):
+        parse_calls.append(cookies)
+        if len(parse_calls) == 1:
+            return ParseResult(
+                success=False,
+                error='expired',
+                url=url,
+                method='stealth_requests',
+                cookies_expired=True,
+            )
+        if cookies == 'fresh_cookie=2':
+            return ParseResult(
+                success=True,
+                price=0.3311,
+                url=url,
+                method='stealth_requests',
+            )
+        return ParseResult(
+            success=False,
+            error='unexpected cookies',
+            url=url,
+            method='stealth_requests',
+        )
+
+    monkeypatch.setattr(
+        scheduler_module,
+        'rsc_parser',
+        SimpleNamespace(parse_url=fake_parse),
+    )
+
+    sync_calls = []
+
+    async def fake_sync(force_reload=False):
+        sync_calls.append(force_reload)
+        runtime_cookies['value'] = 'fresh_cookie=2'
+        return True
+
+    async def fake_reload_backup():
+        raise AssertionError('backup reload should not be called')
+
+    monkeypatch.setattr(scheduler, '_sync_cookies_from_env', fake_sync)
+    monkeypatch.setattr(scheduler, '_reload_cookies_from_backup', fake_reload_backup)
+    monkeypatch.setattr(
+        scheduler,
+        '_runtime',
+        lambda: SimpleNamespace(COMPETITOR_COOKIES=runtime_cookies['value']),
+    )
+
+    result = await scheduler._parse_competitor_price(
+        'https://example.com/product',
+        runtime=runtime,
+        timeout=5,
+    )
+
+    assert result.success is True
+    assert result.price == 0.3311
+    assert parse_calls == ['old_cookie=1', 'fresh_cookie=2']
+    assert sync_calls == [True]
 
 
 @pytest.mark.asyncio
@@ -332,4 +435,59 @@ async def test_sync_cookies_from_env_reloads_when_file_changed(
     second = await scheduler._sync_cookies_from_env()
     assert second is True
     assert runtime['value'] == 'second_cookie=2'
+    assert len(set_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_sync_cookies_from_env_force_reload_bypasses_cache(
+    monkeypatch,
+    tmp_path,
+):
+    env_path = tmp_path / '.env'
+    env_path.write_text('COMPETITOR_COOKIES=seed_cookie=1\n', encoding='utf-8')
+    monkeypatch.chdir(tmp_path)
+
+    scheduler = Scheduler(
+        DummyApiClient(),
+        DummyTelegramBot(),
+        profile_id='ggsel',
+        profile_name='GGSEL',
+    )
+
+    runtime = {'value': ''}
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'get_runtime_setting',
+        lambda *args, **kwargs: runtime['value'],
+    )
+
+    set_calls = []
+
+    def fake_set_runtime_setting(key, value, **kwargs):
+        runtime['value'] = value
+        set_calls.append((key, value, kwargs))
+
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'set_runtime_setting',
+        fake_set_runtime_setting,
+    )
+
+    parse_calls = {'count': 0}
+
+    def fake_dotenv_values(_path):
+        parse_calls['count'] += 1
+        if parse_calls['count'] == 1:
+            return {'COMPETITOR_COOKIES': 'seed_cookie=1'}
+        return {'COMPETITOR_COOKIES': 'forced_cookie=2'}
+
+    monkeypatch.setattr(scheduler_module, 'dotenv_values', fake_dotenv_values)
+
+    first = await scheduler._sync_cookies_from_env()
+    second = await scheduler._sync_cookies_from_env(force_reload=True)
+
+    assert first is True
+    assert second is True
+    assert parse_calls['count'] == 2
+    assert runtime['value'] == 'forced_cookie=2'
     assert len(set_calls) == 2

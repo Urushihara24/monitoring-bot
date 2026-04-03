@@ -192,9 +192,13 @@ class Scheduler:
             profile_name=self.profile_name,
         )
 
-    async def _sync_cookies_from_env(self) -> bool:
+    async def _sync_cookies_from_env(self, force_reload: bool = False) -> bool:
         """
         Подтягивает COMPETITOR_COOKIES из .env в runtime settings.
+
+        Args:
+            force_reload: Принудительно перечитать .env, игнорируя кеш
+                сигнатуры файла.
         """
         env_path = Path('.env')
         if not env_path.exists():
@@ -204,7 +208,7 @@ class Scheduler:
         try:
             stat = env_path.stat()
             signature = (int(stat.st_mtime_ns), int(stat.st_size))
-            if signature == self._env_cookies_signature:
+            if signature == self._env_cookies_signature and not force_reload:
                 env_cookies = self._env_cookies_cached_value or ''
             else:
                 env_data = dotenv_values(str(env_path))
@@ -326,10 +330,45 @@ class Scheduler:
         if result.success:
             return result
 
-        # Если cookies протухли, пробуем один повтор без cookies.
+        # Если cookies протухли, сначала принудительно подтягиваем
+        # обновлённые cookies (если внешний скрипт уже записал их в .env /
+        # backup), и только потом делаем fallback без cookies.
         if result.cookies_expired and cookies:
             logger.warning(
-                '[%s] Cookies протухли для %s, пробую запрос без cookies...',
+                '[%s] Cookies протухли для %s, пробую обновить cookies...',
+                self.profile_name,
+                url,
+            )
+            synced_from_env = await self._sync_cookies_from_env(
+                force_reload=True,
+            )
+            if not synced_from_env:
+                await self._reload_cookies_from_backup()
+
+            refreshed_runtime = self._runtime()
+            refreshed_cookies = (
+                refreshed_runtime.COMPETITOR_COOKIES
+                or config.COMPETITOR_COOKIES
+                or None
+            )
+            if refreshed_cookies and refreshed_cookies != cookies:
+                logger.info(
+                    '[%s] Использую обновлённые cookies из runtime '
+                    'и повторяю парсинг',
+                    self.profile_name,
+                )
+                refreshed_result = await asyncio.to_thread(
+                    rsc_parser.parse_url,
+                    url,
+                    timeout=timeout,
+                    cookies=refreshed_cookies,
+                )
+                if refreshed_result.success:
+                    return refreshed_result
+                result = refreshed_result
+
+            logger.warning(
+                '[%s] Повторяю парсинг без cookies для %s...',
                 self.profile_name,
                 url,
             )
