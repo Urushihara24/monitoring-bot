@@ -865,6 +865,41 @@ async def test_cmd_smoke_accepts_profile_arg_from_command(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_cmd_smoke_accepts_plati_alias_from_command(monkeypatch):
+    bot = TelegramBot(
+        api_clients={'ggsel': object(), 'digiseller': object()},
+        profile_products={'ggsel': 1, 'digiseller': 9001},
+        profile_default_urls={'ggsel': [], 'digiseller': []},
+        profile_labels={'ggsel': 'GGSEL', 'digiseller': 'DIGISELLER'},
+    )
+    bot.admin_ids = {1}
+    update = make_update('/smoke plati')
+    context = SimpleNamespace(args=['plati'])
+
+    monkeypatch.setattr(
+        telegram_module,
+        'run_profile_smoke',
+        lambda *_args, **_kwargs: SimpleNamespace(
+            api_access=True,
+            product_read_ok=True,
+            write_probe_ok=True,
+            current_price=0.33,
+            probe_price=0.33,
+            verify_price=0.33,
+            token_perms_ok=True,
+            token_perms_desc='ok',
+            error=None,
+        ),
+    )
+
+    await bot.cmd_smoke(update, context)
+
+    assert update.message.reply_text.await_count == 2
+    second_args, _second_kwargs = update.message.reply_text.await_args_list[1]
+    assert 'Профиль: DIGISELLER' in second_args[0]
+
+
+@pytest.mark.asyncio
 async def test_cmd_smoke_rejects_unknown_profile_arg():
     bot = TelegramBot(
         api_clients={'ggsel': object()},
