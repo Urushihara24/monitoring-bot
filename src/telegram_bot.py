@@ -146,6 +146,14 @@ class TelegramBot:
     def _product_id(self, profile_id: str) -> int:
         return int(self.profile_products.get(profile_id, 0))
 
+    def _fmt_price(self, value) -> str:
+        if value is None:
+            return 'N/A'
+        try:
+            return f'{float(value):.4f}'
+        except Exception:
+            return str(value)
+
     # ================================
     # Keyboards
     # ================================
@@ -283,9 +291,9 @@ class TelegramBot:
             f'API: {"OK" if result.api_access else "FAIL"}',
             f'Read: {"OK" if result.product_read_ok else "FAIL"}',
             f'Write probe: {"OK" if result.write_probe_ok else "FAIL"}',
-            f'Current price: {result.current_price}',
-            f'Probe price: {result.probe_price}',
-            f'Verify price: {result.verify_price}',
+            f'Current price: {self._fmt_price(result.current_price)}',
+            f'Probe price: {self._fmt_price(result.probe_price)}',
+            f'Verify price: {self._fmt_price(result.verify_price)}',
         ]
         if result.error:
             lines.append(f'Error: {result.error}')
@@ -574,7 +582,10 @@ class TelegramBot:
             '',
             f'Профиль: {profile_name}',
             f'API: {"OK" if api_ok else "FAIL"}',
-            f'Product: {"OK" if product_ok else "FAIL"} ({product_price}₽)',
+            (
+                f'Product: {"OK" if product_ok else "FAIL"} '
+                f'({self._fmt_price(product_price)}₽)'
+            ),
             f'Config: {"OK" if is_valid else "INVALID"}',
             f'Heartbeat: {age}s',
             f'Auto: {"ON" if state.get("auto_mode", True) else "OFF"}',
