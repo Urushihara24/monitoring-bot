@@ -148,8 +148,10 @@ docker compose logs -f
 
 Команды:
 - `/start`
-- `/status`
+- `/status` — статус активного профиля
+- `/status <profile>` — статус выбранного профиля
 - `/diag` — диагностика активного профиля
+- `/diag <profile>` — диагностика выбранного профиля
 - `/smoke` — безопасный API smoke для активного профиля (read + noop write + verify)
   для DigiSeller дополнительно показывает `token/perms`.
   Можно указать профиль аргументом: `/smoke ggsel` или `/smoke digiseller`.
