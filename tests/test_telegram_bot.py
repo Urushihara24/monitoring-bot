@@ -136,7 +136,7 @@ async def test_auto_buttons_dispatch_toggle(bot, monkeypatch, button):
 async def test_buttons_set_pending_actions(bot, button, expected_action):
     upd = DummyUpdate(button, chat_id=555)
     await bot.handle_message(upd, None)
-    assert bot.pending_actions[555] == expected_action
+    assert bot.pending_actions[555] == (expected_action, 'ggsel')
     assert upd.message.replies
     assert isinstance(upd.message.replies[-1][1], ReplyKeyboardMarkup)
 
@@ -144,7 +144,7 @@ async def test_buttons_set_pending_actions(bot, button, expected_action):
 @pytest.mark.asyncio
 async def test_back_clears_pending(bot):
     upd = DummyUpdate(BTN_BACK, chat_id=777)
-    bot.pending_actions[777] = 'MIN_PRICE'
+    bot.pending_actions[777] = ('MIN_PRICE', 'ggsel')
     await bot.handle_message(upd, None)
     assert 777 not in bot.pending_actions
     assert upd.message.replies
