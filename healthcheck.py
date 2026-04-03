@@ -79,14 +79,27 @@ def check_digiseller_api() -> bool:
 def main() -> int:
     max_age_seconds = int(os.getenv('HEALTHCHECK_MAX_AGE_SECONDS', '300'))
     print(f'Healthcheck @ {datetime.now().isoformat()}')
-    results = []
+    active_profiles = []
     if config.GGSEL_ENABLED:
-        results.append(check_profile_cycle('ggsel', max_age_seconds))
+        active_profiles.append('ggsel')
     if config.DIGISELLER_ENABLED:
-        results.append(check_profile_cycle('digiseller', max_age_seconds))
-    results.append(check_ggsel_api())
-    results.append(check_digiseller_api())
-    healthy = all(results) if results else False
+        active_profiles.append('digiseller')
+
+    if not active_profiles:
+        print('⚠ Нет активных профилей (GGSEL_ENABLED/DIGISELLER_ENABLED)')
+        print('UNHEALTHY')
+        return 1
+
+    results = []
+    for profile_id in active_profiles:
+        results.append(check_profile_cycle(profile_id, max_age_seconds))
+
+    if 'ggsel' in active_profiles:
+        results.append(check_ggsel_api())
+    if 'digiseller' in active_profiles:
+        results.append(check_digiseller_api())
+
+    healthy = all(results)
     print('HEALTHY' if healthy else 'UNHEALTHY')
     return 0 if healthy else 1
 

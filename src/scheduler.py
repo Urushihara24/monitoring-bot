@@ -56,6 +56,8 @@ class Scheduler:
         self.product_id = int(product_id or 0)
         self.default_competitor_urls = competitor_urls or []
         self._running = False
+        self._env_cookies_signature: Optional[tuple[str, int, int]] = None
+        self._env_cookies_cached_value: Optional[str] = None
 
     def _runtime(self):
         return storage.get_runtime_config(
@@ -190,34 +192,54 @@ class Scheduler:
             profile_name=self.profile_name,
         )
 
-    async def _sync_cookies_from_env(self) -> bool:
+    async def _sync_cookies_from_env(self, force_reload: bool = False) -> bool:
         """
         Подтягивает COMPETITOR_COOKIES из .env в runtime settings.
+
+        Args:
+            force_reload: Принудительно перечитать .env, игнорируя кеш
+                сигнатуры файла.
         """
-        env_path = Path('.env')
+        env_path = Path(config.ENV_FILE_PATH).expanduser()
+        if not env_path.is_absolute():
+            env_path = Path.cwd() / env_path
         if not env_path.exists():
+            self._env_cookies_signature = None
+            self._env_cookies_cached_value = None
             return False
         try:
-            env_data = dotenv_values(str(env_path))
-            cookie_keys = {
-                'ggsel': (
-                    'GGSEL_COMPETITOR_COOKIES',
-                    'COMPETITOR_COOKIES',
-                ),
-                'digiseller': (
-                    'DIGISELLER_COMPETITOR_COOKIES',
-                    'COMPETITOR_COOKIES',
-                ),
-            }.get(self.profile_id, ('COMPETITOR_COOKIES',))
+            stat = env_path.stat()
+            signature = (
+                str(env_path.resolve()),
+                int(stat.st_mtime_ns),
+                int(stat.st_size),
+            )
+            if signature == self._env_cookies_signature and not force_reload:
+                env_cookies = self._env_cookies_cached_value or ''
+            else:
+                env_data = dotenv_values(str(env_path))
+                env_cookies = ''
+                cookie_keys = {
+                    'ggsel': (
+                        'GGSEL_COMPETITOR_COOKIES',
+                        'COMPETITOR_COOKIES',
+                    ),
+                    'digiseller': (
+                        'DIGISELLER_COMPETITOR_COOKIES',
+                        'COMPETITOR_COOKIES',
+                    ),
+                }.get(self.profile_id, ('COMPETITOR_COOKIES',))
 
-            env_cookies = ''
-            for key in cookie_keys:
-                candidate = self._normalize_cookies_value(
-                    str(env_data.get(key) or '')
-                )
-                if candidate:
-                    env_cookies = candidate
-                    break
+                for key in cookie_keys:
+                    candidate = self._normalize_cookies_value(
+                        str(env_data.get(key) or '')
+                    )
+                    if candidate:
+                        env_cookies = candidate
+                        break
+
+                self._env_cookies_signature = signature
+                self._env_cookies_cached_value = env_cookies or None
 
             if not env_cookies:
                 return False
@@ -276,11 +298,16 @@ class Scheduler:
                     source='backup_sync',
                     profile_id=self.profile_id,
                 )
-            logger.info(
-                '[%s] Cookies перезагружены в runtime (%s cookies)',
-                self.profile_name,
-                len(cookie_parts),
-            )
+                logger.info(
+                    '[%s] Cookies перезагружены из backup в runtime (%s cookies)',
+                    self.profile_name,
+                    len(cookie_parts),
+                )
+            else:
+                logger.debug(
+                    '[%s] Cookies из backup уже актуальны',
+                    self.profile_name,
+                )
             return True
         except Exception as e:
             logger.error(
@@ -298,7 +325,10 @@ class Scheduler:
     ) -> ParseResult:
         """Каскадный парсинг: только stealth_requests."""
         logger.info('[%s] 🔍 Парсинг цены: %s', self.profile_name, url)
-        cookies = runtime.COMPETITOR_COOKIES or config.COMPETITOR_COOKIES or None
+        # Используем cookies только из runtime (БД/env-sync),
+        # без fallback на config, чтобы не возвращать протухшие значения
+        # из process env после авто-очистки runtime cookies.
+        cookies = runtime.COMPETITOR_COOKIES or None
 
         result = await asyncio.to_thread(
             rsc_parser.parse_url,
@@ -309,10 +339,41 @@ class Scheduler:
         if result.success:
             return result
 
-        # Если cookies протухли, пробуем один повтор без cookies.
+        # Если cookies протухли, сначала принудительно подтягиваем
+        # обновлённые cookies (если внешний скрипт уже записал их в .env /
+        # backup), и только потом делаем fallback без cookies.
         if result.cookies_expired and cookies:
             logger.warning(
-                '[%s] Cookies протухли для %s, пробую запрос без cookies...',
+                '[%s] Cookies протухли для %s, пробую обновить cookies...',
+                self.profile_name,
+                url,
+            )
+            synced_from_env = await self._sync_cookies_from_env(
+                force_reload=True,
+            )
+            if not synced_from_env:
+                await self._reload_cookies_from_backup()
+
+            refreshed_runtime = self._runtime()
+            refreshed_cookies = refreshed_runtime.COMPETITOR_COOKIES or None
+            if refreshed_cookies and refreshed_cookies != cookies:
+                logger.info(
+                    '[%s] Использую обновлённые cookies из runtime '
+                    'и повторяю парсинг',
+                    self.profile_name,
+                )
+                refreshed_result = await asyncio.to_thread(
+                    rsc_parser.parse_url,
+                    url,
+                    timeout=timeout,
+                    cookies=refreshed_cookies,
+                )
+                if refreshed_result.success:
+                    return refreshed_result
+                result = refreshed_result
+
+            logger.warning(
+                '[%s] Повторяю парсинг без cookies для %s...',
                 self.profile_name,
                 url,
             )
@@ -323,7 +384,43 @@ class Scheduler:
                 cookies=None,
             )
             if retry_result.success:
+                if (
+                    cookies
+                    and (
+                        not refreshed_cookies
+                        or refreshed_cookies == cookies
+                    )
+                ):
+                    storage.set_runtime_setting(
+                        'COMPETITOR_COOKIES',
+                        '',
+                        source='auto_clear_expired',
+                        profile_id=self.profile_id,
+                    )
+                    logger.info(
+                        '[%s] Очистил протухшие runtime cookies после '
+                        'успешного парсинга без cookies',
+                        self.profile_name,
+                    )
                 return retry_result
+            if (
+                cookies
+                and (
+                    not refreshed_cookies
+                    or refreshed_cookies == cookies
+                )
+            ):
+                storage.set_runtime_setting(
+                    'COMPETITOR_COOKIES',
+                    '',
+                    source='auto_clear_expired_failed',
+                    profile_id=self.profile_id,
+                )
+                logger.info(
+                    '[%s] Очистил протухшие runtime cookies после '
+                    'неуспешного retry без cookies',
+                    self.profile_name,
+                )
             result = retry_result
 
         return result
@@ -361,8 +458,8 @@ class Scheduler:
                 len(runtime.COMPETITOR_URLS),
             )
             if not runtime.COMPETITOR_URLS:
-                logger.warning(
-                    '[%s] Список конкурентов пуст, цикл пропущен',
+                logger.info(
+                    '[%s] Конкуренты не заданы, цикл мониторинга пропущен',
                     self.profile_name,
                 )
                 storage.update_state(
@@ -370,6 +467,19 @@ class Scheduler:
                     last_competitor_error='no_competitor_urls',
                     last_competitor_block_reason=None,
                     last_competitor_status_code=None,
+                )
+                storage.increment_skip_count(profile_id=self.profile_id)
+                return
+            if self.product_id <= 0:
+                message = (
+                    'Некорректный product_id для профиля '
+                    f'{self.profile_name}: {self.product_id}'
+                )
+                logger.error('[%s] %s', self.profile_name, message)
+                await self._notify_error_throttled(
+                    key='invalid_product_id',
+                    message=message,
+                    cooldown_seconds=300,
                 )
                 storage.increment_skip_count(profile_id=self.profile_id)
                 return
@@ -497,9 +607,28 @@ class Scheduler:
                 last_competitor_status_code=selected.status_code,
             )
 
-            current_price = self.api_client.get_my_price(self.product_id)
+            try:
+                current_price = self.api_client.get_my_price(self.product_id)
+            except Exception as e:
+                logger.error(
+                    '[%s] Ошибка получения текущей цены по API: %s',
+                    self.profile_name,
+                    e,
+                )
+                current_price = None
             if current_price is None:
                 current_price = state.get('last_price')
+            if current_price is not None:
+                try:
+                    current_price = float(current_price)
+                except Exception as e:
+                    logger.error(
+                        '[%s] Некорректное значение текущей цены: %r (%s)',
+                        self.profile_name,
+                        current_price,
+                        e,
+                    )
+                    current_price = None
             if current_price is None:
                 await self._notify_error_throttled(
                     key='no_current_price',
@@ -508,6 +637,25 @@ class Scheduler:
                 )
                 storage.increment_skip_count(profile_id=self.profile_id)
                 return
+            # Синхронизируем last_price с фактической ценой из API,
+            # чтобы status/дрейф-логика не опирались на устаревшее значение.
+            state_last_price_raw = state.get('last_price')
+            state_last_price = None
+            if state_last_price_raw is not None:
+                try:
+                    state_last_price = float(state_last_price_raw)
+                except Exception:
+                    state_last_price = None
+            ignore_delta = getattr(runtime, 'IGNORE_DELTA', 0.001)
+            if (
+                state_last_price is None
+                or abs(current_price - state_last_price) >= ignore_delta
+            ):
+                storage.update_state(
+                    profile_id=self.profile_id,
+                    last_price=current_price,
+                )
+                state['last_price'] = current_price
 
             decision = calculate_price(
                 competitor_prices=competitor_prices,
@@ -524,12 +672,6 @@ class Scheduler:
                         True,
                     )
                 ),
-            )
-            logger.info(
-                '[%s] Решение: %s (%s)',
-                self.profile_name,
-                decision.action,
-                decision.reason,
             )
 
             if (
@@ -601,7 +743,47 @@ class Scheduler:
                     drift,
                 )
 
+            logger.info(
+                '[%s] Итоговое решение: %s (%s)',
+                self.profile_name,
+                decision.action,
+                decision.reason,
+            )
+
             if decision.action == 'update' and decision.price is not None:
+                ignore_delta = getattr(runtime, 'IGNORE_DELTA', 0.001)
+                last_target_raw = state.get('last_target_price')
+                last_update_at = state.get('last_update')
+                if (
+                    last_target_raw is not None
+                    and isinstance(last_update_at, datetime)
+                ):
+                    try:
+                        last_target_price = float(last_target_raw)
+                    except Exception:
+                        last_target_price = None
+                    if last_target_price is not None and (
+                        abs(decision.price - last_target_price) < ignore_delta
+                    ):
+                        recent_window_seconds = max(
+                            int(getattr(runtime, 'CHECK_INTERVAL', 60)) * 2,
+                            60,
+                        )
+                        age_seconds = (
+                            datetime.now() - last_update_at
+                        ).total_seconds()
+                        if age_seconds < recent_window_seconds:
+                            logger.info(
+                                '[%s] Пропуск повторного update: '
+                                'целевая %.4f уже выставлялась %.1fs назад',
+                                self.profile_name,
+                                decision.price,
+                                age_seconds,
+                            )
+                            storage.increment_skip_count(
+                                profile_id=self.profile_id,
+                            )
+                            return
                 success = await self._update_price(decision.price, decision)
                 if success:
                     storage.increment_update_count(profile_id=self.profile_id)

@@ -29,6 +29,74 @@ def test_runtime_competitor_urls(tmp_path):
     assert urls == ['https://a', 'https://b']
 
 
+def test_runtime_competitor_urls_are_normalized_and_deduplicated(tmp_path):
+    db_path = tmp_path / 'state.db'
+    storage = Storage(str(db_path))
+    storage.set_competitor_urls(
+        [
+            ' HTTPS://GGSEL.NET/catalog/product/a-1/ ',
+            'https://ggsel.net/catalog/product/a-1',
+            'https://ggsel.net/catalog/product/a-1#fragment',
+            'https://shop.example/item-2/',
+        ]
+    )
+    urls = storage.get_competitor_urls([])
+    assert urls == [
+        'https://ggsel.net/catalog/product/a-1',
+        'https://shop.example/item-2',
+    ]
+
+
+def test_set_competitor_urls_replaces_previous_value(tmp_path):
+    db_path = tmp_path / 'state.db'
+    storage = Storage(str(db_path))
+    storage.set_competitor_urls(['https://a.example/item-1'])
+    storage.set_competitor_urls(['https://b.example/item-2'])
+    urls = storage.get_competitor_urls([])
+    assert urls == ['https://b.example/item-2']
+
+
+def test_public_normalize_competitor_urls_helper(tmp_path):
+    db_path = tmp_path / 'state.db'
+    storage = Storage(str(db_path))
+    urls = storage.normalize_competitor_urls(
+        [
+            'https://A.EXAMPLE/x/',
+            'https://a.example/x',
+            'https://a.example/x#f',
+            ' https://b.example/y ',
+        ]
+    )
+    assert urls == ['https://a.example/x', 'https://b.example/y']
+
+
+def test_normalize_competitor_urls_deduplicates_root_slash(tmp_path):
+    db_path = tmp_path / 'state.db'
+    storage = Storage(str(db_path))
+    urls = storage.normalize_competitor_urls(
+        [
+            'https://example.com/',
+            'https://example.com',
+            'https://example.com/#fragment',
+        ]
+    )
+    assert urls == ['https://example.com']
+
+
+def test_normalize_competitor_urls_drops_invalid_scheme_and_empty(tmp_path):
+    db_path = tmp_path / 'state.db'
+    storage = Storage(str(db_path))
+    urls = storage.normalize_competitor_urls(
+        [
+            '',
+            'ftp://example.com/item',
+            'example.com/item',
+            'https://valid.example/item',
+        ]
+    )
+    assert urls == ['https://valid.example/item']
+
+
 def test_runtime_config_override(tmp_path):
     db_path = tmp_path / 'state.db'
     storage = Storage(str(db_path))

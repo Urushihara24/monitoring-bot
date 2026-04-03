@@ -1,4 +1,5 @@
 import pytest
+from types import SimpleNamespace
 from telegram import ReplyKeyboardMarkup
 
 from src.telegram_bot import (
@@ -6,7 +7,6 @@ from src.telegram_bot import (
     BTN_AUTO_OFF,
     BTN_AUTO_ON,
     BTN_BACK,
-    BTN_DIAGNOSTICS,
     BTN_DOWN,
     BTN_HISTORY,
     BTN_MAX,
@@ -74,7 +74,6 @@ async def test_keyboards_are_reply(bot):
     [
         (BTN_STATUS, 'send_status'),
         (BTN_SETTINGS, 'send_settings'),
-        (BTN_DIAGNOSTICS, 'send_diagnostics'),
         (BTN_MODE, 'toggle_mode'),
         (BTN_POSITION, 'toggle_position_filter'),
         (BTN_REMOVE_URL, 'start_remove_url'),
@@ -136,7 +135,7 @@ async def test_auto_buttons_dispatch_toggle(bot, monkeypatch, button):
 async def test_buttons_set_pending_actions(bot, button, expected_action):
     upd = DummyUpdate(button, chat_id=555)
     await bot.handle_message(upd, None)
-    assert bot.pending_actions[555] == expected_action
+    assert bot.pending_actions[555] == (expected_action, 'ggsel')
     assert upd.message.replies
     assert isinstance(upd.message.replies[-1][1], ReplyKeyboardMarkup)
 
@@ -144,7 +143,7 @@ async def test_buttons_set_pending_actions(bot, button, expected_action):
 @pytest.mark.asyncio
 async def test_back_clears_pending(bot):
     upd = DummyUpdate(BTN_BACK, chat_id=777)
-    bot.pending_actions[777] = 'MIN_PRICE'
+    bot.pending_actions[777] = ('MIN_PRICE', 'ggsel')
     await bot.handle_message(upd, None)
     assert 777 not in bot.pending_actions
     assert upd.message.replies
@@ -162,5 +161,159 @@ async def test_unknown_message_shows_hint(bot):
 async def test_access_denied(bot):
     upd = DummyUpdate(BTN_STATUS, user_id=999)
     await bot.handle_message(upd, None)
+    assert upd.message.replies
+    assert 'Нет доступа' in upd.message.replies[-1][0]
+
+
+@pytest.mark.asyncio
+async def test_cmd_diag_routes_to_send_diagnostics(bot, monkeypatch):
+    called = {}
+
+    async def _stub(chat_id, _update, profile_id=None):
+        called['chat_id'] = chat_id
+        called['profile_id'] = profile_id
+
+    monkeypatch.setattr(bot, 'send_diagnostics', _stub)
+    upd = DummyUpdate('/diag', chat_id=333)
+    await bot.cmd_diag(upd, None)
+    assert called.get('chat_id') == 333
+    assert called.get('profile_id') == 'ggsel'
+
+
+@pytest.mark.asyncio
+async def test_cmd_status_routes_to_send_status(bot, monkeypatch):
+    called = {}
+
+    async def _stub(chat_id, _update, profile_id=None):
+        called['chat_id'] = chat_id
+        called['profile_id'] = profile_id
+
+    monkeypatch.setattr(bot, 'send_status', _stub)
+    upd = DummyUpdate('/status', chat_id=444)
+    await bot.cmd_status(upd, None)
+    assert called.get('chat_id') == 444
+    assert called.get('profile_id') == 'ggsel'
+
+
+@pytest.mark.asyncio
+async def test_cmd_status_accepts_profile_arg(monkeypatch):
+    bot = TelegramBot(
+        api_clients={'ggsel': object(), 'digiseller': object()},
+        profile_products={'ggsel': 1, 'digiseller': 2},
+        profile_default_urls={'ggsel': [], 'digiseller': []},
+        profile_labels={'ggsel': 'GGSEL', 'digiseller': 'DIGISELLER'},
+    )
+    bot.admin_ids = {1}
+
+    called = {}
+
+    async def _stub(chat_id, _update, profile_id=None):
+        called['chat_id'] = chat_id
+        called['profile_id'] = profile_id
+
+    monkeypatch.setattr(bot, 'send_status', _stub)
+    upd = DummyUpdate('/status digiseller', chat_id=445)
+    await bot.cmd_status(upd, SimpleNamespace(args=['digiseller']))
+    assert called.get('chat_id') == 445
+    assert called.get('profile_id') == 'digiseller'
+
+
+@pytest.mark.asyncio
+async def test_cmd_status_accepts_plati_alias(monkeypatch):
+    bot = TelegramBot(
+        api_clients={'ggsel': object(), 'digiseller': object()},
+        profile_products={'ggsel': 1, 'digiseller': 2},
+        profile_default_urls={'ggsel': [], 'digiseller': []},
+        profile_labels={'ggsel': 'GGSEL', 'digiseller': 'DIGISELLER'},
+    )
+    bot.admin_ids = {1}
+
+    called = {}
+
+    async def _stub(chat_id, _update, profile_id=None):
+        called['chat_id'] = chat_id
+        called['profile_id'] = profile_id
+
+    monkeypatch.setattr(bot, 'send_status', _stub)
+    upd = DummyUpdate('/status plati', chat_id=449)
+    await bot.cmd_status(upd, SimpleNamespace(args=['plati']))
+    assert called.get('chat_id') == 449
+    assert called.get('profile_id') == 'digiseller'
+
+
+@pytest.mark.asyncio
+async def test_cmd_diag_accepts_profile_arg(monkeypatch):
+    bot = TelegramBot(
+        api_clients={'ggsel': object(), 'digiseller': object()},
+        profile_products={'ggsel': 1, 'digiseller': 2},
+        profile_default_urls={'ggsel': [], 'digiseller': []},
+        profile_labels={'ggsel': 'GGSEL', 'digiseller': 'DIGISELLER'},
+    )
+    bot.admin_ids = {1}
+
+    called = {}
+
+    async def _stub(chat_id, _update, profile_id=None):
+        called['chat_id'] = chat_id
+        called['profile_id'] = profile_id
+
+    monkeypatch.setattr(bot, 'send_diagnostics', _stub)
+    upd = DummyUpdate('/diag digiseller', chat_id=447)
+    await bot.cmd_diag(upd, SimpleNamespace(args=['digiseller']))
+    assert called.get('chat_id') == 447
+    assert called.get('profile_id') == 'digiseller'
+
+
+@pytest.mark.asyncio
+async def test_cmd_diag_accepts_plati_alias(monkeypatch):
+    bot = TelegramBot(
+        api_clients={'ggsel': object(), 'digiseller': object()},
+        profile_products={'ggsel': 1, 'digiseller': 2},
+        profile_default_urls={'ggsel': [], 'digiseller': []},
+        profile_labels={'ggsel': 'GGSEL', 'digiseller': 'DIGISELLER'},
+    )
+    bot.admin_ids = {1}
+
+    called = {}
+
+    async def _stub(chat_id, _update, profile_id=None):
+        called['chat_id'] = chat_id
+        called['profile_id'] = profile_id
+
+    monkeypatch.setattr(bot, 'send_diagnostics', _stub)
+    upd = DummyUpdate('/diag plati', chat_id=450)
+    await bot.cmd_diag(upd, SimpleNamespace(args=['plati']))
+    assert called.get('chat_id') == 450
+    assert called.get('profile_id') == 'digiseller'
+
+
+@pytest.mark.asyncio
+async def test_cmd_status_invalid_profile_arg_shows_error(bot):
+    upd = DummyUpdate('/status bad', chat_id=448)
+    await bot.cmd_status(upd, SimpleNamespace(args=['bad']))
+    assert upd.message.replies
+    assert 'Неизвестный профиль' in upd.message.replies[-1][0]
+
+
+@pytest.mark.asyncio
+async def test_cmd_diag_invalid_profile_arg_shows_error(bot):
+    upd = DummyUpdate('/diag bad', chat_id=446)
+    await bot.cmd_diag(upd, SimpleNamespace(args=['bad']))
+    assert upd.message.replies
+    assert 'Неизвестный профиль' in upd.message.replies[-1][0]
+
+
+@pytest.mark.asyncio
+async def test_cmd_status_access_denied(bot):
+    upd = DummyUpdate('/status', user_id=999)
+    await bot.cmd_status(upd, None)
+    assert upd.message.replies
+    assert 'Нет доступа' in upd.message.replies[-1][0]
+
+
+@pytest.mark.asyncio
+async def test_cmd_diag_access_denied(bot):
+    upd = DummyUpdate('/diag', user_id=999)
+    await bot.cmd_diag(upd, None)
     assert upd.message.replies
     assert 'Нет доступа' in upd.message.replies[-1][0]

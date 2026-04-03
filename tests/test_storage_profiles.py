@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import sqlite3
 
 from src.storage import Storage
@@ -50,6 +50,33 @@ def test_competitor_urls_profile_specific(tmp_path):
     assert storage.get_competitor_urls([], profile_id='digiseller') == [
         'https://b.example',
         'https://c.example',
+    ]
+
+
+def test_competitor_urls_profile_specific_are_deduplicated(tmp_path):
+    db = tmp_path / 'state.db'
+    storage = Storage(db_path=str(db))
+    storage.set_competitor_urls(
+        [
+            'https://a.example/item-1/',
+            'https://a.example/item-1',
+            'https://a.example/item-1#x',
+        ],
+        profile_id='ggsel',
+    )
+    storage.set_competitor_urls(
+        [
+            'https://b.example/item-2/',
+            'https://b.example/item-2',
+        ],
+        profile_id='digiseller',
+    )
+
+    assert storage.get_competitor_urls([], profile_id='ggsel') == [
+        'https://a.example/item-1'
+    ]
+    assert storage.get_competitor_urls([], profile_id='digiseller') == [
+        'https://b.example/item-2'
     ]
 
 
@@ -221,6 +248,8 @@ def test_migrates_legacy_runtime_settings_without_profile_id(tmp_path):
 
 def test_migrates_legacy_history_and_alert_tables(tmp_path):
     db = tmp_path / 'legacy_misc.db'
+    recent = datetime.now() - timedelta(minutes=10)
+    recent_str = recent.strftime('%Y-%m-%d %H:%M:%S')
     with sqlite3.connect(str(db)) as conn:
         conn.execute(
             '''
@@ -248,7 +277,7 @@ def test_migrates_legacy_history_and_alert_tables(tmp_path):
                 'STEP_UP',
                 1,
                 'test',
-                '2026-04-03 12:00:00',
+                recent_str,
             ),
         )
         conn.execute(
@@ -261,7 +290,7 @@ def test_migrates_legacy_history_and_alert_tables(tmp_path):
         )
         conn.execute(
             "INSERT INTO alert_state (key, last_sent) VALUES (?, ?)",
-            ('x', '2026-04-03 12:00:00'),
+            ('x', recent_str),
         )
         conn.commit()
 
