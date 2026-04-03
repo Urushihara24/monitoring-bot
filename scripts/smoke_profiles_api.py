@@ -120,6 +120,16 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if args.profile == 'ggsel' and not config.GGSEL_ENABLED:
+        print('[ggsel] disabled: set GGSEL_ENABLED=true to run this profile')
+        return 1
+    if args.profile == 'digiseller' and not config.DIGISELLER_ENABLED:
+        print(
+            '[digiseller] disabled: '
+            'set DIGISELLER_ENABLED=true to run this profile'
+        )
+        return 1
+
     selected = []
     if args.profile in ('all', 'ggsel'):
         selected.append(check_ggsel(args))

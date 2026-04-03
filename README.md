@@ -187,6 +187,9 @@ python3 scripts/smoke_profiles_api.py
 python3 scripts/smoke_profiles_api.py --profile digiseller
 ```
 
+Если профиль запрошен явно (`--profile ggsel|digiseller`) и выключен в `.env`,
+скрипт завершится с ошибкой (код `1`).
+
 С реальным тестовым изменением и rollback:
 
 ```bash
