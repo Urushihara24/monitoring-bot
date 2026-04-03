@@ -235,3 +235,72 @@ def test_parse_with_stealth_429_exhausted_returns_block(monkeypatch):
     assert result.status_code == 429
     assert result.block_reason == 'http_429'
     assert result.cookies_expired is False
+
+
+def test_parse_with_goods_api_prefers_unit_amount(monkeypatch):
+    parser = RSCParser(max_retries=0)
+
+    class FakeResponse:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    payload = {
+        'success': True,
+        'data': {
+            'price': 70,
+            'prices_unit': {
+                'unit_amount': '0.3500',
+            },
+        },
+    }
+    monkeypatch.setattr(
+        rsc_module.stealth_requests,
+        'get',
+        lambda *_a, **_kw: FakeResponse(200, payload),
+    )
+
+    result = parser._parse_with_goods_api(
+        'https://ggsel.net/catalog/product/item-123',
+        timeout=3,
+    )
+
+    assert result.success is True
+    assert result.price == 0.35
+    assert result.method == 'api4_goods'
+
+
+def test_parse_with_goods_api_falls_back_to_price(monkeypatch):
+    parser = RSCParser(max_retries=0)
+
+    class FakeResponse:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    payload = {
+        'success': True,
+        'data': {
+            'price': 0.2649,
+            'prices_unit': {},
+        },
+    }
+    monkeypatch.setattr(
+        rsc_module.stealth_requests,
+        'get',
+        lambda *_a, **_kw: FakeResponse(200, payload),
+    )
+
+    result = parser._parse_with_goods_api(
+        'https://ggsel.net/catalog/product/item-123',
+        timeout=3,
+    )
+
+    assert result.success is True
+    assert result.price == 0.2649
