@@ -58,6 +58,83 @@ def test_get_product_info_from_content_field(monkeypatch):
     assert product.currency == 'RUB'
 
 
+def test_get_product_info_accepts_retval_camel_case(monkeypatch):
+    client = make_client()
+    payload = {'retVal': 0, 'product': {'name': 'Camel', 'price': 1.5}}
+    monkeypatch.setattr(
+        client,
+        '_authorized_request',
+        lambda *_a, **_kw: FakeResponse(payload),
+    )
+    info = client.get_product_info(123)
+    assert info is not None
+    assert info['name'] == 'Camel'
+
+
+def test_get_product_info_from_content_product_list(monkeypatch):
+    client = make_client()
+    payload = {
+        'retval': 0,
+        'content': {
+            'product': [
+                {'name': 'ListItem', 'prices': [{'price': 2.7, 'currency': 'USD'}]}
+            ]
+        },
+    }
+    monkeypatch.setattr(
+        client,
+        '_authorized_request',
+        lambda *_a, **_kw: FakeResponse(payload),
+    )
+    product = client.get_product(999)
+    assert product is not None
+    assert product.name == 'ListItem'
+    assert product.price == 2.7
+    assert product.currency == 'USD'
+
+
+def test_get_product_price_from_prices_list(monkeypatch):
+    client = make_client()
+    payload = {
+        'retval': 0,
+        'product': {
+            'name': 'ListPrices',
+            'prices': [
+                {'price': 3.14, 'currency': 'EUR'},
+            ],
+        },
+    }
+    monkeypatch.setattr(
+        client,
+        '_authorized_request',
+        lambda *_a, **_kw: FakeResponse(payload),
+    )
+    product = client.get_product(101)
+    assert product is not None
+    assert product.price == 3.14
+    assert product.currency == 'EUR'
+
+
+def test_get_product_price_from_comma_string(monkeypatch):
+    client = make_client()
+    payload = {
+        'retval': 0,
+        'product': {
+            'name': 'CommaPrice',
+            'price': '0,2649',
+            'currency': 'RUB',
+        },
+    }
+    monkeypatch.setattr(
+        client,
+        '_authorized_request',
+        lambda *_a, **_kw: FakeResponse(payload),
+    )
+    product = client.get_product(102)
+    assert product is not None
+    assert product.price == 0.2649
+
+
 def test_check_api_access_false_on_unauthorized(monkeypatch):
     client = make_client()
     monkeypatch.setattr(
@@ -65,6 +142,28 @@ def test_check_api_access_false_on_unauthorized(monkeypatch):
         '_authorized_request',
         lambda *_a, **_kw: FakeResponse({}, status_code=401),
     )
+    assert client.check_api_access() is False
+
+
+def test_check_api_access_fallback_to_product_read(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(
+        client,
+        '_authorized_request',
+        lambda *_a, **_kw: FakeResponse({}, status_code=404),
+    )
+    monkeypatch.setattr(
+        client,
+        'get_product',
+        lambda *_a, **_kw: object(),
+    )
+    assert client.check_api_access() is True
+
+
+def test_check_api_access_false_without_perms_and_product(monkeypatch):
+    client = make_client()
+    client.default_product_id = 0
+    monkeypatch.setattr(client, '_authorized_request', lambda *_a, **_kw: None)
     assert client.check_api_access() is False
 
 
