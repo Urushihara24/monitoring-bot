@@ -276,11 +276,16 @@ class Scheduler:
                     source='backup_sync',
                     profile_id=self.profile_id,
                 )
-            logger.info(
-                '[%s] Cookies перезагружены в runtime (%s cookies)',
-                self.profile_name,
-                len(cookie_parts),
-            )
+                logger.info(
+                    '[%s] Cookies перезагружены из backup в runtime (%s cookies)',
+                    self.profile_name,
+                    len(cookie_parts),
+                )
+            else:
+                logger.debug(
+                    '[%s] Cookies из backup уже актуальны',
+                    self.profile_name,
+                )
             return True
         except Exception as e:
             logger.error(

@@ -440,6 +440,12 @@ class TelegramBot:
 
         competitor_rank = state.get('last_competitor_rank')
         competitor_info = f'#{competitor_rank}' if competitor_rank else 'N/A'
+        monitor_enabled = bool(runtime.COMPETITOR_URLS)
+        monitor_mode = (
+            f'АКТИВЕН ({len(runtime.COMPETITOR_URLS)} URL)'
+            if monitor_enabled
+            else 'ВЫКЛ (нет URL)'
+        )
         last_update = state.get('last_update')
         update_str = last_update.strftime('%Y-%m-%d %H:%M') if last_update else 'Никогда'
 
@@ -467,6 +473,7 @@ class TelegramBot:
 🔗 URL: {competitor_url}
 🧪 Метод парсинга: {parse_method}
 🕓 Последний парс: {parse_at_str}
+📡 Мониторинг: {monitor_mode}
 
 🔔 Авто: {'ВКЛ' if state.get('auto_mode', True) else 'ВЫКЛ'}
 🎯 Режим: {runtime.MODE}
@@ -487,6 +494,12 @@ class TelegramBot:
         profile_id = self._active_profile(chat_id)
         profile_name = self._profile_name(profile_id)
         runtime = self._runtime(profile_id)
+        monitor_enabled = bool(runtime.COMPETITOR_URLS)
+        monitor_mode = (
+            f'АКТИВЕН ({len(runtime.COMPETITOR_URLS)} URL)'
+            if monitor_enabled
+            else 'ВЫКЛ (нет URL)'
+        )
 
         text = f"""⚙️ Настройки
 
@@ -505,6 +518,7 @@ class TelegramBot:
 🚀 FAST_REBOUND_DELTA: {runtime.FAST_REBOUND_DELTA:.4f}₽
 🔁 Обновлять только при изменении конкурента: {'Да' if runtime.UPDATE_ONLY_ON_COMPETITOR_CHANGE else 'Нет'}
 📍 Позиция: {'Вкл' if runtime.POSITION_FILTER_ENABLED else 'Выкл'}
+📡 Мониторинг: {monitor_mode}
 🔗 Конкурентов: {len(runtime.COMPETITOR_URLS)}
 """
         await update.message.reply_text(
