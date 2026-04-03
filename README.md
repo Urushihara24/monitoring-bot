@@ -71,6 +71,9 @@ cp .env.example .env
 - cookies конкурента: `GGSEL_COMPETITOR_COOKIES` / `DIGISELLER_COMPETITOR_COOKIES`
   (если не заданы, используется общий `COMPETITOR_COOKIES`)
 
+Если у включённого профиля не задан `*_PRODUCT_ID`, такой профиль не
+запускается (fail-safe защита от шумных циклов и пустых API-обновлений).
+
 Профильные дефолты DigiSeller (опционально):
 - `DIGISELLER_MIN_PRICE`
 - `DIGISELLER_MAX_PRICE`
