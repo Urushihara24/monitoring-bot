@@ -56,6 +56,8 @@ class Scheduler:
         self.product_id = int(product_id or 0)
         self.default_competitor_urls = competitor_urls or []
         self._running = False
+        self._env_cookies_signature: Optional[tuple[int, int]] = None
+        self._env_cookies_cached_value: Optional[str] = None
 
     def _runtime(self):
         return storage.get_runtime_config(
@@ -196,28 +198,38 @@ class Scheduler:
         """
         env_path = Path('.env')
         if not env_path.exists():
+            self._env_cookies_signature = None
+            self._env_cookies_cached_value = None
             return False
         try:
-            env_data = dotenv_values(str(env_path))
-            cookie_keys = {
-                'ggsel': (
-                    'GGSEL_COMPETITOR_COOKIES',
-                    'COMPETITOR_COOKIES',
-                ),
-                'digiseller': (
-                    'DIGISELLER_COMPETITOR_COOKIES',
-                    'COMPETITOR_COOKIES',
-                ),
-            }.get(self.profile_id, ('COMPETITOR_COOKIES',))
+            stat = env_path.stat()
+            signature = (int(stat.st_mtime_ns), int(stat.st_size))
+            if signature == self._env_cookies_signature:
+                env_cookies = self._env_cookies_cached_value or ''
+            else:
+                env_data = dotenv_values(str(env_path))
+                env_cookies = ''
+                cookie_keys = {
+                    'ggsel': (
+                        'GGSEL_COMPETITOR_COOKIES',
+                        'COMPETITOR_COOKIES',
+                    ),
+                    'digiseller': (
+                        'DIGISELLER_COMPETITOR_COOKIES',
+                        'COMPETITOR_COOKIES',
+                    ),
+                }.get(self.profile_id, ('COMPETITOR_COOKIES',))
 
-            env_cookies = ''
-            for key in cookie_keys:
-                candidate = self._normalize_cookies_value(
-                    str(env_data.get(key) or '')
-                )
-                if candidate:
-                    env_cookies = candidate
-                    break
+                for key in cookie_keys:
+                    candidate = self._normalize_cookies_value(
+                        str(env_data.get(key) or '')
+                    )
+                    if candidate:
+                        env_cookies = candidate
+                        break
+
+                self._env_cookies_signature = signature
+                self._env_cookies_cached_value = env_cookies or None
 
             if not env_cookies:
                 return False

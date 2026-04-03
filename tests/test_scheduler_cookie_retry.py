@@ -1,5 +1,6 @@
 """Тесты scheduler для ретрая парсинга при протухших cookies."""
 
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -229,3 +230,106 @@ async def test_sync_cookies_from_env_uses_digiseller_profile_key(
     assert key == 'COMPETITOR_COOKIES'
     assert value == 'dig_cookie=1'
     assert kwargs.get('profile_id') == 'digiseller'
+
+
+@pytest.mark.asyncio
+async def test_sync_cookies_from_env_uses_cached_file_when_unchanged(
+    monkeypatch,
+    tmp_path,
+):
+    env_path = tmp_path / '.env'
+    env_path.write_text('COMPETITOR_COOKIES=cached_cookie=1\n', encoding='utf-8')
+    monkeypatch.chdir(tmp_path)
+
+    scheduler = Scheduler(
+        DummyApiClient(),
+        DummyTelegramBot(),
+        profile_id='ggsel',
+        profile_name='GGSEL',
+    )
+
+    runtime = {'value': 'old_cookie=1'}
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'get_runtime_setting',
+        lambda *args, **kwargs: runtime['value'],
+    )
+
+    set_calls = []
+
+    def fake_set_runtime_setting(key, value, **kwargs):
+        runtime['value'] = value
+        set_calls.append((key, value, kwargs))
+
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'set_runtime_setting',
+        fake_set_runtime_setting,
+    )
+
+    parse_calls = {'count': 0}
+
+    def fake_dotenv_values(_path):
+        parse_calls['count'] += 1
+        return {'COMPETITOR_COOKIES': 'cached_cookie=1'}
+
+    monkeypatch.setattr(scheduler_module, 'dotenv_values', fake_dotenv_values)
+
+    first = await scheduler._sync_cookies_from_env()
+    second = await scheduler._sync_cookies_from_env()
+
+    assert first is True
+    assert second is True
+    assert parse_calls['count'] == 1
+    assert len(set_calls) == 1
+    assert set_calls[0][1] == 'cached_cookie=1'
+
+
+@pytest.mark.asyncio
+async def test_sync_cookies_from_env_reloads_when_file_changed(
+    monkeypatch,
+    tmp_path,
+):
+    env_path = tmp_path / '.env'
+    env_path.write_text('COMPETITOR_COOKIES=first_cookie=1\n', encoding='utf-8')
+    monkeypatch.chdir(tmp_path)
+
+    scheduler = Scheduler(
+        DummyApiClient(),
+        DummyTelegramBot(),
+        profile_id='ggsel',
+        profile_name='GGSEL',
+    )
+
+    runtime = {'value': ''}
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'get_runtime_setting',
+        lambda *args, **kwargs: runtime['value'],
+    )
+
+    set_calls = []
+
+    def fake_set_runtime_setting(key, value, **kwargs):
+        runtime['value'] = value
+        set_calls.append((key, value, kwargs))
+
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'set_runtime_setting',
+        fake_set_runtime_setting,
+    )
+
+    first = await scheduler._sync_cookies_from_env()
+    assert first is True
+    assert runtime['value'] == 'first_cookie=1'
+
+    env_path.write_text('COMPETITOR_COOKIES=second_cookie=2\n', encoding='utf-8')
+    # Гарантируем смену сигнатуры даже на FS с грубой гранулярностью mtime.
+    current = env_path.stat().st_mtime + 1.0
+    os.utime(env_path, (current, current))
+
+    second = await scheduler._sync_cookies_from_env()
+    assert second is True
+    assert runtime['value'] == 'second_cookie=2'
+    assert len(set_calls) == 2
