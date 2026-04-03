@@ -125,6 +125,9 @@ class Storage:
             # Миграция legacy таблицы state -> profile_state[ggsel].
             self._migrate_legacy_state(conn)
             self._migrate_profile_state_columns(conn)
+            self._migrate_runtime_settings_table(conn)
+            self._migrate_settings_history_table(conn)
+            self._migrate_alert_state_table(conn)
             self._backfill_target_state(conn)
             self._normalize_profile_state_prices(conn)
 
@@ -133,6 +136,10 @@ class Storage:
             self._ensure_profile_state(conn, 'digiseller')
             self._normalize_runtime_price_settings(conn)
             conn.commit()
+
+    def _table_columns(self, conn: sqlite3.Connection, table: str) -> set[str]:
+        rows = conn.execute(f'PRAGMA table_info({table})').fetchall()
+        return {row[1] for row in rows}
 
     def _migrate_profile_state_columns(self, conn: sqlite3.Connection):
         """Добавляет новые колонки в profile_state без потери данных."""
@@ -208,6 +215,119 @@ class Storage:
                 ''',
                 (formatted, profile_id, key),
             )
+
+    def _migrate_runtime_settings_table(self, conn: sqlite3.Connection):
+        """
+        Миграция legacy runtime_settings(key,value) -> profile runtime_settings.
+        """
+        columns = self._table_columns(conn, 'runtime_settings')
+        if 'profile_id' in columns:
+            return
+
+        conn.execute('ALTER TABLE runtime_settings RENAME TO runtime_settings_legacy')
+        conn.execute(
+            '''
+            CREATE TABLE runtime_settings (
+                profile_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT,
+                PRIMARY KEY (profile_id, key)
+            )
+            '''
+        )
+        legacy_columns = self._table_columns(conn, 'runtime_settings_legacy')
+        if {'key', 'value'}.issubset(legacy_columns):
+            conn.execute(
+                '''
+                INSERT OR REPLACE INTO runtime_settings (profile_id, key, value)
+                SELECT ?, key, value
+                FROM runtime_settings_legacy
+                ''',
+                (DEFAULT_PROFILE,),
+            )
+        conn.execute('DROP TABLE runtime_settings_legacy')
+
+    def _migrate_settings_history_table(self, conn: sqlite3.Connection):
+        """
+        Миграция legacy settings_history без profile_id в профильный формат.
+        """
+        columns = self._table_columns(conn, 'settings_history')
+        if 'profile_id' in columns:
+            return
+
+        conn.execute('ALTER TABLE settings_history RENAME TO settings_history_legacy')
+        conn.execute(
+            '''
+            CREATE TABLE settings_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                old_value TEXT,
+                new_value TEXT,
+                user_id INTEGER,
+                source TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            '''
+        )
+        legacy_columns = self._table_columns(conn, 'settings_history_legacy')
+        required = {'key', 'old_value', 'new_value'}
+        if required.issubset(legacy_columns):
+            conn.execute(
+                '''
+                INSERT INTO settings_history (
+                    profile_id,
+                    key,
+                    old_value,
+                    new_value,
+                    user_id,
+                    source,
+                    timestamp
+                )
+                SELECT
+                    ?,
+                    key,
+                    old_value,
+                    new_value,
+                    user_id,
+                    source,
+                    timestamp
+                FROM settings_history_legacy
+                ''',
+                (DEFAULT_PROFILE,),
+            )
+        conn.execute('DROP TABLE settings_history_legacy')
+
+    def _migrate_alert_state_table(self, conn: sqlite3.Connection):
+        """
+        Миграция legacy alert_state(key,last_sent) -> профильный формат.
+        """
+        columns = self._table_columns(conn, 'alert_state')
+        if 'profile_id' in columns:
+            return
+
+        conn.execute('ALTER TABLE alert_state RENAME TO alert_state_legacy')
+        conn.execute(
+            '''
+            CREATE TABLE alert_state (
+                profile_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                last_sent TIMESTAMP,
+                PRIMARY KEY (profile_id, key)
+            )
+            '''
+        )
+        legacy_columns = self._table_columns(conn, 'alert_state_legacy')
+        if {'key', 'last_sent'}.issubset(legacy_columns):
+            conn.execute(
+                '''
+                INSERT OR REPLACE INTO alert_state (profile_id, key, last_sent)
+                SELECT ?, key, last_sent
+                FROM alert_state_legacy
+                ''',
+                (DEFAULT_PROFILE,),
+            )
+        conn.execute('DROP TABLE alert_state_legacy')
 
     def _migrate_legacy_state(self, conn: sqlite3.Connection):
         """Перенос legacy state(id=1) в profile_state[ggsel]."""
