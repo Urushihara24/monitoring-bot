@@ -171,6 +171,41 @@ class TelegramBot:
             return resolved
         return None
 
+    async def _resolve_command_profile(
+        self,
+        *,
+        chat_id: int,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ) -> Optional[str]:
+        """
+        Возвращает профиль для slash-команды.
+        По умолчанию — активный профиль чата.
+        Если передан аргумент и он невалидный — отправляет ошибку и
+        возвращает None.
+        """
+        profile_id = self._active_profile(chat_id)
+        if not context or not getattr(context, 'args', None):
+            return profile_id
+
+        candidate = self._resolve_profile_arg(context.args[0])
+        if candidate:
+            return candidate
+
+        if update.message:
+            available = ', '.join(
+                self._profile_name(pid).lower()
+                for pid in self.available_profiles
+            )
+            await update.message.reply_text(
+                (
+                    f'❌ Неизвестный профиль: {context.args[0]}\n'
+                    f'Доступно: {available}'
+                ),
+                reply_markup=self.get_main_keyboard(profile_id),
+            )
+        return None
+
     def _runtime(self, profile_id: str):
         return storage.get_runtime_config(
             config,
@@ -293,24 +328,13 @@ class TelegramBot:
                 )
             return
         chat_id = update.effective_chat.id
-        profile_id = self._active_profile(chat_id)
-        if context and getattr(context, 'args', None):
-            candidate = self._resolve_profile_arg(context.args[0])
-            if not candidate:
-                if update.message:
-                    available = ', '.join(
-                        self._profile_name(pid).lower()
-                        for pid in self.available_profiles
-                    )
-                    await update.message.reply_text(
-                        (
-                            f'❌ Неизвестный профиль: {context.args[0]}\n'
-                            f'Доступно: {available}'
-                        ),
-                        reply_markup=self.get_main_keyboard(profile_id),
-                    )
-                return
-            profile_id = candidate
+        profile_id = await self._resolve_command_profile(
+            chat_id=chat_id,
+            update=update,
+            context=context,
+        )
+        if profile_id is None:
+            return
         await self.send_status(chat_id, update, profile_id=profile_id)
 
     async def cmd_diag(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -324,24 +348,13 @@ class TelegramBot:
                 )
             return
         chat_id = update.effective_chat.id
-        profile_id = self._active_profile(chat_id)
-        if context and getattr(context, 'args', None):
-            candidate = self._resolve_profile_arg(context.args[0])
-            if not candidate:
-                if update.message:
-                    available = ', '.join(
-                        self._profile_name(pid).lower()
-                        for pid in self.available_profiles
-                    )
-                    await update.message.reply_text(
-                        (
-                            f'❌ Неизвестный профиль: {context.args[0]}\n'
-                            f'Доступно: {available}'
-                        ),
-                        reply_markup=self.get_main_keyboard(profile_id),
-                    )
-                return
-            profile_id = candidate
+        profile_id = await self._resolve_command_profile(
+            chat_id=chat_id,
+            update=update,
+            context=context,
+        )
+        if profile_id is None:
+            return
         await self.send_diagnostics(chat_id, update, profile_id=profile_id)
 
     async def cmd_smoke(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -355,22 +368,13 @@ class TelegramBot:
             return
 
         chat_id = update.effective_chat.id
-        profile_id = self._active_profile(chat_id)
-        if context and context.args:
-            candidate = self._resolve_profile_arg(context.args[0])
-            if not candidate:
-                available = ', '.join(
-                    self._profile_name(pid).lower() for pid in self.available_profiles
-                )
-                await update.message.reply_text(
-                    (
-                        f'❌ Неизвестный профиль: {context.args[0]}\n'
-                        f'Доступно: {available}'
-                    ),
-                    reply_markup=self.get_main_keyboard(profile_id),
-                )
-                return
-            profile_id = candidate
+        profile_id = await self._resolve_command_profile(
+            chat_id=chat_id,
+            update=update,
+            context=context,
+        )
+        if profile_id is None:
+            return
         profile_name = self._profile_name(profile_id)
         client = self._api_client(profile_id)
         product_id = self._product_id(profile_id)
