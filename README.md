@@ -84,6 +84,24 @@ cp .env.example .env
 Эти значения применяются только если соответствующий runtime-ключ ещё не был
 задан ранее в БД (`runtime_settings`).
 
+### Включение DigiSeller профиля
+
+Минимальный набор переменных:
+- `DIGISELLER_ENABLED=true`
+- `DIGISELLER_API_KEY` (или `DIGISELLER_ACCESS_TOKEN`)
+- `DIGISELLER_SELLER_ID`
+- `DIGISELLER_PRODUCT_ID`
+
+Рекомендуемо сразу указать:
+- `DIGISELLER_COMPETITOR_URLS` (если нужен авто-режим мониторинга)
+- `DIGISELLER_REQUIRE_API_ON_START=true` (чтобы процесс не стартовал с битым API)
+
+Быстрая проверка только DigiSeller:
+
+```bash
+python3 scripts/smoke_profiles_api.py --profile digiseller --verify-read
+```
+
 Запуск:
 
 ```bash
