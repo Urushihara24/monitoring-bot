@@ -40,16 +40,6 @@ class DigiSellerClient(GGSELClient):
         )
         self.default_product_id = int(default_product_id or 0)
 
-    def _response_retval(self, payload: Dict[str, Any]) -> Optional[int]:
-        for key in ('retval', 'retVal', 'ret_val'):
-            if key not in payload:
-                continue
-            try:
-                return int(payload.get(key))
-            except Exception:
-                return None
-        return None
-
     def _to_float(self, value: Any) -> Optional[float]:
         """Преобразует число/строку в float (поддержка 0,1234)."""
         if value is None:
