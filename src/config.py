@@ -55,6 +55,9 @@ def _env_optional_bool(name: str) -> Optional[bool]:
 @dataclass
 class Config:
     """Конфигурация бота"""
+
+    # Путь к env-файлу для runtime-синхронизации cookies.
+    ENV_FILE_PATH: str = os.getenv('ENV_FILE_PATH', '.env')
     
     # Telegram
     TELEGRAM_BOT_TOKEN: str = os.getenv('TELEGRAM_BOT_TOKEN', '')

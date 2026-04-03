@@ -56,7 +56,7 @@ class Scheduler:
         self.product_id = int(product_id or 0)
         self.default_competitor_urls = competitor_urls or []
         self._running = False
-        self._env_cookies_signature: Optional[tuple[int, int]] = None
+        self._env_cookies_signature: Optional[tuple[str, int, int]] = None
         self._env_cookies_cached_value: Optional[str] = None
 
     def _runtime(self):
@@ -200,14 +200,20 @@ class Scheduler:
             force_reload: Принудительно перечитать .env, игнорируя кеш
                 сигнатуры файла.
         """
-        env_path = Path('.env')
+        env_path = Path(config.ENV_FILE_PATH).expanduser()
+        if not env_path.is_absolute():
+            env_path = Path.cwd() / env_path
         if not env_path.exists():
             self._env_cookies_signature = None
             self._env_cookies_cached_value = None
             return False
         try:
             stat = env_path.stat()
-            signature = (int(stat.st_mtime_ns), int(stat.st_size))
+            signature = (
+                str(env_path.resolve()),
+                int(stat.st_mtime_ns),
+                int(stat.st_size),
+            )
             if signature == self._env_cookies_signature and not force_reload:
                 env_cookies = self._env_cookies_cached_value or ''
             else:
