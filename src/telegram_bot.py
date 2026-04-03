@@ -551,6 +551,20 @@ class TelegramBot:
         my_price = state.get('last_target_price')
         if my_price is None:
             my_price = state.get('last_price')
+        client = self._api_client(profile_id)
+        product_id = self._product_id(profile_id)
+        get_my_price = getattr(client, 'get_my_price', None) if client else None
+        if callable(get_my_price) and product_id > 0:
+            try:
+                live_price = await asyncio.to_thread(get_my_price, product_id)
+                if live_price is not None:
+                    my_price = float(live_price)
+            except Exception as e:
+                logger.warning(
+                    '[%s] Не удалось получить live-цену для статуса: %s',
+                    profile_name,
+                    e,
+                )
         competitor_price = state.get('last_competitor_min')
         my_price_str = f'{my_price:.4f}' if my_price is not None else 'N/A'
         competitor_price_str = (
