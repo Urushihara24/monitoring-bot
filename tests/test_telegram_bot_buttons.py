@@ -10,9 +10,7 @@ from src.telegram_bot import (
     BTN_BACK,
     BTN_DIAGNOSTICS,
     BTN_DOWN,
-    BTN_EXPORT,
     BTN_HISTORY,
-    BTN_IMPORT,
     BTN_INTERVAL,
     BTN_MAX,
     BTN_MIN,
@@ -208,27 +206,16 @@ async def test_unknown_message_shows_main_keyboard():
 
 
 @pytest.mark.asyncio
-async def test_export_button_routes_to_export_handler():
+async def test_removed_export_button_is_treated_as_unknown_text():
     bot = make_bot()
     bot._state = lambda _profile: {'auto_mode': True}
-    bot.export_settings = AsyncMock()
-    update = make_update(BTN_EXPORT)
+    update = make_update('📤 Экспорт')
 
     await bot.handle_message(update, None)
 
-    bot.export_settings.assert_awaited_once_with(100, update)
-
-
-@pytest.mark.asyncio
-async def test_import_button_sets_pending_action():
-    bot = make_bot()
-    bot._state = lambda _profile: {'auto_mode': True}
-    update = make_update(BTN_IMPORT)
-
-    await bot.handle_message(update, None)
-
-    assert bot.pending_actions[100] == 'IMPORT_SETTINGS'
     update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert args[0] == 'Используй кнопки 👇'
 
 
 @pytest.mark.asyncio
