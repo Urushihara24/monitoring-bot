@@ -468,10 +468,19 @@ class RSCParser:
                     method=method,
                 )
             data = payload.get('data') or {}
-            raw_price = data.get('price')
-            try:
-                price = round(float(raw_price), 4)
-            except (TypeError, ValueError):
+            price = None
+            prices_unit = data.get('prices_unit')
+            if isinstance(prices_unit, dict):
+                # Для товаров с количеством (например V-Bucks) приоритетнее
+                # unit_amount — это цена за 1 единицу.
+                price = self._coerce_price(prices_unit.get('unit_amount'))
+                if price is None:
+                    price = self._coerce_price(prices_unit.get('unit_amount_min'))
+
+            if price is None:
+                price = self._coerce_price(data.get('price'))
+
+            if price is None:
                 return ParseResult(
                     success=False,
                     error='API fallback: поле price отсутствует',
