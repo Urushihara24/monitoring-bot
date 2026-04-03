@@ -24,6 +24,17 @@ def make_client():
     )
 
 
+def test_base_url_is_normalized_without_trailing_slash():
+    client = DigiSellerClient(
+        api_key='secret',
+        seller_id=1,
+        base_url='https://api.digiseller.com/api/',
+        access_token='token',
+        default_product_id=123,
+    )
+    assert client.base_url == 'https://api.digiseller.com/api'
+
+
 def test_get_product_info_from_product_field(monkeypatch):
     client = make_client()
     payload = {'retval': 0, 'product': {'name': 'A', 'price': 1.23}}
