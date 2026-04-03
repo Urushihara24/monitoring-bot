@@ -131,7 +131,11 @@ async def test_scheduler_notifies_competitor_price_change(monkeypatch, tmp_path)
 
     bot = DummyTelegramBot()
     api = DummyApiClient(current_price=0.35)
-    scheduler = scheduler_mod.Scheduler(api_client=api, telegram_bot=bot)
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        product_id=cfg.GGSEL_PRODUCT_ID,
+    )
 
     await scheduler.run_cycle()
 
@@ -184,9 +188,60 @@ async def test_scheduler_skip_notifications_are_throttled(monkeypatch, tmp_path)
 
     bot = DummyTelegramBot()
     api = DummyApiClient(current_price=0.35)
-    scheduler = scheduler_mod.Scheduler(api_client=api, telegram_bot=bot)
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        product_id=cfg.GGSEL_PRODUCT_ID,
+    )
 
     await scheduler.run_cycle()
     await scheduler.run_cycle()
 
     assert len(bot.skips) == 1
+
+
+@pytest.mark.asyncio
+async def test_scheduler_skips_when_product_id_invalid(monkeypatch, tmp_path):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    test_storage.update_state(last_price=0.35)
+
+    cfg = Config()
+    cfg.GGSEL_PRODUCT_ID = 0
+    cfg.COMPETITOR_URLS = ['https://example.com/item']
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    parse_called = {'value': False}
+
+    def fake_parse(url, timeout=10, cookies=None):
+        parse_called['value'] = True
+        return ParseResult(
+            success=True,
+            price=0.3,
+            error=None,
+            offers=[],
+            rank=1,
+            method='stealth_requests',
+            status_code=200,
+            url=url,
+        )
+
+    monkeypatch.setattr(scheduler_mod.rsc_parser, 'parse_url', fake_parse)
+
+    bot = DummyTelegramBot()
+    api = DummyApiClient(current_price=0.35)
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='ggsel',
+        profile_name='GGSEL',
+        product_id=0,
+    )
+
+    await scheduler.run_cycle()
+
+    assert parse_called['value'] is False
+    assert len(bot.errors) == 1
+    assert 'Некорректный product_id' in bot.errors[0]
+    assert test_storage.get_state()['skip_count'] == 1

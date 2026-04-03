@@ -429,6 +429,19 @@ class Scheduler:
                 )
                 storage.increment_skip_count(profile_id=self.profile_id)
                 return
+            if self.product_id <= 0:
+                message = (
+                    'Некорректный product_id для профиля '
+                    f'{self.profile_name}: {self.product_id}'
+                )
+                logger.error('[%s] %s', self.profile_name, message)
+                await self._notify_error_throttled(
+                    key='invalid_product_id',
+                    message=message,
+                    cooldown_seconds=300,
+                )
+                storage.increment_skip_count(profile_id=self.profile_id)
+                return
             competitor_results = await asyncio.gather(*[
                 self._parse_competitor_price(url, runtime=runtime, timeout=15)
                 for url in runtime.COMPETITOR_URLS
