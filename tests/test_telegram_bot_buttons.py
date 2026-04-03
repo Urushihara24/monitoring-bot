@@ -191,6 +191,38 @@ async def test_mode_and_position_buttons_call_toggles():
 
 
 @pytest.mark.asyncio
+async def test_toggle_auto_updates_only_active_profile(monkeypatch):
+    bot = TelegramBot(
+        api_clients={'ggsel': object(), 'digiseller': object()},
+        profile_products={'ggsel': 1, 'digiseller': 2},
+        profile_default_urls={'ggsel': [], 'digiseller': []},
+        profile_labels={'ggsel': 'GGSEL', 'digiseller': 'DIGISELLER'},
+    )
+    bot.admin_ids = {1}
+    bot.chat_profile[100] = 'digiseller'
+    bot._state = lambda _profile: {'auto_mode': True}
+    update = make_update(BTN_AUTO_ON)
+
+    calls = []
+
+    def fake_update_state(*, profile_id='ggsel', **kwargs):
+        calls.append((profile_id, kwargs))
+
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'update_state',
+        fake_update_state,
+    )
+
+    await bot.toggle_auto(update)
+
+    assert calls == [('digiseller', {'auto_mode': False})]
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert args[0] == '🔔 Авто: ВЫКЛ'
+
+
+@pytest.mark.asyncio
 async def test_remove_and_history_buttons_call_handlers():
     bot = make_bot()
     bot._state = lambda _profile: {'auto_mode': True}
