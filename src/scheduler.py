@@ -615,7 +615,13 @@ class Scheduler:
                 return
             # Синхронизируем last_price с фактической ценой из API,
             # чтобы status/дрейф-логика не опирались на устаревшее значение.
-            state_last_price = state.get('last_price')
+            state_last_price_raw = state.get('last_price')
+            state_last_price = None
+            if state_last_price_raw is not None:
+                try:
+                    state_last_price = float(state_last_price_raw)
+                except Exception:
+                    state_last_price = None
             ignore_delta = getattr(runtime, 'IGNORE_DELTA', 0.001)
             if (
                 state_last_price is None
