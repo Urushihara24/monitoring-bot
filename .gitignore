@@ -57,6 +57,7 @@ data/*.bak
 # OS
 .DS_Store
 Thumbs.db
+._*
 
 # Testing
 coverage/
