@@ -26,6 +26,40 @@ def test_parse_html_fallback_selector():
     assert result.price == 70.0
 
 
+def test_parse_html_extracts_price_from_json_ld_offers():
+    parser = RSCParser(max_retries=0)
+    html = """
+    <html><head>
+      <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Product",
+        "offers": {
+          "@type": "Offer",
+          "price": "0.3349",
+          "priceCurrency": "RUB"
+        }
+      }
+      </script>
+    </head><body></body></html>
+    """
+    result = parser._parse_html(html, 'https://example.com')
+    assert result.success
+    assert result.price == 0.3349
+
+
+def test_parse_html_extracts_price_from_meta_amount():
+    parser = RSCParser(max_retries=0)
+    html = """
+    <html><head>
+      <meta property="product:price:amount" content="0.2711" />
+    </head><body></body></html>
+    """
+    result = parser._parse_html(html, 'https://example.com')
+    assert result.success
+    assert result.price == 0.2711
+
+
 def test_parse_url_success_uses_stealth(monkeypatch):
     parser = RSCParser(max_retries=0)
     monkeypatch.setattr(
