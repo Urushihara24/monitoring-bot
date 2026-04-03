@@ -140,6 +140,7 @@ docker compose logs -f
 - `/start`
 - `/status`
 - `/smoke` — безопасный API smoke для активного профиля (read + noop write + verify)
+  для DigiSeller дополнительно показывает `token/perms`.
 
 Главное меню:
 - `📊 Статус`
