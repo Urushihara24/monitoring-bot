@@ -91,6 +91,13 @@ def test_settings_keyboard_is_not_overloaded():
     assert BTN_REMOVE_URL in texts
 
 
+def test_main_keyboard_is_not_overloaded():
+    bot = make_bot()
+    bot._state = lambda _profile: {'auto_mode': True}
+    texts = keyboard_texts(bot.get_main_keyboard('ggsel'))
+    assert BTN_DIAGNOSTICS not in texts
+
+
 @pytest.mark.asyncio
 async def test_main_buttons_route_to_handlers():
     bot = make_bot()
