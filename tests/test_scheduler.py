@@ -245,3 +245,63 @@ async def test_scheduler_skips_when_product_id_invalid(monkeypatch, tmp_path):
     assert len(bot.errors) == 1
     assert 'Некорректный product_id' in bot.errors[0]
     assert test_storage.get_state()['skip_count'] == 1
+
+
+@pytest.mark.asyncio
+async def test_scheduler_stores_applied_price_when_api_rounds(monkeypatch, tmp_path):
+    class RoundingApiClient(DummyApiClient):
+        def update_price(self, product_id, new_price):
+            self.current_price = round(float(new_price), 2)
+            return self.update_ok
+
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    test_storage.update_state(last_price=0.2600, auto_mode=True)
+
+    cfg = Config()
+    cfg.GGSEL_PRODUCT_ID = 123
+    cfg.COMPETITOR_URLS = ['https://example.com/item']
+    cfg.NOTIFY_SKIP = False
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+    monkeypatch.setattr(
+        scheduler_mod.rsc_parser,
+        'parse_url',
+        lambda url, timeout=10, cookies=None: ParseResult(
+            success=True,
+            price=0.26,
+            error=None,
+            offers=[],
+            rank=1,
+            method='stealth_requests',
+            status_code=200,
+            url=url,
+        ),
+    )
+    monkeypatch.setattr(
+        scheduler_mod,
+        'calculate_price',
+        lambda **kwargs: PriceDecision(
+            action='update',
+            price=0.2549,
+            reason='base_formula',
+            old_price=kwargs.get('current_price'),
+            competitor_price=0.26,
+        ),
+    )
+
+    bot = DummyTelegramBot()
+    api = RoundingApiClient(current_price=0.2600, update_ok=True)
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        product_id=cfg.GGSEL_PRODUCT_ID,
+    )
+
+    await scheduler.run_cycle()
+
+    state = test_storage.get_state()
+    assert state['last_target_price'] == 0.2549
+    assert state['last_price'] == 0.25
+    assert len(bot.updates) == 1
+    assert bot.updates[0]['new_price'] == 0.25
