@@ -201,8 +201,12 @@ python3 scripts/smoke_profiles_api.py --profile digiseller --mutate --delta 0.00
 
 ```bash
 pytest -q
-python3 -m compileall src healthcheck.py
+python3 -m compileall src scripts healthcheck.py
 ```
+
+Если у вас Python 3.14+, используйте версии из `requirements.txt`
+(`pytest==8.4.2`, `pytest-asyncio==1.2.0`), чтобы избежать deprecated warning
+от старого `pytest-asyncio`.
 
 ## Структура кода
 
