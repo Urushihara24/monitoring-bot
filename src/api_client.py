@@ -52,7 +52,7 @@ class GGSELClient:
         """
         self.api_key = api_key
         self.seller_id = seller_id
-        self.base_url = base_url
+        self.base_url = (base_url or "").rstrip("/")
         self.lang = lang
         self.access_token = self._normalize_access_token(access_token)
         self.token_valid_thru: Optional[datetime] = None

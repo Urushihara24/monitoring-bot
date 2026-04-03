@@ -32,6 +32,17 @@ def make_client() -> GGSELClient:
     )
 
 
+def test_base_url_is_normalized_without_trailing_slash():
+    client = GGSELClient(
+        api_key='token-123',
+        seller_id=8175,
+        base_url='https://seller.ggsel.com/api_sellers/api/',
+        lang='ru-RU',
+        access_token='token-123',
+    )
+    assert client.base_url == 'https://seller.ggsel.com/api_sellers/api'
+
+
 def test_get_product_info_success(monkeypatch):
     client = make_client()
     monkeypatch.setattr(
