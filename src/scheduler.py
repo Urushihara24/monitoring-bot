@@ -733,6 +733,39 @@ class Scheduler:
             )
 
             if decision.action == 'update' and decision.price is not None:
+                ignore_delta = getattr(runtime, 'IGNORE_DELTA', 0.001)
+                last_target_raw = state.get('last_target_price')
+                last_update_at = state.get('last_update')
+                if (
+                    last_target_raw is not None
+                    and isinstance(last_update_at, datetime)
+                ):
+                    try:
+                        last_target_price = float(last_target_raw)
+                    except Exception:
+                        last_target_price = None
+                    if last_target_price is not None and (
+                        abs(decision.price - last_target_price) < ignore_delta
+                    ):
+                        recent_window_seconds = max(
+                            int(getattr(runtime, 'CHECK_INTERVAL', 60)) * 2,
+                            60,
+                        )
+                        age_seconds = (
+                            datetime.now() - last_update_at
+                        ).total_seconds()
+                        if age_seconds < recent_window_seconds:
+                            logger.info(
+                                '[%s] Пропуск повторного update: '
+                                'целевая %.4f уже выставлялась %.1fs назад',
+                                self.profile_name,
+                                decision.price,
+                                age_seconds,
+                            )
+                            storage.increment_skip_count(
+                                profile_id=self.profile_id,
+                            )
+                            return
                 success = await self._update_price(decision.price, decision)
                 if success:
                     storage.increment_update_count(profile_id=self.profile_id)
