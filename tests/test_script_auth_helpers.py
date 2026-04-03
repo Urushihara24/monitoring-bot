@@ -70,6 +70,38 @@ def test_check_apilogin_returns_error_on_non_json(monkeypatch):
     assert module.main() == 1
 
 
+def test_check_apilogin_returns_error_on_nonzero_retval(monkeypatch):
+    module = _load_module(
+        'check_apilogin_test_mod_retval_error',
+        'scripts/check_apilogin.py',
+    )
+
+    monkeypatch.setattr(module.config, 'GGSEL_API_KEY', 'secret-key')
+    monkeypatch.setattr(module.config, 'GGSEL_SELLER_ID', 8175)
+    monkeypatch.setattr(
+        module.config,
+        'GGSEL_BASE_URL',
+        'https://seller.ggsel.com/api_sellers/api',
+    )
+
+    class Response:
+        status_code = 200
+        headers = {'x-request-id': 'req-3'}
+        text = ''
+
+        @staticmethod
+        def json():
+            return {
+                'retVal': 12,
+                'desc': 'invalid sign',
+                'token': 'unexpected-token',
+            }
+
+    monkeypatch.setattr(module.requests, 'post', lambda *args, **kwargs: Response())
+
+    assert module.main() == 1
+
+
 def test_issue_access_token_success(monkeypatch):
     module = _load_module('issue_access_token_test_mod_success', 'scripts/issue_access_token.py')
 
@@ -97,6 +129,38 @@ def test_issue_access_token_success(monkeypatch):
     monkeypatch.setattr(module, 'GGSELClient', FakeClient)
 
     assert module.main() == 0
+
+
+def test_issue_access_token_returns_1_when_refresh_fails(monkeypatch):
+    module = _load_module(
+        'issue_access_token_test_mod_refresh_fail',
+        'scripts/issue_access_token.py',
+    )
+
+    monkeypatch.setattr(module.config, 'GGSEL_API_KEY', 'secret-key')
+    monkeypatch.setattr(module.config, 'GGSEL_SELLER_ID', 8175)
+    monkeypatch.setattr(
+        module.config,
+        'GGSEL_BASE_URL',
+        'https://seller.ggsel.com/api_sellers/api',
+    )
+    monkeypatch.setattr(module.config, 'GGSEL_LANG', 'ru-RU')
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.access_token = ''
+            self.token_valid_thru = None
+
+        def _refresh_access_token(self, timeout=20):
+            return False
+
+        def check_api_access(self):
+            return False
+
+    monkeypatch.setattr(module, 'GGSELClient', FakeClient)
+
+    assert module.main() == 1
 
 
 def test_issue_access_token_returns_2_when_missing_env(monkeypatch):
