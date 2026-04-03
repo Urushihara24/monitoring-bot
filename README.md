@@ -46,6 +46,8 @@ Pipeline:
 3. fallback по CSS-селекторам цены
 4. fallback на публичный endpoint: `https://api4.ggsel.com/goods/<id>`
    (используется только для доменов `ggsel.*`)
+   - приоритет: `prices_unit.unit_amount` (цена за 1 единицу)
+   - fallback: `data.price`
 
 Что пишется в state:
 - `last_competitor_min`
@@ -53,6 +55,11 @@ Pipeline:
 - `last_competitor_method`
 - `last_competitor_parse_at`
 - ошибки/причины блокировок парсера
+
+Поведение cookies:
+- бот синхронизирует cookies из `.env` на каждом цикле без рестарта
+- если cookies протухли и парсинг без cookies успешен,
+  runtime cookies очищаются автоматически (чтобы не повторять битый запрос)
 
 ## Быстрый старт (локально)
 
