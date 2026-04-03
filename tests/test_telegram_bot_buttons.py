@@ -51,6 +51,28 @@ def make_update(text: str):
     )
 
 
+def make_runtime(competitor_urls=None):
+    return SimpleNamespace(
+        MIN_PRICE=0.2,
+        MAX_PRICE=1.0,
+        UNDERCUT_VALUE=0.0051,
+        MODE='STEP_UP',
+        CHECK_INTERVAL=30,
+        FAST_CHECK_INTERVAL_MIN=20,
+        FAST_CHECK_INTERVAL_MAX=60,
+        COOLDOWN_SECONDS=30,
+        IGNORE_DELTA=0.001,
+        MAX_DOWN_STEP=0.03,
+        FAST_REBOUND_DELTA=0.01,
+        NOTIFY_SKIP_COOLDOWN_SECONDS=300,
+        COMPETITOR_CHANGE_DELTA=0.0001,
+        COMPETITOR_CHANGE_COOLDOWN_SECONDS=60,
+        PARSER_ISSUE_COOLDOWN_SECONDS=300,
+        WEAK_POSITION_THRESHOLD=20,
+        COMPETITOR_URLS=competitor_urls or ['https://example.com/item'],
+    )
+
+
 def keyboard_texts(markup) -> list[str]:
     texts = []
     for row in markup.keyboard:
@@ -287,3 +309,73 @@ async def test_pending_price_action_formats_to_4dp(monkeypatch):
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert args[0] == '✅ UNDERCUT_VALUE = 0.0051'
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_includes_digiseller_token_perms_line():
+    class DigiClient:
+        def check_api_access(self):
+            return True
+
+        def get_product(self, _product_id):
+            return SimpleNamespace(price=0.3333)
+
+        def get_token_perms_status(self):
+            return True, 'products.read, products.write'
+
+    bot = TelegramBot(
+        api_clients={'digiseller': DigiClient()},
+        profile_products={'digiseller': 11},
+        profile_default_urls={'digiseller': ['https://example.com/digi']},
+        profile_labels={'digiseller': 'DIGISELLER'},
+    )
+    bot.admin_ids = {1}
+    bot.chat_profile[100] = 'digiseller'
+    bot._state = lambda _profile: {
+        'auto_mode': True,
+        'last_cycle': None,
+        'last_competitor_error': None,
+        'last_competitor_block_reason': None,
+    }
+    bot._runtime = lambda _profile: make_runtime(['https://example.com/digi'])
+    update = make_update(BTN_DIAGNOSTICS)
+
+    await bot.send_diagnostics(100, update)
+
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert 'Профиль: DIGISELLER' in args[0]
+    assert 'Token perms: OK (products.read, products.write)' in args[0]
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_for_ggsel_has_no_token_perms_line():
+    class GGClient:
+        def check_api_access(self):
+            return True
+
+        def get_product(self, _product_id):
+            return SimpleNamespace(price=0.2649)
+
+    bot = TelegramBot(
+        api_clients={'ggsel': GGClient()},
+        profile_products={'ggsel': 22},
+        profile_default_urls={'ggsel': ['https://example.com/gg']},
+        profile_labels={'ggsel': 'GGSEL'},
+    )
+    bot.admin_ids = {1}
+    bot._state = lambda _profile: {
+        'auto_mode': True,
+        'last_cycle': None,
+        'last_competitor_error': None,
+        'last_competitor_block_reason': None,
+    }
+    bot._runtime = lambda _profile: make_runtime(['https://example.com/gg'])
+    update = make_update(BTN_DIAGNOSTICS)
+
+    await bot.send_diagnostics(100, update)
+
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert 'Профиль: GGSEL' in args[0]
+    assert 'Token perms:' not in args[0]
