@@ -786,20 +786,39 @@ class Scheduler:
                             return
                 success = await self._update_price(decision.price, decision)
                 if success:
+                    applied_price = decision.price
+                    try:
+                        api_price = self.api_client.get_my_price(self.product_id)
+                        if api_price is not None:
+                            applied_price = round(float(api_price), 4)
+                    except Exception as e:
+                        logger.warning(
+                            '[%s] Не удалось перечитать цену после update: %s',
+                            self.profile_name,
+                            e,
+                        )
+
                     storage.increment_update_count(profile_id=self.profile_id)
                     storage.update_state(
                         profile_id=self.profile_id,
-                        last_price=decision.price,
+                        last_price=applied_price,
                         last_update=datetime.now(),
                         last_target_price=decision.price,
                         last_target_competitor_min=decision.competitor_price,
                     )
                     storage.add_price_history(
                         old_price=decision.old_price,
-                        new_price=decision.price,
+                        new_price=applied_price,
                         competitor_price=decision.competitor_price,
                         reason=decision.reason,
                         profile_id=self.profile_id,
+                    )
+                    await self.telegram_bot.notify_price_updated(
+                        old_price=decision.old_price,
+                        new_price=applied_price,
+                        competitor_price=decision.competitor_price,
+                        reason=decision.reason,
+                        profile_name=self.profile_name,
                     )
                 else:
                     storage.increment_skip_count(profile_id=self.profile_id)
@@ -842,19 +861,10 @@ class Scheduler:
             decision.old_price,
             new_price,
         )
-        success = self.api_client.update_price(
+        return self.api_client.update_price(
             product_id=self.product_id,
             new_price=new_price,
         )
-        if success:
-            await self.telegram_bot.notify_price_updated(
-                old_price=decision.old_price,
-                new_price=new_price,
-                competitor_price=decision.competitor_price,
-                reason=decision.reason,
-                profile_name=self.profile_name,
-            )
-        return success
 
     async def run(self):
         self._running = True
