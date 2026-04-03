@@ -1001,6 +1001,11 @@ class TelegramBot:
                     reply_markup=self.get_settings_keyboard(),
                 )
                 await self.send_settings(chat_id, update)
+                return
+            await update.message.reply_text(
+                '❌ Неверный номер URL',
+                reply_markup=self.get_settings_keyboard(),
+            )
             return
 
     # ================================

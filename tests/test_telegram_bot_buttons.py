@@ -497,6 +497,37 @@ async def test_add_url_saves_normalized_value(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_remove_url_invalid_index_shows_error_and_keeps_pending(monkeypatch):
+    bot = make_bot()
+    bot.pending_actions[100] = ('REMOVE_URL', 'ggsel')
+    bot._runtime = lambda _profile: make_runtime(['https://example.com/item'])
+
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'get_competitor_urls',
+        lambda *_args, **_kwargs: [
+            'https://example.com/1',
+            'https://example.com/2',
+        ],
+    )
+    set_calls = []
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_competitor_urls',
+        lambda *args, **kwargs: set_calls.append((args, kwargs)),
+    )
+    update = make_update('99')
+
+    await bot.handle_pending_action(100, 1, '99', update)
+
+    assert set_calls == []
+    assert bot.pending_actions.get(100) == ('REMOVE_URL', 'ggsel')
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert args[0] == '❌ Неверный номер URL'
+
+
+@pytest.mark.asyncio
 async def test_status_shows_monitoring_disabled_when_no_urls():
     bot = make_bot()
     bot._state = lambda _profile: {
