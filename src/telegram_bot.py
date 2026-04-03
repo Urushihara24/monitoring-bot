@@ -185,7 +185,6 @@ class TelegramBot:
                 [BTN_UP, BTN_DOWN],
                 [auto_btn],
                 [BTN_PROFILE, BTN_SETTINGS],
-                [BTN_DIAGNOSTICS],
             ],
             resize_keyboard=True,
         )
@@ -222,6 +221,7 @@ class TelegramBot:
     def _setup_handlers(self):
         self.app.add_handler(CommandHandler('start', self.cmd_start))
         self.app.add_handler(CommandHandler('status', self.cmd_status))
+        self.app.add_handler(CommandHandler('diag', self.cmd_diag))
         self.app.add_handler(CommandHandler('smoke', self.cmd_smoke))
         self.app.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
@@ -260,6 +260,11 @@ class TelegramBot:
         if not update.effective_chat:
             return
         await self.send_status(update.effective_chat.id, update)
+
+    async def cmd_diag(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not update.effective_chat:
+            return
+        await self.send_diagnostics(update.effective_chat.id, update)
 
     async def cmd_smoke(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not update.effective_user or not update.effective_chat or not update.message:

@@ -164,3 +164,16 @@ async def test_access_denied(bot):
     await bot.handle_message(upd, None)
     assert upd.message.replies
     assert 'Нет доступа' in upd.message.replies[-1][0]
+
+
+@pytest.mark.asyncio
+async def test_cmd_diag_routes_to_send_diagnostics(bot, monkeypatch):
+    called = {}
+
+    async def _stub(chat_id, _update):
+        called['chat_id'] = chat_id
+
+    monkeypatch.setattr(bot, 'send_diagnostics', _stub)
+    upd = DummyUpdate('/diag', chat_id=333)
+    await bot.cmd_diag(upd, None)
+    assert called.get('chat_id') == 333
