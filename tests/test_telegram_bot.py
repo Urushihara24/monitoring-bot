@@ -265,6 +265,29 @@ async def test_cmd_diag_accepts_profile_arg(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_cmd_diag_accepts_plati_alias(monkeypatch):
+    bot = TelegramBot(
+        api_clients={'ggsel': object(), 'digiseller': object()},
+        profile_products={'ggsel': 1, 'digiseller': 2},
+        profile_default_urls={'ggsel': [], 'digiseller': []},
+        profile_labels={'ggsel': 'GGSEL', 'digiseller': 'DIGISELLER'},
+    )
+    bot.admin_ids = {1}
+
+    called = {}
+
+    async def _stub(chat_id, _update, profile_id=None):
+        called['chat_id'] = chat_id
+        called['profile_id'] = profile_id
+
+    monkeypatch.setattr(bot, 'send_diagnostics', _stub)
+    upd = DummyUpdate('/diag plati', chat_id=450)
+    await bot.cmd_diag(upd, SimpleNamespace(args=['plati']))
+    assert called.get('chat_id') == 450
+    assert called.get('profile_id') == 'digiseller'
+
+
+@pytest.mark.asyncio
 async def test_cmd_status_invalid_profile_arg_shows_error(bot):
     upd = DummyUpdate('/status bad', chat_id=448)
     await bot.cmd_status(upd, SimpleNamespace(args=['bad']))
