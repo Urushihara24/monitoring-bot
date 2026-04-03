@@ -600,17 +600,18 @@ class TelegramBot:
         competitor_url = state.get('last_competitor_url') or 'N/A'
         parse_method = state.get('last_competitor_method') or 'N/A'
 
-        my_price = state.get('last_target_price')
-        if my_price is None:
-            my_price = state.get('last_price')
+        target_price = state.get('last_target_price')
+        if target_price is None:
+            target_price = state.get('last_price')
+        live_price: Optional[float] = None
         client = self._api_client(profile_id)
         product_id = self._product_id(profile_id)
         get_my_price = getattr(client, 'get_my_price', None) if client else None
         if callable(get_my_price) and product_id > 0:
             try:
-                live_price = await asyncio.to_thread(get_my_price, product_id)
-                if live_price is not None:
-                    my_price = float(live_price)
+                api_price = await asyncio.to_thread(get_my_price, product_id)
+                if api_price is not None:
+                    live_price = float(api_price)
             except Exception as e:
                 logger.warning(
                     '[%s] Не удалось получить live-цену для статуса: %s',
@@ -618,7 +619,13 @@ class TelegramBot:
                     e,
                 )
         competitor_price = state.get('last_competitor_min')
-        my_price_str = f'{my_price:.4f}' if my_price is not None else 'N/A'
+        target_price_str = (
+            f'{target_price:.4f}' if target_price is not None else 'N/A'
+        )
+        live_price_str = (
+            f'{live_price:.4f}'
+            if live_price is not None else 'N/A'
+        )
         competitor_price_str = (
             f'{competitor_price:.4f}'
             if competitor_price is not None else 'N/A'
@@ -627,7 +634,8 @@ class TelegramBot:
         text = f"""📊 Статус
 
 🧩 Профиль: {profile_name}
-💰 Моя цена: {my_price_str}₽
+💰 Выставлено ботом: {target_price_str}₽
+📡 Моя цена (API): {live_price_str}₽
 📈 Цена конкурента: {competitor_price_str}₽
 🔍 Позиция: {competitor_info}
 🔗 URL: {competitor_url}

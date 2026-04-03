@@ -279,7 +279,7 @@ async def test_removed_export_button_is_treated_as_unknown_text():
 
 
 @pytest.mark.asyncio
-async def test_status_prefers_last_target_price():
+async def test_status_shows_last_target_price():
     bot = make_bot()
     bot._state = lambda _profile: {
         'last_target_price': 0.2649,
@@ -305,11 +305,11 @@ async def test_status_prefers_last_target_price():
 
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
-    assert '💰 Моя цена: 0.2649₽' in args[0]
+    assert '💰 Выставлено ботом: 0.2649₽' in args[0]
 
 
 @pytest.mark.asyncio
-async def test_status_prefers_live_api_price_over_state():
+async def test_status_shows_live_api_price_over_state():
     class ApiClient:
         def get_my_price(self, product_id):
             assert product_id == 1
@@ -346,7 +346,8 @@ async def test_status_prefers_live_api_price_over_state():
 
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
-    assert '💰 Моя цена: 0.2711₽' in args[0]
+    assert '💰 Выставлено ботом: 0.2649₽' in args[0]
+    assert '📡 Моя цена (API): 0.2711₽' in args[0]
 
 
 @pytest.mark.asyncio
@@ -386,7 +387,7 @@ async def test_status_formats_live_api_price_to_4dp():
 
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
-    assert '💰 Моя цена: 0.2500₽' in args[0]
+    assert '📡 Моя цена (API): 0.2500₽' in args[0]
 
 
 @pytest.mark.asyncio
@@ -426,7 +427,8 @@ async def test_status_falls_back_to_state_when_live_api_fails():
 
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
-    assert '💰 Моя цена: 0.2649₽' in args[0]
+    assert '💰 Выставлено ботом: 0.2649₽' in args[0]
+    assert '📡 Моя цена (API): N/A₽' in args[0]
 
 
 @pytest.mark.asyncio
