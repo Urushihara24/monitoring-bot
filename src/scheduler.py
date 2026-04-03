@@ -594,6 +594,19 @@ class Scheduler:
                 )
                 storage.increment_skip_count(profile_id=self.profile_id)
                 return
+            # Синхронизируем last_price с фактической ценой из API,
+            # чтобы status/дрейф-логика не опирались на устаревшее значение.
+            state_last_price = state.get('last_price')
+            ignore_delta = getattr(runtime, 'IGNORE_DELTA', 0.001)
+            if (
+                state_last_price is None
+                or abs(current_price - state_last_price) >= ignore_delta
+            ):
+                storage.update_state(
+                    profile_id=self.profile_id,
+                    last_price=current_price,
+                )
+                state['last_price'] = current_price
 
             decision = calculate_price(
                 competitor_prices=competitor_prices,
