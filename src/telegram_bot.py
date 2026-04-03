@@ -163,8 +163,10 @@ class TelegramBot:
         aliases = {
             'gg': 'ggsel',
             'ggsel': 'ggsel',
+            'dg': 'digiseller',
             'digi': 'digiseller',
             'digiseller': 'digiseller',
+            'plati': 'digiseller',
         }
         resolved = aliases.get(normalized, normalized)
         if resolved in self.available_profiles:
