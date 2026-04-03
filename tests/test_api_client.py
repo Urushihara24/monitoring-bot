@@ -32,6 +32,17 @@ def make_client() -> GGSELClient:
     )
 
 
+def test_base_url_is_normalized_without_trailing_slash():
+    client = GGSELClient(
+        api_key='token-123',
+        seller_id=8175,
+        base_url='https://seller.ggsel.com/api_sellers/api/',
+        lang='ru-RU',
+        access_token='token-123',
+    )
+    assert client.base_url == 'https://seller.ggsel.com/api_sellers/api'
+
+
 def test_get_product_info_success(monkeypatch):
     client = make_client()
     monkeypatch.setattr(
@@ -41,6 +52,20 @@ def test_get_product_info_success(monkeypatch):
     )
     info = client.get_product_info(123)
     assert info == {'price': 1.23, 'name': 'X'}
+
+
+def test_get_product_info_accepts_retval_camel_case(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(
+        client,
+        '_request_with_retry',
+        lambda *a, **k: FakeResponse(
+            200,
+            {'retVal': 0, 'product': {'price': 2.34, 'name': 'Y'}},
+        ),
+    )
+    info = client.get_product_info(123)
+    assert info == {'price': 2.34, 'name': 'Y'}
 
 
 def test_get_product_info_invalid_json_returns_none(monkeypatch):
@@ -176,6 +201,16 @@ def test_update_price_sync_fallback_success(monkeypatch):
     assert client.update_price(1, 0.3) is True
 
 
+def test_update_price_sync_fallback_success_with_retval_camel(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(
+        client,
+        '_request_with_retry',
+        lambda *a, **k: FakeResponse(200, {'retVal': 0}, ok=True),
+    )
+    assert client.update_price(1, 0.3) is True
+
+
 def test_update_price_sync_fallback_fail(monkeypatch):
     client = make_client()
     monkeypatch.setattr(client, '_request_with_retry', lambda *a, **k: FakeResponse(200, {'retval': 1}, ok=True))
@@ -301,6 +336,32 @@ def test_refresh_access_token_via_apilogin(monkeypatch):
     assert captured['json']['seller_id'] == 8175
     assert 'timestamp' in captured['json']
     assert len(captured['json']['sign']) == 64
+
+
+def test_refresh_access_token_accepts_retval_camel(monkeypatch):
+    client = GGSELClient(
+        api_key='secret-abc',
+        seller_id=8175,
+        base_url='https://seller.ggsel.com/api_sellers/api',
+        lang='ru-RU',
+    )
+
+    monkeypatch.setattr(
+        client,
+        '_request_with_retry',
+        lambda *a, **k: FakeResponse(
+            200,
+            {
+                'retVal': 0,
+                'token': 'issued-token-2',
+                'valid_thru': '2030-01-01T00:00:00Z',
+            },
+        ),
+    )
+
+    ok = client._refresh_access_token()
+    assert ok is True
+    assert client.access_token == 'issued-token-2'
 
 
 def test_authorized_request_retries_once_after_401(monkeypatch):

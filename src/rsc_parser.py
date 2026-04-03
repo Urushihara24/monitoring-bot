@@ -6,6 +6,7 @@ import logging
 import random
 import re
 import time
+import json
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 from urllib.parse import urlparse
@@ -149,13 +150,94 @@ class RSCParser:
             return None
         return None
 
+    def _coerce_price(self, value) -> Optional[float]:
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            try:
+                price = float(value)
+                if price > 0:
+                    return round(price, 4)
+            except Exception:
+                return None
+            return None
+        if isinstance(value, str):
+            return self._parse_price_from_text(value)
+        return None
+
+    def _extract_price_from_json_ld_node(self, node) -> Optional[float]:
+        if isinstance(node, list):
+            for item in node:
+                parsed = self._extract_price_from_json_ld_node(item)
+                if parsed is not None:
+                    return parsed
+            return None
+
+        if not isinstance(node, dict):
+            return None
+
+        direct_price = self._coerce_price(node.get('price'))
+        if direct_price is not None:
+            return direct_price
+
+        for offers_key in ('offers', 'offer'):
+            offers = node.get(offers_key)
+            parsed = self._extract_price_from_json_ld_node(offers)
+            if parsed is not None:
+                return parsed
+
+        for nested_key in ('mainEntity', 'itemOffered'):
+            nested = node.get(nested_key)
+            parsed = self._extract_price_from_json_ld_node(nested)
+            if parsed is not None:
+                return parsed
+
+        return None
+
+    def _extract_price_from_json_ld(self, soup: BeautifulSoup) -> Optional[float]:
+        for script in soup.select('script[type="application/ld+json"]'):
+            raw = (script.string or script.get_text() or '').strip()
+            if not raw:
+                continue
+            try:
+                payload = json.loads(raw)
+            except Exception:
+                continue
+            parsed = self._extract_price_from_json_ld_node(payload)
+            if parsed is not None:
+                return parsed
+        return None
+
+    def _extract_price_from_meta(self, soup: BeautifulSoup) -> Optional[float]:
+        meta_keys = (
+            'product:price:amount',
+            'og:price:amount',
+            'price',
+        )
+        for key in meta_keys:
+            node = soup.find(
+                'meta',
+                attrs={'property': key},
+            ) or soup.find(
+                'meta',
+                attrs={'name': key},
+            )
+            if not node:
+                continue
+            parsed = self._coerce_price(node.get('content'))
+            if parsed is not None:
+                return parsed
+        return None
+
     def _parse_html(self, html: str, url: str) -> ParseResult:
         """
         Извлечение цены.
 
         Приоритет:
         1. unitsToPay/unitsToGet -> цена за 1 V-Bucks
-        2. data-testid="product-price" / альтернативные price-селекторы
+        2. JSON-LD offers.price
+        3. meta product:price:amount / og:price:amount
+        4. data-testid="product-price" / альтернативные price-селекторы
         """
         try:
             soup = BeautifulSoup(html, 'html.parser')
@@ -176,6 +258,24 @@ class RSCParser:
                         )
                 except (ValueError, TypeError):
                     pass
+
+            json_ld_price = self._extract_price_from_json_ld(soup)
+            if json_ld_price is not None:
+                return ParseResult(
+                    success=True,
+                    price=json_ld_price,
+                    url=url,
+                    offers=[Offer(price=json_ld_price)],
+                )
+
+            meta_price = self._extract_price_from_meta(soup)
+            if meta_price is not None:
+                return ParseResult(
+                    success=True,
+                    price=meta_price,
+                    url=url,
+                    offers=[Offer(price=meta_price)],
+                )
 
             selectors = [
                 '[data-testid="product-price"]',
@@ -244,13 +344,25 @@ class RSCParser:
                     headers=headers,
                     timeout=timeout,
                 )
-                if resp.status_code in (401, 403, 429):
+                if resp.status_code in (401, 403):
                     reason = f'http_{resp.status_code}'
                     return self._blocked_result(
                         url,
                         method,
                         error=f'HTTP {resp.status_code}',
                         block_reason=reason,
+                        status_code=resp.status_code,
+                    )
+                if resp.status_code == 429:
+                    if attempt < self.max_retries:
+                        time.sleep(2 ** attempt)
+                        headers['User-Agent'] = self._get_random_user_agent()
+                        continue
+                    return self._blocked_result(
+                        url,
+                        method,
+                        error='HTTP 429',
+                        block_reason='http_429',
                         status_code=resp.status_code,
                     )
                 if resp.status_code != 200:
@@ -356,10 +468,19 @@ class RSCParser:
                     method=method,
                 )
             data = payload.get('data') or {}
-            raw_price = data.get('price')
-            try:
-                price = round(float(raw_price), 4)
-            except (TypeError, ValueError):
+            price = None
+            prices_unit = data.get('prices_unit')
+            if isinstance(prices_unit, dict):
+                # Для товаров с количеством (например V-Bucks) приоритетнее
+                # unit_amount — это цена за 1 единицу.
+                price = self._coerce_price(prices_unit.get('unit_amount'))
+                if price is None:
+                    price = self._coerce_price(prices_unit.get('unit_amount_min'))
+
+            if price is None:
+                price = self._coerce_price(data.get('price'))
+
+            if price is None:
                 return ParseResult(
                     success=False,
                     error='API fallback: поле price отсутствует',

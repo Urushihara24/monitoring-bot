@@ -5,15 +5,10 @@ python-telegram-bot==22.7
 
 # HTTP requests
 requests==2.31.0
-httpx==0.28.1
 
 # Парсинг HTML
 beautifulsoup4==4.12.3
-stealth-requests
+stealth-requests==2.0.5
 
 # Утилиты
 python-dotenv==1.0.0
-
-# Тестирование (опционально)
-pytest==7.4.3
-pytest-asyncio==0.21.1

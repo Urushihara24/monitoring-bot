@@ -27,6 +27,9 @@ def _print_result(profile: str, result: SmokeResult) -> bool:
     print(f'[{profile}] probe_price={result.probe_price}')
     if result.verify_price is not None:
         print(f'[{profile}] verify_price={result.verify_price}')
+    if result.token_perms_ok is not None or result.token_perms_desc is not None:
+        print(f'[{profile}] token_perms_ok={result.token_perms_ok}')
+        print(f'[{profile}] token_perms_desc={result.token_perms_desc}')
     if result.error:
         print(f'[{profile}] error={result.error}')
     if not result.api_access:
@@ -117,6 +120,16 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if args.profile == 'ggsel' and not config.GGSEL_ENABLED:
+        print('[ggsel] disabled: set GGSEL_ENABLED=true to run this profile')
+        return 1
+    if args.profile == 'digiseller' and not config.DIGISELLER_ENABLED:
+        print(
+            '[digiseller] disabled: '
+            'set DIGISELLER_ENABLED=true to run this profile'
+        )
+        return 1
+
     selected = []
     if args.profile in ('all', 'ggsel'):
         selected.append(check_ggsel(args))
