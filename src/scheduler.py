@@ -583,7 +583,15 @@ class Scheduler:
                 last_competitor_status_code=selected.status_code,
             )
 
-            current_price = self.api_client.get_my_price(self.product_id)
+            try:
+                current_price = self.api_client.get_my_price(self.product_id)
+            except Exception as e:
+                logger.error(
+                    '[%s] Ошибка получения текущей цены по API: %s',
+                    self.profile_name,
+                    e,
+                )
+                current_price = None
             if current_price is None:
                 current_price = state.get('last_price')
             if current_price is None:
