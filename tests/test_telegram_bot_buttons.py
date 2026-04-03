@@ -471,6 +471,41 @@ async def test_cmd_smoke_fails_when_profile_not_configured():
 
 
 @pytest.mark.asyncio
+async def test_cmd_smoke_includes_token_perms_when_present(monkeypatch):
+    bot = TelegramBot(
+        api_clients={'digiseller': object()},
+        profile_products={'digiseller': 9001},
+        profile_default_urls={'digiseller': []},
+        profile_labels={'digiseller': 'DIGISELLER'},
+    )
+    bot.admin_ids = {1}
+    bot.chat_profile[100] = 'digiseller'
+    update = make_update('/smoke')
+
+    monkeypatch.setattr(
+        telegram_module,
+        'run_profile_smoke',
+        lambda *_args, **_kwargs: SimpleNamespace(
+            api_access=True,
+            product_read_ok=True,
+            write_probe_ok=True,
+            current_price=0.22,
+            probe_price=0.22,
+            verify_price=0.22,
+            token_perms_ok=True,
+            token_perms_desc='products.read, products.write',
+            error=None,
+        ),
+    )
+
+    await bot.cmd_smoke(update, None)
+
+    assert update.message.reply_text.await_count == 2
+    second_args, _second_kwargs = update.message.reply_text.await_args_list[1]
+    assert 'Token perms: OK (products.read, products.write)' in second_args[0]
+
+
+@pytest.mark.asyncio
 async def test_diagnostics_formats_product_price_to_4dp():
     class GGClient:
         def check_api_access(self):
