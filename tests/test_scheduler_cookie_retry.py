@@ -384,6 +384,53 @@ async def test_sync_cookies_from_env_updates_runtime(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_sync_cookies_from_custom_env_file_path(monkeypatch, tmp_path):
+    """Должен читать cookies из ENV_FILE_PATH, а не только из .env."""
+    env_dir = tmp_path / 'config'
+    env_dir.mkdir(parents=True, exist_ok=True)
+    env_path = env_dir / 'bot.env'
+    env_path.write_text(
+        'COMPETITOR_COOKIES=custom_cookie=77\n',
+        encoding='utf-8',
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        scheduler_module.config,
+        'ENV_FILE_PATH',
+        'config/bot.env',
+    )
+
+    scheduler = Scheduler(
+        DummyApiClient(),
+        DummyTelegramBot(),
+        profile_id='ggsel',
+        profile_name='GGSEL',
+    )
+
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'get_runtime_setting',
+        lambda *args, **kwargs: '',
+    )
+    set_calls = []
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'set_runtime_setting',
+        lambda key, value, **kwargs: set_calls.append((key, value, kwargs)),
+    )
+
+    synced = await scheduler._sync_cookies_from_env()
+
+    assert synced is True
+    assert len(set_calls) == 1
+    key, value, kwargs = set_calls[0]
+    assert key == 'COMPETITOR_COOKIES'
+    assert value == 'custom_cookie=77'
+    assert kwargs.get('profile_id') == 'ggsel'
+    assert kwargs.get('source') == 'env_sync'
+
+
+@pytest.mark.asyncio
 async def test_sync_cookies_from_env_no_runtime_write_when_same(
     monkeypatch,
     tmp_path,

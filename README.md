@@ -60,6 +60,7 @@ Pipeline:
 - бот синхронизирует cookies из `.env` на каждом цикле без рестарта
 - если cookies протухли и парсинг без cookies успешен,
   runtime cookies очищаются автоматически (чтобы не повторять битый запрос)
+- путь к env-файлу можно переопределить через `ENV_FILE_PATH`
 
 ## Быстрый старт (локально)
 
@@ -77,6 +78,7 @@ cp .env.example .env
 - `COMPETITOR_URLS` (или профильный список для DigiSeller)
 - cookies конкурента: `GGSEL_COMPETITOR_COOKIES` / `DIGISELLER_COMPETITOR_COOKIES`
   (если не заданы, используется общий `COMPETITOR_COOKIES`)
+- при нестандартном запуске можно явно задать `ENV_FILE_PATH`
 
 Если у включённого профиля не задан `*_PRODUCT_ID`, такой профиль не
 запускается (fail-safe защита от шумных циклов и пустых API-обновлений).
