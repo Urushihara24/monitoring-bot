@@ -177,3 +177,32 @@ async def test_cmd_diag_routes_to_send_diagnostics(bot, monkeypatch):
     upd = DummyUpdate('/diag', chat_id=333)
     await bot.cmd_diag(upd, None)
     assert called.get('chat_id') == 333
+
+
+@pytest.mark.asyncio
+async def test_cmd_status_routes_to_send_status(bot, monkeypatch):
+    called = {}
+
+    async def _stub(chat_id, _update):
+        called['chat_id'] = chat_id
+
+    monkeypatch.setattr(bot, 'send_status', _stub)
+    upd = DummyUpdate('/status', chat_id=444)
+    await bot.cmd_status(upd, None)
+    assert called.get('chat_id') == 444
+
+
+@pytest.mark.asyncio
+async def test_cmd_status_access_denied(bot):
+    upd = DummyUpdate('/status', user_id=999)
+    await bot.cmd_status(upd, None)
+    assert upd.message.replies
+    assert 'Нет доступа' in upd.message.replies[-1][0]
+
+
+@pytest.mark.asyncio
+async def test_cmd_diag_access_denied(bot):
+    upd = DummyUpdate('/diag', user_id=999)
+    await bot.cmd_diag(upd, None)
+    assert upd.message.replies
+    assert 'Нет доступа' in upd.message.replies[-1][0]

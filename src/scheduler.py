@@ -530,12 +530,6 @@ class Scheduler:
                     )
                 ),
             )
-            logger.info(
-                '[%s] Решение: %s (%s)',
-                self.profile_name,
-                decision.action,
-                decision.reason,
-            )
 
             if (
                 getattr(runtime, 'UPDATE_ONLY_ON_COMPETITOR_CHANGE', True)
@@ -605,6 +599,13 @@ class Scheduler:
                     self.profile_name,
                     drift,
                 )
+
+            logger.info(
+                '[%s] Итоговое решение: %s (%s)',
+                self.profile_name,
+                decision.action,
+                decision.reason,
+            )
 
             if decision.action == 'update' and decision.price is not None:
                 success = await self._update_price(decision.price, decision)
