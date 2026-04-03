@@ -301,6 +301,45 @@ async def test_parse_clears_stale_runtime_cookies_after_no_cookie_success(
 
 
 @pytest.mark.asyncio
+async def test_parse_does_not_fallback_to_config_cookies_when_runtime_empty(
+    monkeypatch,
+):
+    scheduler = Scheduler(DummyApiClient(), DummyTelegramBot())
+    runtime = SimpleNamespace(COMPETITOR_COOKIES='')
+
+    parse_calls = []
+
+    def fake_parse(url, timeout=15, cookies=None):
+        parse_calls.append(cookies)
+        return ParseResult(
+            success=True,
+            price=0.3349,
+            url=url,
+            method='stealth_requests',
+        )
+
+    monkeypatch.setattr(
+        scheduler_module,
+        'rsc_parser',
+        SimpleNamespace(parse_url=fake_parse),
+    )
+    monkeypatch.setattr(
+        scheduler_module.config,
+        'COMPETITOR_COOKIES',
+        'stale_from_config=1',
+    )
+
+    result = await scheduler._parse_competitor_price(
+        'https://example.com/product',
+        runtime=runtime,
+        timeout=5,
+    )
+
+    assert result.success is True
+    assert parse_calls == [None]
+
+
+@pytest.mark.asyncio
 async def test_sync_cookies_from_env_updates_runtime(monkeypatch, tmp_path):
     """Cookies из .env должны попадать в runtime без перезапуска."""
     env_text = (
