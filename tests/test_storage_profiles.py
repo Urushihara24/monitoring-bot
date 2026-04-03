@@ -1,4 +1,5 @@
 from datetime import datetime
+import sqlite3
 
 from src.storage import Storage
 
@@ -193,3 +194,81 @@ def test_runtime_price_settings_backfilled_to_4dp_on_reload(tmp_path):
     raw = reloaded.get_runtime_setting('DESIRED_PRICE', profile_id='ggsel')
 
     assert raw == '0.3500'
+
+
+def test_migrates_legacy_runtime_settings_without_profile_id(tmp_path):
+    db = tmp_path / 'legacy_runtime.db'
+    with sqlite3.connect(str(db)) as conn:
+        conn.execute(
+            '''
+            CREATE TABLE runtime_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+            '''
+        )
+        conn.execute(
+            "INSERT INTO runtime_settings (key, value) VALUES (?, ?)",
+            ('CHECK_INTERVAL', '30'),
+        )
+        conn.commit()
+
+    storage = Storage(db_path=str(db))
+
+    value = storage.get_runtime_setting('CHECK_INTERVAL', profile_id='ggsel')
+    assert value == '30'
+
+
+def test_migrates_legacy_history_and_alert_tables(tmp_path):
+    db = tmp_path / 'legacy_misc.db'
+    with sqlite3.connect(str(db)) as conn:
+        conn.execute(
+            '''
+            CREATE TABLE settings_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key TEXT NOT NULL,
+                old_value TEXT,
+                new_value TEXT,
+                user_id INTEGER,
+                source TEXT,
+                timestamp TIMESTAMP
+            )
+            '''
+        )
+        conn.execute(
+            '''
+            INSERT INTO settings_history (
+                key, old_value, new_value, user_id, source, timestamp
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            ''',
+            (
+                'MODE',
+                'FIXED',
+                'STEP_UP',
+                1,
+                'test',
+                '2026-04-03 12:00:00',
+            ),
+        )
+        conn.execute(
+            '''
+            CREATE TABLE alert_state (
+                key TEXT PRIMARY KEY,
+                last_sent TIMESTAMP
+            )
+            '''
+        )
+        conn.execute(
+            "INSERT INTO alert_state (key, last_sent) VALUES (?, ?)",
+            ('x', '2026-04-03 12:00:00'),
+        )
+        conn.commit()
+
+    storage = Storage(db_path=str(db))
+
+    rows = storage.get_settings_history(limit=10, profile_id='ggsel')
+    assert rows
+    assert rows[0]['key'] == 'MODE'
+    # После миграции legacy алерт должен блокировать повторную отправку.
+    assert storage.should_send_alert('x', cooldown_seconds=3600, profile_id='ggsel') is False
