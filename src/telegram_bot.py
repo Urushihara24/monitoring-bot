@@ -9,7 +9,7 @@ import asyncio
 import logging
 import unicodedata
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from telegram import (
     ReplyKeyboardMarkup,
@@ -71,7 +71,7 @@ class TelegramBot:
         self.bot_token = config.TELEGRAM_BOT_TOKEN
         self.admin_ids = set(config.TELEGRAM_ADMIN_IDS)
         self._app: Optional[Application] = None
-        self.pending_actions: Dict[int, str] = {}
+        self.pending_actions: Dict[int, Tuple[str, str]] = {}
         self.chat_profile: Dict[int, str] = {}
 
         if api_clients is None:
@@ -129,6 +129,33 @@ class TelegramBot:
         profile = (profile_id or '').strip().lower()
         if profile in self.available_profiles:
             self.chat_profile[chat_id] = profile
+
+    def _set_pending_action(
+        self,
+        chat_id: int,
+        action: str,
+        profile_id: str,
+    ):
+        """Сохраняет pending-действие с привязкой к активному профилю."""
+        self.pending_actions[chat_id] = (action, profile_id)
+
+    def _get_pending_action(self, chat_id: int) -> Tuple[Optional[str], str]:
+        """
+        Возвращает (action, profile_id) для pending-действия.
+        Поддерживает soft-миграцию legacy-значения (str) в (str, profile_id).
+        """
+        pending = self.pending_actions.get(chat_id)
+        if pending is None:
+            return None, self._active_profile(chat_id)
+        if isinstance(pending, tuple) and len(pending) == 2:
+            action, profile_id = pending
+            return action, profile_id
+
+        # Soft migration для in-memory legacy формата.
+        action = str(pending)
+        profile_id = self._active_profile(chat_id)
+        self.pending_actions[chat_id] = (action, profile_id)
+        return action, profile_id
 
     def _resolve_profile_arg(self, value: str) -> Optional[str]:
         normalized = (value or '').strip().lower()
@@ -408,44 +435,51 @@ class TelegramBot:
         # Выбор профиля
         for pid in self.available_profiles:
             if text == self._profile_button(pid):
+                had_pending = chat_id in self.pending_actions
                 self._set_profile(chat_id, pid)
+                if had_pending:
+                    self.pending_actions.pop(chat_id, None)
+                suffix = (
+                    '\n⚠️ Незавершённый ввод сброшен.'
+                    if had_pending else ''
+                )
                 await update.message.reply_text(
-                    f'✅ Активный профиль: {self._profile_name(pid)}',
+                    f'✅ Активный профиль: {self._profile_name(pid)}{suffix}',
                     reply_markup=self.get_main_keyboard(pid),
                 )
                 return
 
         # Настройки
         if text == BTN_PRICE:
-            self.pending_actions[chat_id] = 'DESIRED_PRICE'
+            self._set_pending_action(chat_id, 'DESIRED_PRICE', profile_id)
             await update.message.reply_text(
                 'Введи желаемую цену (например 0.35):',
                 reply_markup=self.get_settings_keyboard(),
             )
             return
         if text == BTN_STEP:
-            self.pending_actions[chat_id] = 'UNDERCUT_VALUE'
+            self._set_pending_action(chat_id, 'UNDERCUT_VALUE', profile_id)
             await update.message.reply_text(
                 'Введи шаг снижения (например 0.0051):',
                 reply_markup=self.get_settings_keyboard(),
             )
             return
         if text == BTN_MIN:
-            self.pending_actions[chat_id] = 'MIN_PRICE'
+            self._set_pending_action(chat_id, 'MIN_PRICE', profile_id)
             await update.message.reply_text(
                 'Введи минимальную цену:',
                 reply_markup=self.get_settings_keyboard(),
             )
             return
         if text == BTN_MAX:
-            self.pending_actions[chat_id] = 'MAX_PRICE'
+            self._set_pending_action(chat_id, 'MAX_PRICE', profile_id)
             await update.message.reply_text(
                 'Введи максимальную цену:',
                 reply_markup=self.get_settings_keyboard(),
             )
             return
         if text == BTN_INTERVAL:
-            self.pending_actions[chat_id] = 'CHECK_INTERVAL'
+            self._set_pending_action(chat_id, 'CHECK_INTERVAL', profile_id)
             runtime = self._runtime(profile_id)
             await update.message.reply_text(
                 (
@@ -463,7 +497,7 @@ class TelegramBot:
             await self.toggle_position_filter(chat_id, user_id, update)
             return
         if text == BTN_ADD_URL:
-            self.pending_actions[chat_id] = 'ADD_URL'
+            self._set_pending_action(chat_id, 'ADD_URL', profile_id)
             await update.message.reply_text(
                 'Отправь URL конкурента:',
                 reply_markup=self.get_settings_keyboard(),
@@ -790,7 +824,7 @@ class TelegramBot:
                 reply_markup=self.get_settings_keyboard(),
             )
             return
-        self.pending_actions[chat_id] = 'REMOVE_URL'
+        self._set_pending_action(chat_id, 'REMOVE_URL', profile_id)
         lines = ['Удали номер URL:'] + [f'{i}. {u}' for i, u in enumerate(urls, 1)]
         await update.message.reply_text(
             '\n'.join(lines),
@@ -829,10 +863,20 @@ class TelegramBot:
     ):
         if not update.message:
             return
-        action = self.pending_actions.get(chat_id)
+        action, pending_profile_id = self._get_pending_action(chat_id)
         if not action:
             return
         profile_id = self._active_profile(chat_id)
+        if pending_profile_id != profile_id:
+            self.pending_actions.pop(chat_id, None)
+            await update.message.reply_text(
+                (
+                    '⚠️ Незавершённый ввод сброшен: '
+                    'активный профиль был изменён.'
+                ),
+                reply_markup=self.get_main_keyboard(profile_id),
+            )
+            return
         runtime = self._runtime(profile_id)
 
         if action in {'DESIRED_PRICE', 'UNDERCUT_VALUE', 'MIN_PRICE', 'MAX_PRICE'}:

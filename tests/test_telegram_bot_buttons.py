@@ -176,7 +176,7 @@ async def test_settings_buttons_set_pending_actions(button, expected_action):
 
     await bot.handle_message(update, None)
 
-    assert bot.pending_actions[100] == expected_action
+    assert bot.pending_actions[100] == (expected_action, 'ggsel')
     update.message.reply_text.assert_awaited_once()
 
 
@@ -216,7 +216,7 @@ async def test_remove_and_history_buttons_call_handlers():
 async def test_back_clears_pending_action():
     bot = make_bot()
     bot._state = lambda _profile: {'auto_mode': True}
-    bot.pending_actions[100] = 'DESIRED_PRICE'
+    bot.pending_actions[100] = ('DESIRED_PRICE', 'ggsel')
     update = make_update(BTN_BACK)
 
     await bot.handle_message(update, None)
@@ -285,7 +285,7 @@ async def test_status_prefers_last_target_price():
 @pytest.mark.asyncio
 async def test_pending_price_action_formats_to_4dp(monkeypatch):
     bot = make_bot()
-    bot.pending_actions[100] = 'UNDERCUT_VALUE'
+    bot.pending_actions[100] = ('UNDERCUT_VALUE', 'ggsel')
     bot._runtime = lambda _profile: SimpleNamespace(
         FAST_CHECK_INTERVAL_MIN=20,
         FAST_CHECK_INTERVAL_MAX=60,
@@ -322,6 +322,64 @@ async def test_pending_price_action_formats_to_4dp(monkeypatch):
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert args[0] == '✅ UNDERCUT_VALUE = 0.0051'
+
+
+@pytest.mark.asyncio
+async def test_profile_switch_clears_pending_action():
+    bot = TelegramBot(
+        api_clients={'ggsel': object(), 'digiseller': object()},
+        profile_products={'ggsel': 1, 'digiseller': 2},
+        profile_default_urls={'ggsel': [], 'digiseller': []},
+        profile_labels={'ggsel': 'GGSEL', 'digiseller': 'DIGISELLER'},
+    )
+    bot.admin_ids = {1}
+    bot._state = lambda _profile: {'auto_mode': True}
+    bot._set_pending_action(100, 'MIN_PRICE', 'ggsel')
+    update = make_update('🧩 DIGISELLER')
+
+    await bot.handle_message(update, None)
+
+    assert bot._active_profile(100) == 'digiseller'
+    assert 100 not in bot.pending_actions
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert 'Незавершённый ввод сброшен' in args[0]
+
+
+@pytest.mark.asyncio
+async def test_pending_action_is_not_applied_to_other_profile(monkeypatch):
+    bot = TelegramBot(
+        api_clients={'ggsel': object(), 'digiseller': object()},
+        profile_products={'ggsel': 1, 'digiseller': 2},
+        profile_default_urls={'ggsel': [], 'digiseller': []},
+        profile_labels={'ggsel': 'GGSEL', 'digiseller': 'DIGISELLER'},
+    )
+    bot.admin_ids = {1}
+    bot._state = lambda _profile: {'auto_mode': True}
+    bot._runtime = lambda _profile: make_runtime([])
+
+    called = {'value': False}
+
+    def fake_set_runtime_setting(*_args, **_kwargs):
+        called['value'] = True
+
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_runtime_setting',
+        fake_set_runtime_setting,
+    )
+
+    bot.pending_actions[100] = ('MIN_PRICE', 'ggsel')
+    bot.chat_profile[100] = 'digiseller'
+    update = make_update('0.25')
+
+    await bot.handle_pending_action(100, 1, '0.25', update)
+
+    assert called['value'] is False
+    assert 100 not in bot.pending_actions
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert 'активный профиль был изменён' in args[0]
 
 
 @pytest.mark.asyncio
