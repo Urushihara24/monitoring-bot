@@ -137,10 +137,11 @@ async def test_parse_returns_error_when_retry_failed(monkeypatch):
         fake_reload_backup,
     )
     monkeypatch.setattr(scheduler, '_runtime', lambda: runtime)
+    set_calls = []
     monkeypatch.setattr(
         scheduler_module.storage,
         'set_runtime_setting',
-        lambda *args, **kwargs: None,
+        lambda *args, **kwargs: set_calls.append((args, kwargs)),
     )
 
     result = await scheduler._parse_competitor_price(
@@ -153,6 +154,12 @@ async def test_parse_returns_error_when_retry_failed(monkeypatch):
     assert result.error == 'HTTP 403'
     assert result.status_code == 403
     assert parse_calls == ['old_cookie=1', None]
+    assert len(set_calls) == 1
+    args, kwargs = set_calls[0]
+    assert args[0] == 'COMPETITOR_COOKIES'
+    assert args[1] == ''
+    assert kwargs.get('source') == 'auto_clear_expired_failed'
+    assert kwargs.get('profile_id') == 'ggsel'
 
 
 @pytest.mark.asyncio
