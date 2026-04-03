@@ -4,7 +4,7 @@
 
 import os
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -17,9 +17,47 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in ('1', 'true', 'yes', 'on')
 
 
+def _env_optional_float(name: str) -> Optional[float]:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return None
+    try:
+        return float(value.strip())
+    except ValueError:
+        return None
+
+
+def _env_optional_int(name: str) -> Optional[int]:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return None
+    try:
+        return int(float(value.strip()))
+    except ValueError:
+        return None
+
+
+def _env_optional_str(name: str) -> Optional[str]:
+    value = os.getenv(name)
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _env_optional_bool(name: str) -> Optional[bool]:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return None
+    return value.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
 @dataclass
 class Config:
     """Конфигурация бота"""
+
+    # Путь к env-файлу для runtime-синхронизации cookies.
+    ENV_FILE_PATH: str = os.getenv('ENV_FILE_PATH', '.env')
     
     # Telegram
     TELEGRAM_BOT_TOKEN: str = os.getenv('TELEGRAM_BOT_TOKEN', '')
@@ -53,6 +91,87 @@ class Config:
     )
     DIGISELLER_ENABLED: bool = _env_bool('DIGISELLER_ENABLED', False)
     DIGISELLER_COMPETITOR_URLS: List[str] = None
+    # Профильные дефолты runtime для DigiSeller (используются только если
+    # ключи не были переопределены в runtime_settings ранее).
+    DIGISELLER_MIN_PRICE: Optional[float] = _env_optional_float(
+        'DIGISELLER_MIN_PRICE'
+    )
+    DIGISELLER_MAX_PRICE: Optional[float] = _env_optional_float(
+        'DIGISELLER_MAX_PRICE'
+    )
+    DIGISELLER_DESIRED_PRICE: Optional[float] = _env_optional_float(
+        'DIGISELLER_DESIRED_PRICE'
+    )
+    DIGISELLER_UNDERCUT_VALUE: Optional[float] = _env_optional_float(
+        'DIGISELLER_UNDERCUT_VALUE'
+    )
+    DIGISELLER_MODE: Optional[str] = _env_optional_str('DIGISELLER_MODE')
+    DIGISELLER_FIXED_PRICE: Optional[float] = _env_optional_float(
+        'DIGISELLER_FIXED_PRICE'
+    )
+    DIGISELLER_STEP_UP_VALUE: Optional[float] = _env_optional_float(
+        'DIGISELLER_STEP_UP_VALUE'
+    )
+    DIGISELLER_WEAK_PRICE_CEIL_LIMIT: Optional[float] = _env_optional_float(
+        'DIGISELLER_WEAK_PRICE_CEIL_LIMIT'
+    )
+    DIGISELLER_POSITION_FILTER_ENABLED: Optional[bool] = _env_optional_bool(
+        'DIGISELLER_POSITION_FILTER_ENABLED'
+    )
+    DIGISELLER_WEAK_POSITION_THRESHOLD: Optional[int] = _env_optional_int(
+        'DIGISELLER_WEAK_POSITION_THRESHOLD'
+    )
+    DIGISELLER_CHECK_INTERVAL: Optional[int] = _env_optional_int(
+        'DIGISELLER_CHECK_INTERVAL'
+    )
+    DIGISELLER_FAST_CHECK_INTERVAL_MIN: Optional[int] = _env_optional_int(
+        'DIGISELLER_FAST_CHECK_INTERVAL_MIN'
+    )
+    DIGISELLER_FAST_CHECK_INTERVAL_MAX: Optional[int] = _env_optional_int(
+        'DIGISELLER_FAST_CHECK_INTERVAL_MAX'
+    )
+    DIGISELLER_COOLDOWN_SECONDS: Optional[int] = _env_optional_int(
+        'DIGISELLER_COOLDOWN_SECONDS'
+    )
+    DIGISELLER_IGNORE_DELTA: Optional[float] = _env_optional_float(
+        'DIGISELLER_IGNORE_DELTA'
+    )
+    DIGISELLER_NOTIFY_SKIP: Optional[bool] = _env_optional_bool(
+        'DIGISELLER_NOTIFY_SKIP'
+    )
+    DIGISELLER_NOTIFY_SKIP_COOLDOWN_SECONDS: Optional[int] = _env_optional_int(
+        'DIGISELLER_NOTIFY_SKIP_COOLDOWN_SECONDS'
+    )
+    DIGISELLER_NOTIFY_COMPETITOR_CHANGE: Optional[bool] = _env_optional_bool(
+        'DIGISELLER_NOTIFY_COMPETITOR_CHANGE'
+    )
+    DIGISELLER_COMPETITOR_CHANGE_DELTA: Optional[float] = _env_optional_float(
+        'DIGISELLER_COMPETITOR_CHANGE_DELTA'
+    )
+    DIGISELLER_COMPETITOR_CHANGE_COOLDOWN_SECONDS: Optional[int] = _env_optional_int(
+        'DIGISELLER_COMPETITOR_CHANGE_COOLDOWN_SECONDS'
+    )
+    DIGISELLER_UPDATE_ONLY_ON_COMPETITOR_CHANGE: Optional[bool] = _env_optional_bool(
+        'DIGISELLER_UPDATE_ONLY_ON_COMPETITOR_CHANGE'
+    )
+    DIGISELLER_NOTIFY_PARSER_ISSUES: Optional[bool] = _env_optional_bool(
+        'DIGISELLER_NOTIFY_PARSER_ISSUES'
+    )
+    DIGISELLER_PARSER_ISSUE_COOLDOWN_SECONDS: Optional[int] = _env_optional_int(
+        'DIGISELLER_PARSER_ISSUE_COOLDOWN_SECONDS'
+    )
+    DIGISELLER_HARD_FLOOR_ENABLED: Optional[bool] = _env_optional_bool(
+        'DIGISELLER_HARD_FLOOR_ENABLED'
+    )
+    DIGISELLER_MAX_DOWN_STEP: Optional[float] = _env_optional_float(
+        'DIGISELLER_MAX_DOWN_STEP'
+    )
+    DIGISELLER_FAST_REBOUND_DELTA: Optional[float] = _env_optional_float(
+        'DIGISELLER_FAST_REBOUND_DELTA'
+    )
+    DIGISELLER_FAST_REBOUND_BYPASS_COOLDOWN: Optional[bool] = _env_optional_bool(
+        'DIGISELLER_FAST_REBOUND_BYPASS_COOLDOWN'
+    )
     
     # Конкуренты (список URL)
     COMPETITOR_URLS: List[str] = None

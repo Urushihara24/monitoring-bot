@@ -52,7 +52,7 @@ class GGSELClient:
         """
         self.api_key = api_key
         self.seller_id = seller_id
-        self.base_url = base_url
+        self.base_url = (base_url or "").rstrip("/")
         self.lang = lang
         self.access_token = self._normalize_access_token(access_token)
         self.token_valid_thru: Optional[datetime] = None
@@ -75,6 +75,23 @@ class GGSELClient:
     def _normalize_access_token(self, token: Optional[str]) -> str:
         """Нормализует access token (обрезает пробелы, если не None)"""
         return token.strip() if token else ""
+
+    def _response_retval(self, payload: Dict[str, Any]) -> Optional[int]:
+        """
+        Возвращает retval из разных форматов API ответа.
+
+        Поддерживаются: retval / retVal / ret_val.
+        """
+        if not isinstance(payload, dict):
+            return None
+        for key in ("retval", "retVal", "ret_val"):
+            if key not in payload:
+                continue
+            try:
+                return int(payload.get(key))
+            except Exception:
+                return None
+        return None
 
     def _is_probably_jwt(self, value: str) -> bool:
         """Грубая эвристика: похоже ли значение на JWT access token"""
@@ -157,7 +174,8 @@ class GGSELClient:
             logger.error(f"Ошибка парсинга JSON ApiLogin: {e}")
             return False
 
-        if data.get("retval") == 0 and data.get("token"):
+        retval = self._response_retval(data)
+        if data.get("token") and retval in (None, 0):
             self.access_token = str(data.get("token"))
             valid_thru = data.get("valid_thru")
             self.token_valid_thru = self._parse_valid_thru(valid_thru)
@@ -363,7 +381,8 @@ class GGSELClient:
             logger.error(f"Ошибка парсинга JSON get_product_info: {e}")
             return None
 
-        if data.get("retval") == 0 and isinstance(data.get("product"), dict):
+        retval = self._response_retval(data)
+        if retval in (None, 0) and isinstance(data.get("product"), dict):
             return data["product"]
 
         logger.error(f"GGSEL get_product_info error: {data}")
@@ -383,6 +402,79 @@ class GGSELClient:
 
         logger.warning(f"Не удалось получить цену товара {product_id}")
         return None
+
+    def _coerce_price(self, value: Any) -> Optional[float]:
+        """Безопасно преобразует цену к float с 4 знаками."""
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            try:
+                price = float(value)
+            except Exception:
+                return None
+            return round(price, 4) if price > 0 else None
+        if isinstance(value, str):
+            cleaned = value.strip().replace(",", ".")
+            try:
+                price = float(cleaned)
+            except Exception:
+                return None
+            return round(price, 4) if price > 0 else None
+        return None
+
+    def get_public_price(self, product_id: int, timeout: int = 10) -> Optional[float]:
+        """
+        Получение цены с публичной витрины GGSEL (api4).
+
+        Для ряда товаров витрина и seller endpoint могут различаться
+        из-за внутренних округлений/надбавок; для статуса используем
+        именно витринную цену.
+        """
+        url = f"https://api4.ggsel.com/goods/{int(product_id)}"
+        response = self._request_with_retry(
+            "GET",
+            url,
+            timeout=timeout,
+            max_retries=2,
+            headers={"Accept": "application/json"},
+        )
+        if response is None or response.status_code != 200:
+            return None
+        try:
+            payload = response.json()
+        except Exception:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        data = payload.get("data") or {}
+        if not isinstance(data, dict):
+            return None
+
+        prices_unit = data.get("prices_unit") or {}
+        if isinstance(prices_unit, dict):
+            price = self._coerce_price(prices_unit.get("unit_amount"))
+            if price is not None:
+                logger.info(
+                    "Публичная цена товара %s: %s RUB",
+                    product_id,
+                    price,
+                )
+                return price
+
+        price = self._coerce_price(data.get("price"))
+        if price is not None:
+            logger.info("Публичная цена товара %s: %s RUB", product_id, price)
+        return price
+
+    def get_display_price(self, product_id: int, timeout: int = 10) -> Optional[float]:
+        """
+        Цена для отображения в статусе.
+        Приоритет: публичная витрина -> seller API.
+        """
+        public_price = self.get_public_price(product_id, timeout=timeout)
+        if public_price is not None:
+            return public_price
+        return self.get_my_price(product_id, timeout=timeout)
 
     def get_update_task_status(
         self, task_id: str, timeout: int = 10
@@ -418,6 +510,47 @@ class GGSELClient:
         )
         return format(normalized, "f")
 
+    def _build_update_price_payload(
+        self,
+        product_id: int,
+        price_4dp: str,
+    ) -> list[dict[str, Any]]:
+        """
+        Формирует payload для bulk-обновления цен.
+        """
+        return [
+            {
+                "product_id": product_id,
+                # Для GGSEL отправляем строку с фиксированной точностью.
+                "price": price_4dp,
+                "variants": [],
+            }
+        ]
+
+    def _is_async_task_success(
+        self,
+        *,
+        status: int,
+        success_count: int,
+        error_count: int,
+        total_count: int,
+    ) -> bool:
+        """
+        Правило успешного завершения async-задачи.
+        GGSEL: 2 = done, 3 = error.
+        """
+        return (
+            status == 2
+            and error_count == 0
+            and (success_count > 0 or total_count == 0)
+        )
+
+    def _is_async_task_error(self, *, status: int) -> bool:
+        """
+        Правило завершения async-задачи с ошибкой.
+        """
+        return status == 3
+
     def update_price(
         self, product_id: int, new_price: float, timeout: int = 10
     ) -> bool:
@@ -428,14 +561,10 @@ class GGSELClient:
         """
         url = f"{self.base_url}/product/edit/prices"
         price_4dp = self._format_price_4dp(new_price)
-        data = [
-            {
-                "product_id": product_id,
-                # Для GGSEL отправляем строку с фиксированной точностью.
-                "price": price_4dp,
-                "variants": [],
-            }
-        ]
+        data = self._build_update_price_payload(
+            product_id=product_id,
+            price_4dp=price_4dp,
+        )
 
         logger.info(
             "Обновление цены: product=%s, price=%s",
@@ -488,20 +617,18 @@ class GGSELClient:
                 error_count = int(status_result.get("ErrorCount", 0) or 0)
                 total_count = int(status_result.get("TotalCount", 0) or 0)
 
-                # По документации Status: 1/2/3, где 2/3 - финальные
-                if status == 2:
-                    if error_count == 0 and (success_count > 0 or total_count == 0):
-                        logger.info(
-                            f"✅ Цена обновлена: {price_4dp} (taskId={task_id})"
-                        )
-                        return True
-                    logger.error(
-                        "Задача завершена с ошибками: %s",
-                        status_result,
+                if self._is_async_task_success(
+                    status=status,
+                    success_count=success_count,
+                    error_count=error_count,
+                    total_count=total_count,
+                ):
+                    logger.info(
+                        f"✅ Цена обновлена: {price_4dp} (taskId={task_id})"
                     )
-                    return False
+                    return True
 
-                if status == 3:
+                if self._is_async_task_error(status=status):
                     logger.error(
                         "Задача обновления завершилась ошибкой: %s",
                         status_result,
@@ -519,7 +646,8 @@ class GGSELClient:
 
         # Фоллбек: API вернул синхронный успешный ответ
         # (иногда обновление применяется без асинхронной задачи).
-        if response.ok and result.get("retval") in (None, 0):
+        retval = self._response_retval(result)
+        if response.ok and retval in (None, 0):
             logger.info(f"✅ Цена обновлена: {price_4dp}")
             return True
 
