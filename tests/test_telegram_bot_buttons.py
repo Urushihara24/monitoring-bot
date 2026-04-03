@@ -447,6 +447,9 @@ async def test_cmd_smoke_reports_active_profile_result(monkeypatch):
     assert '🧪 Smoke API' in second_args[0]
     assert 'Профиль: DIGISELLER' in second_args[0]
     assert 'API: OK' in second_args[0]
+    assert 'Current price: 0.3300' in second_args[0]
+    assert 'Probe price: 0.3300' in second_args[0]
+    assert 'Verify price: 0.3300' in second_args[0]
 
 
 @pytest.mark.asyncio
@@ -465,3 +468,35 @@ async def test_cmd_smoke_fails_when_profile_not_configured():
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert 'Smoke недоступен' in args[0]
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_formats_product_price_to_4dp():
+    class GGClient:
+        def check_api_access(self):
+            return True
+
+        def get_product(self, _product_id):
+            return SimpleNamespace(price=0.33)
+
+    bot = TelegramBot(
+        api_clients={'ggsel': GGClient()},
+        profile_products={'ggsel': 100},
+        profile_default_urls={'ggsel': ['https://example.com/gg']},
+        profile_labels={'ggsel': 'GGSEL'},
+    )
+    bot.admin_ids = {1}
+    bot._state = lambda _profile: {
+        'auto_mode': True,
+        'last_cycle': None,
+        'last_competitor_error': None,
+        'last_competitor_block_reason': None,
+    }
+    bot._runtime = lambda _profile: make_runtime(['https://example.com/gg'])
+    update = make_update(BTN_DIAGNOSTICS)
+
+    await bot.send_diagnostics(100, update)
+
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert 'Product: OK (0.3300₽)' in args[0]
