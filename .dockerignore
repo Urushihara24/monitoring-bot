@@ -51,6 +51,3 @@ docker-compose*.yml
 # Documentation
 *.md
 !README.md
-
-# Scripts (не нужны в контейнере для runtime)
-scripts/

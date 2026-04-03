@@ -26,9 +26,14 @@ docker-compose logs -f
 ## 3. Проверка
 
 ```bash
+# Проверка healthcheck локально (по state.db)
 python3 healthcheck.py
-python3 scripts/smoke_profiles_api.py
-pytest
+
+# Проверка API smoke внутри контейнера (использует runtime .env)
+docker compose exec -T monitoring-pricing-bot python3 scripts/smoke_profiles_api.py
+
+# Если на сервере только legacy docker-compose:
+docker-compose exec -T monitoring-pricing-bot python3 scripts/smoke_profiles_api.py
 ```
 
 ## 4. Cookies refresh
