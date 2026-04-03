@@ -83,6 +83,20 @@ def test_normalize_competitor_urls_deduplicates_root_slash(tmp_path):
     assert urls == ['https://example.com']
 
 
+def test_normalize_competitor_urls_drops_invalid_scheme_and_empty(tmp_path):
+    db_path = tmp_path / 'state.db'
+    storage = Storage(str(db_path))
+    urls = storage.normalize_competitor_urls(
+        [
+            '',
+            'ftp://example.com/item',
+            'example.com/item',
+            'https://valid.example/item',
+        ]
+    )
+    assert urls == ['https://valid.example/item']
+
+
 def test_runtime_config_override(tmp_path):
     db_path = tmp_path / 'state.db'
     storage = Storage(str(db_path))
