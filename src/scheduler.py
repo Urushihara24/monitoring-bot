@@ -361,8 +361,8 @@ class Scheduler:
                 len(runtime.COMPETITOR_URLS),
             )
             if not runtime.COMPETITOR_URLS:
-                logger.warning(
-                    '[%s] Список конкурентов пуст, цикл пропущен',
+                logger.info(
+                    '[%s] Конкуренты не заданы, цикл мониторинга пропущен',
                     self.profile_name,
                 )
                 storage.update_state(

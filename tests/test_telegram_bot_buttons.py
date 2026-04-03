@@ -379,3 +379,58 @@ async def test_diagnostics_for_ggsel_has_no_token_perms_line():
     args, _kwargs = update.message.reply_text.await_args
     assert 'Профиль: GGSEL' in args[0]
     assert 'Token perms:' not in args[0]
+
+
+@pytest.mark.asyncio
+async def test_cmd_smoke_reports_active_profile_result(monkeypatch):
+    bot = TelegramBot(
+        api_clients={'digiseller': object()},
+        profile_products={'digiseller': 9001},
+        profile_default_urls={'digiseller': []},
+        profile_labels={'digiseller': 'DIGISELLER'},
+    )
+    bot.admin_ids = {1}
+    bot.chat_profile[100] = 'digiseller'
+    update = make_update('/smoke')
+
+    monkeypatch.setattr(
+        telegram_module,
+        'run_profile_smoke',
+        lambda *_args, **_kwargs: SimpleNamespace(
+            api_access=True,
+            product_read_ok=True,
+            write_probe_ok=True,
+            current_price=0.33,
+            probe_price=0.33,
+            verify_price=0.33,
+            error=None,
+        ),
+    )
+
+    await bot.cmd_smoke(update, None)
+
+    assert update.message.reply_text.await_count == 2
+    first_args, _first_kwargs = update.message.reply_text.await_args_list[0]
+    second_args, _second_kwargs = update.message.reply_text.await_args_list[1]
+    assert 'Запуск smoke API для профиля DIGISELLER' in first_args[0]
+    assert '🧪 Smoke API' in second_args[0]
+    assert 'Профиль: DIGISELLER' in second_args[0]
+    assert 'API: OK' in second_args[0]
+
+
+@pytest.mark.asyncio
+async def test_cmd_smoke_fails_when_profile_not_configured():
+    bot = TelegramBot(
+        api_clients={'ggsel': object()},
+        profile_products={'ggsel': 0},
+        profile_default_urls={'ggsel': []},
+        profile_labels={'ggsel': 'GGSEL'},
+    )
+    bot.admin_ids = {1}
+    update = make_update('/smoke')
+
+    await bot.cmd_smoke(update, None)
+
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert 'Smoke недоступен' in args[0]
