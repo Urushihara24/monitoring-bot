@@ -6,7 +6,6 @@ from src.telegram_bot import (
     BTN_AUTO_OFF,
     BTN_AUTO_ON,
     BTN_BACK,
-    BTN_DIAGNOSTICS,
     BTN_DOWN,
     BTN_HISTORY,
     BTN_MAX,
@@ -74,7 +73,6 @@ async def test_keyboards_are_reply(bot):
     [
         (BTN_STATUS, 'send_status'),
         (BTN_SETTINGS, 'send_settings'),
-        (BTN_DIAGNOSTICS, 'send_diagnostics'),
         (BTN_MODE, 'toggle_mode'),
         (BTN_POSITION, 'toggle_position_filter'),
         (BTN_REMOVE_URL, 'start_remove_url'),

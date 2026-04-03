@@ -8,7 +8,6 @@ from src.telegram_bot import (
     BTN_AUTO_OFF,
     BTN_AUTO_ON,
     BTN_BACK,
-    BTN_DIAGNOSTICS,
     BTN_DOWN,
     BTN_HISTORY,
     BTN_INTERVAL,
@@ -95,7 +94,7 @@ def test_main_keyboard_is_not_overloaded():
     bot = make_bot()
     bot._state = lambda _profile: {'auto_mode': True}
     texts = keyboard_texts(bot.get_main_keyboard('ggsel'))
-    assert BTN_DIAGNOSTICS not in texts
+    assert '🩺 Диагностика' not in texts
     assert BTN_UP not in texts
     assert BTN_DOWN not in texts
     settings_texts = keyboard_texts(bot.get_settings_keyboard())
@@ -112,7 +111,6 @@ async def test_main_buttons_route_to_handlers():
     bot.handle_price_change = AsyncMock()
     bot.toggle_auto = AsyncMock()
     bot.send_settings = AsyncMock()
-    bot.send_diagnostics = AsyncMock()
 
     status = make_update(BTN_STATUS)
     await bot.handle_message(status, None)
@@ -133,10 +131,6 @@ async def test_main_buttons_route_to_handlers():
     settings = make_update(BTN_SETTINGS)
     await bot.handle_message(settings, None)
     bot.send_settings.assert_awaited_once_with(100, settings)
-
-    diagnostics = make_update(BTN_DIAGNOSTICS)
-    await bot.handle_message(diagnostics, None)
-    bot.send_diagnostics.assert_awaited_once_with(100, diagnostics)
 
 
 @pytest.mark.asyncio
@@ -439,7 +433,7 @@ async def test_diagnostics_includes_digiseller_token_perms_line():
         'last_competitor_block_reason': None,
     }
     bot._runtime = lambda _profile: make_runtime(['https://example.com/digi'])
-    update = make_update(BTN_DIAGNOSTICS)
+    update = make_update('/diag')
 
     await bot.send_diagnostics(100, update)
 
@@ -472,7 +466,7 @@ async def test_diagnostics_for_ggsel_has_no_token_perms_line():
         'last_competitor_block_reason': None,
     }
     bot._runtime = lambda _profile: make_runtime(['https://example.com/gg'])
-    update = make_update(BTN_DIAGNOSTICS)
+    update = make_update('/diag')
 
     await bot.send_diagnostics(100, update)
 
@@ -652,7 +646,7 @@ async def test_diagnostics_formats_product_price_to_4dp():
         'last_competitor_block_reason': None,
     }
     bot._runtime = lambda _profile: make_runtime(['https://example.com/gg'])
-    update = make_update(BTN_DIAGNOSTICS)
+    update = make_update('/diag')
 
     await bot.send_diagnostics(100, update)
 

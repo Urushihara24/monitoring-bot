@@ -40,7 +40,6 @@ BTN_AUTO_ON = '🔔 Авто: ВКЛ'
 BTN_AUTO_OFF = '🔕 Авто: ВЫКЛ'
 BTN_PROFILE = '🧩 Профиль'
 BTN_SETTINGS = '⚙ Настройки'
-BTN_DIAGNOSTICS = '🩺 Диагностика'
 BTN_BACK = '🔙 Назад'
 
 # Настройки
@@ -428,10 +427,6 @@ class TelegramBot:
         if text == BTN_SETTINGS:
             await self.send_settings(chat_id, update)
             return
-        if text == BTN_DIAGNOSTICS:
-            await self.send_diagnostics(chat_id, update)
-            return
-
         # Выбор профиля
         for pid in self.available_profiles:
             if text == self._profile_button(pid):
