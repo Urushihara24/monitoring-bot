@@ -178,7 +178,7 @@ class TelegramBot:
         *,
         chat_id: int,
         update: Update,
-        context: ContextTypes.DEFAULT_TYPE,
+        context: Optional[ContextTypes.DEFAULT_TYPE],
     ) -> Optional[str]:
         """
         Возвращает профиль для slash-команды.
