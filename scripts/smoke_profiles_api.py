@@ -3,14 +3,44 @@
 
 from __future__ import annotations
 
+import argparse
 import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from src.api_client import GGSELClient
 from src.config import config
 from src.digiseller_client import DigiSellerClient
+from src.profile_smoke import SmokeResult, run_profile_smoke
 
 
-def check_ggsel() -> bool:
+def _print_result(profile: str, result: SmokeResult) -> bool:
+    print(f'[{profile}] api_access={result.api_access}')
+    print(f'[{profile}] product_read_ok={result.product_read_ok}')
+    print(f'[{profile}] current_price={result.current_price}')
+    print(f'[{profile}] write_probe_ok={result.write_probe_ok}')
+    if result.mutated:
+        print(f'[{profile}] rollback_ok={result.rollback_ok}')
+    print(f'[{profile}] probe_price={result.probe_price}')
+    if result.verify_price is not None:
+        print(f'[{profile}] verify_price={result.verify_price}')
+    if result.error:
+        print(f'[{profile}] error={result.error}')
+    if not result.api_access:
+        return False
+    if not result.product_read_ok:
+        return False
+    if not result.write_probe_ok:
+        return False
+    if result.mutated and not bool(result.rollback_ok):
+        return False
+    return True
+
+
+def check_ggsel(args) -> bool:
     if not config.GGSEL_ENABLED:
         print('[ggsel] skipped (disabled)')
         return True
@@ -21,18 +51,17 @@ def check_ggsel() -> bool:
         lang=config.GGSEL_LANG,
         access_token=config.GGSEL_ACCESS_TOKEN,
     )
-    ok = client.check_api_access()
-    print(f'[ggsel] api_access={ok}')
-    if not ok:
-        return False
-    if config.GGSEL_PRODUCT_ID:
-        p = client.get_product(config.GGSEL_PRODUCT_ID)
-        print(f'[ggsel] product_found={p is not None}')
-        return p is not None
-    return True
+    result = run_profile_smoke(
+        client,
+        config.GGSEL_PRODUCT_ID,
+        mutate=args.mutate,
+        delta=args.delta,
+        verify_read=args.verify_read,
+    )
+    return _print_result('ggsel', result)
 
 
-def check_digiseller() -> bool:
+def check_digiseller(args) -> bool:
     if not config.DIGISELLER_ENABLED:
         print('[digiseller] skipped (disabled)')
         return True
@@ -44,19 +73,56 @@ def check_digiseller() -> bool:
         access_token=config.DIGISELLER_ACCESS_TOKEN,
         default_product_id=config.DIGISELLER_PRODUCT_ID,
     )
-    ok = client.check_api_access()
-    print(f'[digiseller] api_access={ok}')
-    if not ok:
-        return False
-    if config.DIGISELLER_PRODUCT_ID:
-        p = client.get_product(config.DIGISELLER_PRODUCT_ID)
-        print(f'[digiseller] product_found={p is not None}')
-        return p is not None
-    return True
+    result = run_profile_smoke(
+        client,
+        config.DIGISELLER_PRODUCT_ID,
+        mutate=args.mutate,
+        delta=args.delta,
+        verify_read=args.verify_read,
+    )
+    return _print_result('digiseller', result)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description='Smoke-check активных профилей API',
+    )
+    parser.add_argument(
+        '--profile',
+        choices=('all', 'ggsel', 'digiseller'),
+        default='all',
+        help='какой профиль проверять',
+    )
+    parser.add_argument(
+        '--mutate',
+        action='store_true',
+        help=(
+            'сделать реальное тестовое изменение цены и rollback; '
+            'по умолчанию write probe выполняется noop-ценой'
+        ),
+    )
+    parser.add_argument(
+        '--delta',
+        type=float,
+        default=0.0001,
+        help='дельта для mutate режима (по умолчанию 0.0001)',
+    )
+    parser.add_argument(
+        '--verify-read',
+        action='store_true',
+        help='после write probe дополнительно перечитать текущую цену',
+    )
+    return parser.parse_args()
 
 
 def main() -> int:
-    results = [check_ggsel(), check_digiseller()]
+    args = parse_args()
+    selected = []
+    if args.profile in ('all', 'ggsel'):
+        selected.append(check_ggsel(args))
+    if args.profile in ('all', 'digiseller'):
+        selected.append(check_digiseller(args))
+    results = selected or [True]
     return 0 if all(results) else 1
 
 

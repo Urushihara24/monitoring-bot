@@ -1,38 +1,59 @@
 # Auto-Pricing Bot (GGSEL + DigiSeller)
 
-Бот мониторит цену конкурента по ссылкам, рассчитывает целевую цену и обновляет цену товара через API площадки.
+Telegram-бот для мониторинга цен конкурентов и автообновления цены товара через API продавца.
 
-Поддерживается 2 независимых профиля:
+Поддерживаются независимые профили:
 - `ggsel`
 - `digiseller`
 
-У каждого профиля отдельные:
+Для каждого профиля хранятся отдельно:
 - API-ключи/токен
-- товар
+- ID товара
 - список конкурентов
-- авто-режим
 - runtime-настройки
-- история и алерты
+- state/история/алерты
 
-## Что реализовано
-- Reply-клавиатура Telegram (без inline-кнопок).
-- Профильный режим в Telegram (`🧩 Профиль`).
-- Быстрый runtime-интервал (`CHECK_INTERVAL`) через кнопку `⏱ Интервал`.
-- Каскадный парсер конкурента:
-  1. `stealth_requests`
-  2. `Playwright`
-  3. `Selenium (profile/headless)`
-  4. `Distill` как внешний fallback
-- Авто-refresh cookies без перезапуска процесса.
-- Авторизация GGSEL/DigiSeller через `/apilogin` (sign = `sha256(api_key + timestamp)`).
-- Защита от убытков:
-  - hard floor
-  - ограничение резких снижений (`MAX_DOWN_STEP`)
-  - быстрый откат вверх (`FAST_REBOUND_DELTA` + bypass cooldown)
-- Профильный `SQLite` state/runtime/alerts.
-- CI (GitHub Actions) + тесты `pytest`.
+## Ключевая логика
 
-## Быстрый старт
+Базовое правило цены:
+- `my_price = competitor_min - UNDERCUT_VALUE`
+- по умолчанию `UNDERCUT_VALUE=0.0051`
+- пример: конкурент `0.3400` -> мы `0.3349`
+
+Ограничения и защита:
+- `MIN_PRICE`, `MAX_PRICE`
+- `MODE=FIXED|STEP_UP` при упоре в нижнюю границу
+- `MAX_DOWN_STEP` для ограничения резкого падения
+- `FAST_REBOUND_DELTA` + bypass cooldown для быстрого отката вверх
+
+Идемпотентность апдейтов:
+- при неизменной цене конкурента повторный API update не выполняется
+- если целевая цена уже была применена, бот делает `skip` (без лишнего шума)
+- если у профиля пустой список конкурентов, цикл делает безопасный `skip`
+  без отправки error-алертов
+
+Точность цен:
+- расчёт/сохранение/отображение в боте: `4` знака после запятой
+- в GGSEL update payload цена отправляется в формате `0.0000`
+- API чтение у площадки может возвращать округлённое значение, это учитывается
+
+## Как парсится конкурент
+
+Pipeline:
+1. `stealth_requests` + HTML (`BeautifulSoup`)
+2. извлечение unit-price (`unitsToPay / unitsToGet`) если доступно
+3. fallback по CSS-селекторам цены
+4. fallback на публичный endpoint: `https://api4.ggsel.com/goods/<id>`
+   (используется только для доменов `ggsel.*`)
+
+Что пишется в state:
+- `last_competitor_min`
+- `last_competitor_url`
+- `last_competitor_method`
+- `last_competitor_parse_at`
+- ошибки/причины блокировок парсера
+
+## Быстрый старт (локально)
 
 ```bash
 python3 -m venv .venv
@@ -41,10 +62,13 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Заполни `.env` минимум:
+Минимум в `.env`:
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_ADMIN_IDS`
-- для включённого профиля: `*_API_KEY`/`*_ACCESS_TOKEN`, `*_SELLER_ID`, `*_PRODUCT_ID`, `*_COMPETITOR_URLS`
+- для включённого профиля: `*_API_KEY`/`*_ACCESS_TOKEN`, `*_SELLER_ID`, `*_PRODUCT_ID`
+- `COMPETITOR_URLS` (или профильный список для DigiSeller)
+- cookies конкурента: `GGSEL_COMPETITOR_COOKIES` / `DIGISELLER_COMPETITOR_COOKIES`
+  (если не заданы, используется общий `COMPETITOR_COOKIES`)
 
 Запуск:
 
@@ -52,17 +76,14 @@ cp .env.example .env
 python3 -m src
 ```
 
-## Профили
+## Запуск в Docker
 
-### GGSEL
-- включение: `GGSEL_ENABLED=true`
-- API: `https://seller.ggsel.com/api_sellers/api`
+```bash
+docker compose up -d --build
+docker compose logs -f
+```
 
-### DigiSeller
-- включение: `DIGISELLER_ENABLED=true`
-- API: `https://api.digiseller.com/api`
-
-## Telegram управление
+## Telegram управление (reply-клавиатура)
 
 Главное меню:
 - `📊 Статус`
@@ -81,34 +102,59 @@ python3 -m src
 - `🔀 Режим` (`FIXED`/`STEP_UP`)
 - `📍 Позиция`
 - `🔗 Добавить URL` / `🗑 Удалить URL`
-- `📤 Экспорт` / `📥 Импорт`
 - `🧾 История`
 
-## Тесты
+## Полезные скрипты
+
+Проверка GGSEL apilogin:
 
 ```bash
-pytest
-python -m compileall src healthcheck.py
+python3 scripts/check_apilogin.py
 ```
 
-## Docker
+Выпуск access token через API key:
 
 ```bash
-docker compose up -d --build
-docker compose logs -f
+python3 scripts/issue_access_token.py
 ```
 
-## Важные файлы
-- `/Users/vsevolod/Documents/Monitoring/src/main.py`
-- `/Users/vsevolod/Documents/Monitoring/src/scheduler.py`
-- `/Users/vsevolod/Documents/Monitoring/src/rsc_parser.py`
-- `/Users/vsevolod/Documents/Monitoring/src/storage.py`
-- `/Users/vsevolod/Documents/Monitoring/src/telegram_bot.py`
-- `/Users/vsevolod/Documents/Monitoring/src/api_client.py`
-- `/Users/vsevolod/Documents/Monitoring/src/digiseller_client.py`
+Smoke API активных профилей:
 
-## API источники
+```bash
+python3 scripts/smoke_profiles_api.py
+```
+
+Проверить только DigiSeller:
+
+```bash
+python3 scripts/smoke_profiles_api.py --profile digiseller
+```
+
+С реальным тестовым изменением и rollback:
+
+```bash
+python3 scripts/smoke_profiles_api.py --profile digiseller --mutate --delta 0.0001 --verify-read
+```
+
+## Тесты и проверки
+
+```bash
+pytest -q
+python3 -m compileall src healthcheck.py
+```
+
+## Структура кода
+
+- `src/main.py` — запуск профилей и orchestration
+- `src/scheduler.py` — цикл парсинг -> расчёт -> update/skip
+- `src/logic.py` — бизнес-формулы цены
+- `src/rsc_parser.py` — парсер конкурента
+- `src/api_client.py` — GGSEL API клиент
+- `src/digiseller_client.py` — DigiSeller API клиент
+- `src/telegram_bot.py` — Telegram reply UI + handlers
+- `src/storage.py` — SQLite state/runtime/history/alerts
+
+## Источники API
+
 - GGSEL Seller API: `https://seller.ggsel.com/docs/seller-api-v-1`
 - DigiSeller API: `https://my.digiseller.com/inside/api.asp`
-  - Products/categories: `https://my.digiseller.com/inside/api_catgoods.asp`
-  - Product edit: `https://my.digiseller.com/inside/api_goods.asp`

@@ -52,8 +52,6 @@ BTN_MODE = '🔀 Режим'
 BTN_POSITION = '📍 Позиция'
 BTN_ADD_URL = '🔗 Добавить URL'
 BTN_REMOVE_URL = '🗑 Удалить URL'
-BTN_EXPORT = '📤 Экспорт'
-BTN_IMPORT = '📥 Импорт'
 BTN_HISTORY = '🧾 История'
 
 
@@ -175,7 +173,6 @@ class TelegramBot:
                 [BTN_INTERVAL, BTN_MODE],
                 [BTN_POSITION],
                 [BTN_ADD_URL, BTN_REMOVE_URL],
-                [BTN_EXPORT, BTN_IMPORT],
                 [BTN_HISTORY],
                 [BTN_BACK],
             ],
@@ -200,7 +197,6 @@ class TelegramBot:
     def _setup_handlers(self):
         self.app.add_handler(CommandHandler('start', self.cmd_start))
         self.app.add_handler(CommandHandler('status', self.cmd_status))
-        self.app.add_handler(CommandHandler('set_competitor', self.cmd_set_competitor_price))
         self.app.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
         )
@@ -352,16 +348,6 @@ class TelegramBot:
         if text == BTN_REMOVE_URL:
             await self.start_remove_url(chat_id, update)
             return
-        if text == BTN_EXPORT:
-            await self.export_settings(chat_id, update)
-            return
-        if text == BTN_IMPORT:
-            self.pending_actions[chat_id] = 'IMPORT_SETTINGS'
-            await update.message.reply_text(
-                'Отправь настройки в формате key=value',
-                reply_markup=self.get_settings_keyboard(),
-            )
-            return
         if text == BTN_HISTORY:
             await self.show_settings_history(chat_id, update)
             return
@@ -403,7 +389,9 @@ class TelegramBot:
         competitor_url = state.get('last_competitor_url') or 'N/A'
         parse_method = state.get('last_competitor_method') or 'N/A'
 
-        my_price = state.get('last_price')
+        my_price = state.get('last_target_price')
+        if my_price is None:
+            my_price = state.get('last_price')
         competitor_price = state.get('last_competitor_min')
         my_price_str = f'{my_price:.4f}' if my_price is not None else 'N/A'
         competitor_price_str = (
@@ -456,6 +444,7 @@ class TelegramBot:
 ⏱️ CHECK_INTERVAL: {runtime.CHECK_INTERVAL}s
 ⛑️ MAX_DOWN_STEP: {runtime.MAX_DOWN_STEP:.4f}₽
 🚀 FAST_REBOUND_DELTA: {runtime.FAST_REBOUND_DELTA:.4f}₽
+🔁 Обновлять только при изменении конкурента: {'Да' if runtime.UPDATE_ONLY_ON_COMPETITOR_CHANGE else 'Нет'}
 📍 Позиция: {'Вкл' if runtime.POSITION_FILTER_ENABLED else 'Выкл'}
 🔗 Конкурентов: {len(runtime.COMPETITOR_URLS)}
 """
@@ -475,6 +464,7 @@ class TelegramBot:
 
         api_ok = False
         product_price = None
+        product_ok = False
         client = self._api_client(profile_id)
         product_id = self._product_id(profile_id)
         if client:
@@ -482,6 +472,7 @@ class TelegramBot:
                 api_ok = await asyncio.to_thread(client.check_api_access)
                 if api_ok and product_id:
                     product = await asyncio.to_thread(client.get_product, product_id)
+                    product_ok = product is not None
                     product_price = product.price if product else None
             except Exception as e:
                 logger.error('Ошибка API в диагностике: %s', e)
@@ -494,7 +485,7 @@ class TelegramBot:
             '',
             f'Профиль: {profile_name}',
             f'API: {"OK" if api_ok else "FAIL"}',
-            f'Product: {"OK" if product_price else "FAIL"} ({product_price}₽)',
+            f'Product: {"OK" if product_ok else "FAIL"} ({product_price}₽)',
             f'Config: {"OK" if is_valid else "INVALID"}',
             f'Heartbeat: {age}s',
             f'Auto: {"ON" if state.get("auto_mode", True) else "OFF"}',
@@ -558,6 +549,8 @@ class TelegramBot:
             storage.update_state(
                 profile_id=profile_id,
                 last_price=new_price,
+                last_target_price=new_price,
+                last_target_competitor_min=state.get('last_competitor_min'),
                 last_update=datetime.now(),
             )
             await update.message.reply_text(
@@ -645,26 +638,6 @@ class TelegramBot:
             reply_markup=self.get_settings_keyboard(),
         )
 
-    async def export_settings(self, chat_id: int, update: Update):
-        if not update.message:
-            return
-        profile_id = self._active_profile(chat_id)
-        settings = storage.get_all_runtime_settings(profile_id=profile_id)
-        if not settings:
-            await update.message.reply_text(
-                'Настройки пусты (используется .env)',
-                reply_markup=self.get_settings_keyboard(),
-            )
-            return
-        lines = [
-            f'Профиль: {self._profile_name(profile_id)}',
-            'Настройки:',
-        ] + [f'{k}={v}' for k, v in sorted(settings.items())]
-        await update.message.reply_text(
-            '\n'.join(lines),
-            reply_markup=self.get_settings_keyboard(),
-        )
-
     async def show_settings_history(self, chat_id: int, update: Update):
         if not update.message:
             return
@@ -718,6 +691,7 @@ class TelegramBot:
                     reply_markup=self.get_settings_keyboard(),
                 )
                 return
+            value = round(value, 4)
             storage.set_runtime_setting(
                 action,
                 str(value),
@@ -727,7 +701,7 @@ class TelegramBot:
             )
             self.pending_actions.pop(chat_id, None)
             await update.message.reply_text(
-                f'✅ {action} = {value}',
+                f'✅ {action} = {value:.4f}',
                 reply_markup=self.get_settings_keyboard(),
             )
             await self.send_settings(chat_id, update)
@@ -823,51 +797,6 @@ class TelegramBot:
                     reply_markup=self.get_settings_keyboard(),
                 )
                 await self.send_settings(chat_id, update)
-            return
-
-        if action == 'IMPORT_SETTINGS':
-            allowed = {
-                'MIN_PRICE',
-                'MAX_PRICE',
-                'DESIRED_PRICE',
-                'UNDERCUT_VALUE',
-                'MODE',
-                'FIXED_PRICE',
-                'STEP_UP_VALUE',
-                'LOW_PRICE_THRESHOLD',
-                'WEAK_PRICE_CEIL_LIMIT',
-                'POSITION_FILTER_ENABLED',
-                'WEAK_POSITION_THRESHOLD',
-                'COOLDOWN_SECONDS',
-                'IGNORE_DELTA',
-                'CHECK_INTERVAL',
-                'COMPETITOR_COOKIES',
-                'MAX_DOWN_STEP',
-                'FAST_REBOUND_DELTA',
-            }
-            imported = 0
-            for line in text.splitlines():
-                if '=' not in line:
-                    continue
-                key, value = line.split('=', 1)
-                key = key.strip()
-                value = value.strip()
-                if key not in allowed:
-                    continue
-                storage.set_runtime_setting(
-                    key,
-                    value,
-                    user_id=user_id,
-                    source='telegram',
-                    profile_id=profile_id,
-                )
-                imported += 1
-            self.pending_actions.pop(chat_id, None)
-            await update.message.reply_text(
-                f'✅ Импорт завершён (импортировано {imported})',
-                reply_markup=self.get_settings_keyboard(),
-            )
-            await self.send_settings(chat_id, update)
             return
 
     # ================================
@@ -989,55 +918,5 @@ class TelegramBot:
         if self._app.running:
             await self._app.stop()
         await self._app.shutdown()
-
-    # ================================
-    # Commands
-    # ================================
-    async def cmd_set_competitor_price(
-        self,
-        update: Update,
-        context: ContextTypes.DEFAULT_TYPE,
-    ):
-        if not update.message or not update.effective_user:
-            return
-        if not self._check_access(update.effective_user.id):
-            return
-        chat_id = update.effective_chat.id if update.effective_chat else None
-        profile_id = self._active_profile(chat_id)
-        if not context.args:
-            await update.message.reply_text(
-                'Использование: /set_competitor <цена>',
-                reply_markup=self.get_main_keyboard(profile_id),
-            )
-            return
-        try:
-            price = float(context.args[0].replace(',', '.'))
-            if price <= 0:
-                raise ValueError
-        except ValueError:
-            await update.message.reply_text(
-                '❌ Введи число > 0',
-                reply_markup=self.get_main_keyboard(profile_id),
-            )
-            return
-
-        storage.update_state(
-            profile_id=profile_id,
-            last_competitor_price=price,
-            last_competitor_min=price,
-            last_competitor_parse_at=datetime.now(),
-            last_competitor_method='manual',
-            last_competitor_error=None,
-            last_competitor_block_reason=None,
-            last_competitor_status_code=None,
-        )
-        await update.message.reply_text(
-            (
-                f'✅ [{self._profile_name(profile_id)}] '
-                f'Цена конкурента установлена: {price:.4f}₽'
-            ),
-            reply_markup=self.get_main_keyboard(profile_id),
-        )
-
 
 telegram_bot: Optional[TelegramBot] = None

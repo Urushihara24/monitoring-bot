@@ -73,6 +73,24 @@ def test_hard_floor_step_up_mode():
     assert 'hard_floor_step_up' in decision.reason
 
 
+def test_low_price_does_not_trigger_weak_mode_without_position_flag():
+    cfg = make_cfg(
+        LOW_PRICE_THRESHOLD=0.35,
+        WEAK_PRICE_CEIL_LIMIT=0.3,
+        MAX_DOWN_STEP=0.0,
+    )
+    decision = calculate_price(
+        competitor_prices=[0.27],
+        current_price=0.26,
+        last_update=None,
+        config=cfg,
+        force_weak_mode=False,
+    )
+    assert decision.action == 'update'
+    assert decision.price == 0.2649
+    assert decision.reason.startswith('base_formula')
+
+
 def test_max_down_step_caps_drop():
     cfg = make_cfg(MAX_DOWN_STEP=0.02, MODE='FIXED', FIXED_PRICE=0.25)
     decision = calculate_price(

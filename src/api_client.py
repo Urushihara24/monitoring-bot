@@ -8,8 +8,9 @@ import time
 import hashlib
 import base64
 import json
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any
+from typing import Optional, Dict, Any
 from dataclasses import dataclass
 
 import requests
@@ -316,75 +317,6 @@ class GGSELClient:
         logger.error(f"Все попытки исчерпаны: {last_error}")
         return None
 
-    def get_products(
-        self, page: int = 1, count: int = 10, timeout: int = 10
-    ) -> List[Product]:
-        """
-        Получение списка товаров
-
-        GET /api_sellers/api/products/list
-        """
-        url = f"{self.base_url}/products/list"
-        params = {
-            "page": page,
-            "count": count,
-        }
-
-        logger.debug(f"Запрос товаров: page={page}, count={count}")
-
-        response = self._authorized_request(
-            "GET",
-            url,
-            params=params,
-            headers=self._lang_headers(),
-            timeout=timeout,
-        )
-
-        if response is None:
-            return []
-
-        if response.status_code == 404:
-            logger.error("GGSEL API endpoint не найден (404)")
-            logger.error("Возможно API требует активации в личном кабинете")
-            return []
-
-        try:
-            data = response.json()
-            rows = data.get("products")
-            if rows is None:
-                rows = data.get("rows")
-
-            if data.get("retval") != 0 or not isinstance(rows, list):
-                logger.error(f"GGSEL API error: {data}")
-                return []
-
-            products = []
-            for p in rows:
-                if "num_in_stock" in p:
-                    stock_value = p["num_in_stock"]
-                elif "in_stock" in p:
-                    stock_value = p["in_stock"]
-                else:
-                    stock_value = 0
-                products.append(
-                    Product(
-                        id=int(p.get("id_goods", p.get("id", 0)) or 0),
-                        name=str(p.get("name_goods", p.get("name", "")) or ""),
-                        price=float(p.get("price", 0) or 0),
-                        currency=str(p.get("currency", "RUB") or "RUB"),
-                        stock=int(stock_value or 0),
-                        status=(
-                            "active" if int(p.get("visible", 1) or 0) == 1 else "hidden"
-                        ),
-                    )
-                )
-            logger.info(f"Получено товаров: {len(products)}")
-            return products
-
-        except Exception as e:
-            logger.error(f"Ошибка парсинга JSON get_products: {e}")
-            return []
-
     def get_product(self, product_id: int, timeout: int = 10) -> Optional[Product]:
         """
         Получение товара по ID
@@ -478,6 +410,55 @@ class GGSELClient:
             logger.error(f"Ошибка парсинга JSON task status: {e}")
             return None
 
+    def _format_price_4dp(self, price: float) -> str:
+        """Строгое форматирование цены в 4 знака после запятой."""
+        normalized = Decimal(str(price)).quantize(
+            Decimal("0.0001"),
+            rounding=ROUND_HALF_UP,
+        )
+        return format(normalized, "f")
+
+    def _build_update_price_payload(
+        self,
+        product_id: int,
+        price_4dp: str,
+    ) -> list[dict[str, Any]]:
+        """
+        Формирует payload для bulk-обновления цен.
+        """
+        return [
+            {
+                "product_id": product_id,
+                # Для GGSEL отправляем строку с фиксированной точностью.
+                "price": price_4dp,
+                "variants": [],
+            }
+        ]
+
+    def _is_async_task_success(
+        self,
+        *,
+        status: int,
+        success_count: int,
+        error_count: int,
+        total_count: int,
+    ) -> bool:
+        """
+        Правило успешного завершения async-задачи.
+        GGSEL: 2 = done, 3 = error.
+        """
+        return (
+            status == 2
+            and error_count == 0
+            and (success_count > 0 or total_count == 0)
+        )
+
+    def _is_async_task_error(self, *, status: int) -> bool:
+        """
+        Правило завершения async-задачи с ошибкой.
+        """
+        return status == 3
+
     def update_price(
         self, product_id: int, new_price: float, timeout: int = 10
     ) -> bool:
@@ -487,15 +468,17 @@ class GGSELClient:
         POST /api_sellers/api/product/edit/prices
         """
         url = f"{self.base_url}/product/edit/prices"
-        data = [
-            {
-                "product_id": product_id,
-                "price": new_price,
-                "variants": [],
-            }
-        ]
+        price_4dp = self._format_price_4dp(new_price)
+        data = self._build_update_price_payload(
+            product_id=product_id,
+            price_4dp=price_4dp,
+        )
 
-        logger.info(f"Обновление цены: product={product_id}, price={new_price}")
+        logger.info(
+            "Обновление цены: product=%s, price=%s",
+            product_id,
+            price_4dp,
+        )
 
         response = self._authorized_request(
             "POST",
@@ -542,20 +525,18 @@ class GGSELClient:
                 error_count = int(status_result.get("ErrorCount", 0) or 0)
                 total_count = int(status_result.get("TotalCount", 0) or 0)
 
-                # По документации Status: 1/2/3, где 2/3 - финальные
-                if status == 2:
-                    if error_count == 0 and (success_count > 0 or total_count == 0):
-                        logger.info(
-                            f"✅ Цена обновлена: {new_price} (taskId={task_id})"
-                        )
-                        return True
-                    logger.error(
-                        "Задача завершена с ошибками: %s",
-                        status_result,
+                if self._is_async_task_success(
+                    status=status,
+                    success_count=success_count,
+                    error_count=error_count,
+                    total_count=total_count,
+                ):
+                    logger.info(
+                        f"✅ Цена обновлена: {price_4dp} (taskId={task_id})"
                     )
-                    return False
+                    return True
 
-                if status == 3:
+                if self._is_async_task_error(status=status):
                     logger.error(
                         "Задача обновления завершилась ошибкой: %s",
                         status_result,
@@ -574,7 +555,7 @@ class GGSELClient:
         # Фоллбек: API вернул синхронный успешный ответ
         # (иногда обновление применяется без асинхронной задачи).
         if response.ok and result.get("retval") in (None, 0):
-            logger.info(f"✅ Цена обновлена: {new_price}")
+            logger.info(f"✅ Цена обновлена: {price_4dp}")
             return True
 
         logger.error(f"GGSEL API update error: {result}")
@@ -613,25 +594,3 @@ class GGSELClient:
 
         logger.info("API доступен")
         return True
-
-
-def create_api_client(
-    api_key: str,
-    seller_id: int,
-    base_url: str,
-    lang: str = "ru-RU",
-    access_token: str = "",
-) -> GGSELClient:
-    """
-    Фабрика для создания экземпляра GGSELClient.
-    """
-    return GGSELClient(
-        api_key=api_key,
-        seller_id=seller_id,
-        base_url=base_url,
-        lang=lang,
-        access_token=access_token,
-    )
-
-
-api_client: Optional[GGSELClient] = None

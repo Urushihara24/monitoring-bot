@@ -215,10 +215,18 @@ async def main():
                     product.price,
                     product.currency,
                 )
-                storage.update_state(
-                    profile_id=pid,
-                    last_price=product.price,
-                )
+                state = storage.get_state(profile_id=pid)
+                if state.get('last_target_price') is not None:
+                    # Не перетираем целевую цену округлённым чтением API.
+                    storage.update_state(
+                        profile_id=pid,
+                        last_price=state.get('last_target_price'),
+                    )
+                elif state.get('last_price') is None:
+                    storage.update_state(
+                        profile_id=pid,
+                        last_price=product.price,
+                    )
             else:
                 logger.warning('[%s] Товар %s не найден', pname, product_id)
         else:

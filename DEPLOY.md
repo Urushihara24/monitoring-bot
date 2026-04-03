@@ -27,16 +27,12 @@ pytest
 
 ## 4. Cookies refresh
 
-Первичная выдача cookies:
+Обновление cookies выполняется внешним способом (браузер/ваш инструмент),
+после чего нужно обновить `COMPETITOR_COOKIES` в `.env`:
 
 ```bash
-python3 scripts/update_competitor_cookies.py --interactive
-```
-
-Фоновое обновление:
-
-```bash
-bash scripts/cron_update_cookies.sh
+nano .env
+docker compose restart
 ```
 
 ## 5. Watchdog
