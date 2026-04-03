@@ -292,7 +292,26 @@ class TelegramBot:
                     reply_markup=ReplyKeyboardRemove(),
                 )
             return
-        await self.send_status(update.effective_chat.id, update)
+        chat_id = update.effective_chat.id
+        profile_id = self._active_profile(chat_id)
+        if context and getattr(context, 'args', None):
+            candidate = self._resolve_profile_arg(context.args[0])
+            if not candidate:
+                if update.message:
+                    available = ', '.join(
+                        self._profile_name(pid).lower()
+                        for pid in self.available_profiles
+                    )
+                    await update.message.reply_text(
+                        (
+                            f'❌ Неизвестный профиль: {context.args[0]}\n'
+                            f'Доступно: {available}'
+                        ),
+                        reply_markup=self.get_main_keyboard(profile_id),
+                    )
+                return
+            profile_id = candidate
+        await self.send_status(chat_id, update, profile_id=profile_id)
 
     async def cmd_diag(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not update.effective_user or not update.effective_chat:
@@ -304,7 +323,26 @@ class TelegramBot:
                     reply_markup=ReplyKeyboardRemove(),
                 )
             return
-        await self.send_diagnostics(update.effective_chat.id, update)
+        chat_id = update.effective_chat.id
+        profile_id = self._active_profile(chat_id)
+        if context and getattr(context, 'args', None):
+            candidate = self._resolve_profile_arg(context.args[0])
+            if not candidate:
+                if update.message:
+                    available = ', '.join(
+                        self._profile_name(pid).lower()
+                        for pid in self.available_profiles
+                    )
+                    await update.message.reply_text(
+                        (
+                            f'❌ Неизвестный профиль: {context.args[0]}\n'
+                            f'Доступно: {available}'
+                        ),
+                        reply_markup=self.get_main_keyboard(profile_id),
+                    )
+                return
+            profile_id = candidate
+        await self.send_diagnostics(chat_id, update, profile_id=profile_id)
 
     async def cmd_smoke(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not update.effective_user or not update.effective_chat or not update.message:
@@ -524,10 +562,18 @@ class TelegramBot:
     # ================================
     # Status and diagnostics
     # ================================
-    async def send_status(self, chat_id: int, update: Update):
+    async def send_status(
+        self,
+        chat_id: int,
+        update: Update,
+        profile_id: Optional[str] = None,
+    ):
         if not update.message:
             return
-        profile_id = self._active_profile(chat_id)
+        profile = profile_id or self._active_profile(chat_id)
+        if profile not in self.available_profiles:
+            profile = self._active_profile(chat_id)
+        profile_id = profile
         profile_name = self._profile_name(profile_id)
         state = self._state(profile_id)
         runtime = self._runtime(profile_id)
@@ -634,10 +680,18 @@ class TelegramBot:
             reply_markup=self.get_settings_keyboard(),
         )
 
-    async def send_diagnostics(self, chat_id: int, update: Update):
+    async def send_diagnostics(
+        self,
+        chat_id: int,
+        update: Update,
+        profile_id: Optional[str] = None,
+    ):
         if not update.message:
             return
-        profile_id = self._active_profile(chat_id)
+        profile = profile_id or self._active_profile(chat_id)
+        if profile not in self.available_profiles:
+            profile = self._active_profile(chat_id)
+        profile_id = profile
         profile_name = self._profile_name(profile_id)
         state = self._state(profile_id)
         runtime = self._runtime(profile_id)
