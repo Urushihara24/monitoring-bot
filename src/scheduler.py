@@ -594,6 +594,17 @@ class Scheduler:
                 current_price = None
             if current_price is None:
                 current_price = state.get('last_price')
+            if current_price is not None:
+                try:
+                    current_price = float(current_price)
+                except Exception as e:
+                    logger.error(
+                        '[%s] Некорректное значение текущей цены: %r (%s)',
+                        self.profile_name,
+                        current_price,
+                        e,
+                    )
+                    current_price = None
             if current_price is None:
                 await self._notify_error_throttled(
                     key='no_current_price',
