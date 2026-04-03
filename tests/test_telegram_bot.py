@@ -2,26 +2,24 @@ import pytest
 from telegram import ReplyKeyboardMarkup
 
 from src.telegram_bot import (
-    TelegramBot,
-    BTN_STATUS,
-    BTN_UP,
-    BTN_DOWN,
-    BTN_AUTO_ON,
+    BTN_ADD_URL,
     BTN_AUTO_OFF,
-    BTN_SETTINGS,
+    BTN_AUTO_ON,
+    BTN_BACK,
     BTN_DIAGNOSTICS,
-    BTN_PRICE,
-    BTN_STEP,
-    BTN_MIN,
+    BTN_DOWN,
+    BTN_HISTORY,
     BTN_MAX,
+    BTN_MIN,
     BTN_MODE,
     BTN_POSITION,
-    BTN_ADD_URL,
+    BTN_PRICE,
     BTN_REMOVE_URL,
-    BTN_EXPORT,
-    BTN_IMPORT,
-    BTN_HISTORY,
-    BTN_BACK,
+    BTN_SETTINGS,
+    BTN_STATUS,
+    BTN_STEP,
+    BTN_UP,
+    TelegramBot,
 )
 
 
@@ -53,15 +51,20 @@ class DummyUpdate:
 
 @pytest.fixture
 def bot():
-    b = TelegramBot(api_client=None)
-    b.admin_ids = [1]
-    b.auto_mode = True
+    b = TelegramBot(
+        api_clients={'ggsel': object()},
+        profile_products={'ggsel': 1},
+        profile_default_urls={'ggsel': ['https://example.com/item']},
+        profile_labels={'ggsel': 'GGSEL'},
+    )
+    b.admin_ids = {1}
+    b._state = lambda _profile: {'auto_mode': True}
     return b
 
 
 @pytest.mark.asyncio
 async def test_keyboards_are_reply(bot):
-    assert isinstance(bot.get_main_keyboard(), ReplyKeyboardMarkup)
+    assert isinstance(bot.get_main_keyboard('ggsel'), ReplyKeyboardMarkup)
     assert isinstance(bot.get_settings_keyboard(), ReplyKeyboardMarkup)
 
 
@@ -75,14 +78,13 @@ async def test_keyboards_are_reply(bot):
         (BTN_MODE, 'toggle_mode'),
         (BTN_POSITION, 'toggle_position_filter'),
         (BTN_REMOVE_URL, 'start_remove_url'),
-        (BTN_EXPORT, 'export_settings'),
         (BTN_HISTORY, 'show_settings_history'),
     ],
 )
 async def test_buttons_dispatch_to_methods(bot, monkeypatch, button, method_name):
     called = {}
 
-    async def _stub(*args, **kwargs):
+    async def _stub(*_args, **_kwargs):
         called['ok'] = True
 
     monkeypatch.setattr(bot, method_name, _stub)
@@ -95,7 +97,8 @@ async def test_buttons_dispatch_to_methods(bot, monkeypatch, button, method_name
 async def test_up_down_dispatch_price_change(bot, monkeypatch):
     deltas = []
 
-    async def _stub(chat_id, delta, update):
+    async def _stub(chat_id, delta, _update):
+        assert chat_id == 101
         deltas.append(delta)
 
     monkeypatch.setattr(bot, 'handle_price_change', _stub)
@@ -111,7 +114,7 @@ async def test_up_down_dispatch_price_change(bot, monkeypatch):
 async def test_auto_buttons_dispatch_toggle(bot, monkeypatch, button):
     called = {}
 
-    async def _stub(update):
+    async def _stub(_update):
         called['ok'] = True
 
     monkeypatch.setattr(bot, 'toggle_auto', _stub)
@@ -128,7 +131,6 @@ async def test_auto_buttons_dispatch_toggle(bot, monkeypatch, button):
         (BTN_MIN, 'MIN_PRICE'),
         (BTN_MAX, 'MAX_PRICE'),
         (BTN_ADD_URL, 'ADD_URL'),
-        (BTN_IMPORT, 'IMPORT_SETTINGS'),
     ],
 )
 async def test_buttons_set_pending_actions(bot, button, expected_action):
