@@ -56,6 +56,20 @@ def test_set_competitor_urls_replaces_previous_value(tmp_path):
     assert urls == ['https://b.example/item-2']
 
 
+def test_public_normalize_competitor_urls_helper(tmp_path):
+    db_path = tmp_path / 'state.db'
+    storage = Storage(str(db_path))
+    urls = storage.normalize_competitor_urls(
+        [
+            'https://A.EXAMPLE/x/',
+            'https://a.example/x',
+            'https://a.example/x#f',
+            ' https://b.example/y ',
+        ]
+    )
+    assert urls == ['https://a.example/x', 'https://b.example/y']
+
+
 def test_runtime_config_override(tmp_path):
     db_path = tmp_path / 'state.db'
     storage = Storage(str(db_path))

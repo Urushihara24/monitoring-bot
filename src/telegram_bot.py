@@ -942,7 +942,7 @@ class TelegramBot:
             return
 
         if action == 'ADD_URL':
-            if not text.startswith('http'):
+            if not text.lower().startswith('http'):
                 await update.message.reply_text(
                     '❌ Нужен URL',
                     reply_markup=self.get_settings_keyboard(),
@@ -952,17 +952,23 @@ class TelegramBot:
                 self.profile_default_urls.get(profile_id, []),
                 profile_id=profile_id,
             )
-            if text not in urls:
-                urls.append(text)
-                storage.set_competitor_urls(
-                    urls,
-                    user_id=user_id,
-                    source='telegram',
-                    profile_id=profile_id,
+            normalized_before = storage.normalize_competitor_urls(urls)
+            normalized_after = storage.normalize_competitor_urls(urls + [text])
+            if normalized_after == normalized_before:
+                await update.message.reply_text(
+                    'ℹ️ URL уже есть в списке. Отправь другой URL или нажми Назад.',
+                    reply_markup=self.get_settings_keyboard(),
                 )
+                return
+            storage.set_competitor_urls(
+                normalized_after,
+                user_id=user_id,
+                source='telegram',
+                profile_id=profile_id,
+            )
             self.pending_actions.pop(chat_id, None)
             await update.message.reply_text(
-                '✅ URL добавлен',
+                f'✅ URL добавлен: {normalized_after[-1]}',
                 reply_markup=self.get_settings_keyboard(),
             )
             await self.send_settings(chat_id, update)

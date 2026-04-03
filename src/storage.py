@@ -502,6 +502,10 @@ class Storage:
             result.append(normalized)
         return result
 
+    def normalize_competitor_urls(self, urls: list) -> list:
+        """Публичный helper нормализации/дедупликации URL конкурентов."""
+        return self._normalize_competitor_urls(urls)
+
     # ================================
     # Profile state
     # ================================
