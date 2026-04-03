@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import List, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 DEFAULT_PROFILE = 'ggsel'
 PRICE_PRECISION = Decimal('0.0001')
@@ -465,6 +466,42 @@ class Storage:
         except Exception:
             return None
 
+    def _normalize_competitor_url(self, raw_url: str) -> str:
+        raw = (raw_url or '').strip()
+        if not raw:
+            return ''
+        try:
+            parsed = urlsplit(raw)
+            if parsed.scheme and parsed.netloc:
+                path = parsed.path or ''
+                if path and path != '/':
+                    path = path.rstrip('/')
+                return urlunsplit(
+                    (
+                        parsed.scheme.lower(),
+                        parsed.netloc.lower(),
+                        path,
+                        parsed.query,
+                        '',
+                    )
+                )
+        except Exception:
+            pass
+        if raw.endswith('/') and raw != '/':
+            return raw.rstrip('/')
+        return raw
+
+    def _normalize_competitor_urls(self, urls: list) -> list:
+        result: list[str] = []
+        seen: set[str] = set()
+        for item in urls or []:
+            normalized = self._normalize_competitor_url(str(item))
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            result.append(normalized)
+        return result
+
     # ================================
     # Profile state
     # ================================
@@ -719,8 +756,8 @@ class Storage:
             profile_id=profile_id,
         )
         if raw is None or not raw.strip():
-            return default_urls or []
-        return [x.strip() for x in raw.split(',') if x.strip()]
+            return self._normalize_competitor_urls(default_urls or [])
+        return self._normalize_competitor_urls(raw.split(','))
 
     def set_competitor_urls(
         self,
@@ -729,7 +766,8 @@ class Storage:
         source: str = 'system',
         profile_id: str = DEFAULT_PROFILE,
     ):
-        value = ','.join(urls)
+        normalized = self._normalize_competitor_urls(urls or [])
+        value = ','.join(normalized)
         self.set_runtime_setting(
             'competitor_urls',
             value,

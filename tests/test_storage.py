@@ -29,6 +29,33 @@ def test_runtime_competitor_urls(tmp_path):
     assert urls == ['https://a', 'https://b']
 
 
+def test_runtime_competitor_urls_are_normalized_and_deduplicated(tmp_path):
+    db_path = tmp_path / 'state.db'
+    storage = Storage(str(db_path))
+    storage.set_competitor_urls(
+        [
+            ' HTTPS://GGSEL.NET/catalog/product/a-1/ ',
+            'https://ggsel.net/catalog/product/a-1',
+            'https://ggsel.net/catalog/product/a-1#fragment',
+            'https://shop.example/item-2/',
+        ]
+    )
+    urls = storage.get_competitor_urls([])
+    assert urls == [
+        'https://ggsel.net/catalog/product/a-1',
+        'https://shop.example/item-2',
+    ]
+
+
+def test_set_competitor_urls_replaces_previous_value(tmp_path):
+    db_path = tmp_path / 'state.db'
+    storage = Storage(str(db_path))
+    storage.set_competitor_urls(['https://a.example/item-1'])
+    storage.set_competitor_urls(['https://b.example/item-2'])
+    urls = storage.get_competitor_urls([])
+    assert urls == ['https://b.example/item-2']
+
+
 def test_runtime_config_override(tmp_path):
     db_path = tmp_path / 'state.db'
     storage = Storage(str(db_path))
