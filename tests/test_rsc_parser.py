@@ -1,3 +1,6 @@
+import importlib
+
+rsc_module = importlib.import_module('src.rsc_parser')
 from src.rsc_parser import ParseResult, RSCParser
 
 
@@ -169,3 +172,66 @@ def test_parse_url_skips_goods_api_for_non_ggsel_domain(monkeypatch):
 
     assert not result.success
     assert fallback_called['value'] is False
+
+
+def test_parse_with_stealth_retries_on_429_then_succeeds(monkeypatch):
+    parser = RSCParser(max_retries=1)
+
+    class FakeResponse:
+        def __init__(self, status_code, text=''):
+            self.status_code = status_code
+            self.text = text
+
+    responses = iter(
+        [
+            FakeResponse(429, ''),
+            FakeResponse(200, '<span data-testid="product-price">70 ₽</span>'),
+        ]
+    )
+    sleep_calls = []
+
+    monkeypatch.setattr(
+        rsc_module.stealth_requests,
+        'get',
+        lambda *_a, **_kw: next(responses),
+    )
+    monkeypatch.setattr(rsc_module.time, 'sleep', lambda value: sleep_calls.append(value))
+
+    result = parser._parse_with_stealth(
+        'https://example.com/item',
+        timeout=3,
+        cookies='a=1',
+    )
+
+    assert result.success is True
+    assert result.price == 70.0
+    assert result.status_code == 200
+    assert result.method == 'stealth_requests'
+    assert sleep_calls == [1]
+
+
+def test_parse_with_stealth_429_exhausted_returns_block(monkeypatch):
+    parser = RSCParser(max_retries=1)
+
+    class FakeResponse:
+        def __init__(self, status_code):
+            self.status_code = status_code
+            self.text = ''
+
+    monkeypatch.setattr(
+        rsc_module.stealth_requests,
+        'get',
+        lambda *_a, **_kw: FakeResponse(429),
+    )
+    monkeypatch.setattr(rsc_module.time, 'sleep', lambda *_a, **_kw: None)
+
+    result = parser._parse_with_stealth(
+        'https://example.com/item',
+        timeout=3,
+        cookies='a=1',
+    )
+
+    assert result.success is False
+    assert result.status_code == 429
+    assert result.block_reason == 'http_429'
+    assert result.cookies_expired is False

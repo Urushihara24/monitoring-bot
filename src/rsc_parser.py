@@ -344,13 +344,25 @@ class RSCParser:
                     headers=headers,
                     timeout=timeout,
                 )
-                if resp.status_code in (401, 403, 429):
+                if resp.status_code in (401, 403):
                     reason = f'http_{resp.status_code}'
                     return self._blocked_result(
                         url,
                         method,
                         error=f'HTTP {resp.status_code}',
                         block_reason=reason,
+                        status_code=resp.status_code,
+                    )
+                if resp.status_code == 429:
+                    if attempt < self.max_retries:
+                        time.sleep(2 ** attempt)
+                        headers['User-Agent'] = self._get_random_user_agent()
+                        continue
+                    return self._blocked_result(
+                        url,
+                        method,
+                        error='HTTP 429',
+                        block_reason='http_429',
                         status_code=resp.status_code,
                     )
                 if resp.status_code != 200:
