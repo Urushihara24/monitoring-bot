@@ -472,26 +472,26 @@ class Storage:
             return ''
         try:
             parsed = urlsplit(raw)
-            if parsed.scheme and parsed.netloc:
-                path = parsed.path or ''
-                if path == '/':
-                    path = ''
-                elif path:
-                    path = path.rstrip('/')
-                return urlunsplit(
-                    (
-                        parsed.scheme.lower(),
-                        parsed.netloc.lower(),
-                        path,
-                        parsed.query,
-                        '',
-                    )
+            scheme = (parsed.scheme or '').lower()
+            netloc = (parsed.netloc or '').strip().lower()
+            if scheme not in {'http', 'https'} or not netloc:
+                return ''
+            path = parsed.path or ''
+            if path == '/':
+                path = ''
+            elif path:
+                path = path.rstrip('/')
+            return urlunsplit(
+                (
+                    scheme,
+                    netloc,
+                    path,
+                    parsed.query,
+                    '',
                 )
+            )
         except Exception:
-            pass
-        if raw.endswith('/') and raw != '/':
-            return raw.rstrip('/')
-        return raw
+            return ''
 
     def _normalize_competitor_urls(self, urls: list) -> list:
         result: list[str] = []

@@ -942,18 +942,22 @@ class TelegramBot:
             return
 
         if action == 'ADD_URL':
-            if not text.lower().startswith('http'):
+            candidate_urls = storage.normalize_competitor_urls([text])
+            if not candidate_urls:
                 await update.message.reply_text(
-                    '❌ Нужен URL',
+                    '❌ Нужен валидный URL (http/https)',
                     reply_markup=self.get_settings_keyboard(),
                 )
                 return
+            candidate_url = candidate_urls[0]
             urls = storage.get_competitor_urls(
                 self.profile_default_urls.get(profile_id, []),
                 profile_id=profile_id,
             )
             normalized_before = storage.normalize_competitor_urls(urls)
-            normalized_after = storage.normalize_competitor_urls(urls + [text])
+            normalized_after = storage.normalize_competitor_urls(
+                normalized_before + [candidate_url]
+            )
             if normalized_after == normalized_before:
                 await update.message.reply_text(
                     'ℹ️ URL уже есть в списке. Отправь другой URL или нажми Назад.',
