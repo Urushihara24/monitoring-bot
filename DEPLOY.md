@@ -12,9 +12,15 @@ nano .env
 ## 2. Запуск контейнера
 
 ```bash
+# Docker Compose v2
 docker compose down
 docker compose up -d --build
 docker compose logs -f
+
+# Если на сервере только legacy docker-compose:
+docker-compose down
+docker-compose up -d --build
+docker-compose logs -f
 ```
 
 ## 3. Проверка
@@ -28,12 +34,17 @@ pytest
 ## 4. Cookies refresh
 
 Обновление cookies выполняется внешним способом (браузер/ваш инструмент),
-после чего нужно обновить `COMPETITOR_COOKIES` в `.env`:
+после чего обновите профильный ключ в `.env`:
+- `GGSEL_COMPETITOR_COOKIES`
+- `DIGISELLER_COMPETITOR_COOKIES`
+- (fallback) `COMPETITOR_COOKIES`
 
 ```bash
 nano .env
-docker compose restart
 ```
+
+Рестарт контейнера не требуется: бот на каждом цикле пытается подтянуть свежие
+cookies из `.env` (файл примонтирован в контейнер как read-only).
 
 ## 5. Watchdog
 
