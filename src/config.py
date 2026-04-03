@@ -4,7 +4,7 @@
 
 import os
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,6 +15,34 @@ def _env_bool(name: str, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def _env_optional_float(name: str) -> Optional[float]:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return None
+    try:
+        return float(value.strip())
+    except ValueError:
+        return None
+
+
+def _env_optional_int(name: str) -> Optional[int]:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return None
+    try:
+        return int(float(value.strip()))
+    except ValueError:
+        return None
+
+
+def _env_optional_str(name: str) -> Optional[str]:
+    value = os.getenv(name)
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
 
 
 @dataclass
@@ -53,6 +81,33 @@ class Config:
     )
     DIGISELLER_ENABLED: bool = _env_bool('DIGISELLER_ENABLED', False)
     DIGISELLER_COMPETITOR_URLS: List[str] = None
+    # Профильные дефолты runtime для DigiSeller (используются только если
+    # ключи не были переопределены в runtime_settings ранее).
+    DIGISELLER_MIN_PRICE: Optional[float] = _env_optional_float(
+        'DIGISELLER_MIN_PRICE'
+    )
+    DIGISELLER_MAX_PRICE: Optional[float] = _env_optional_float(
+        'DIGISELLER_MAX_PRICE'
+    )
+    DIGISELLER_DESIRED_PRICE: Optional[float] = _env_optional_float(
+        'DIGISELLER_DESIRED_PRICE'
+    )
+    DIGISELLER_UNDERCUT_VALUE: Optional[float] = _env_optional_float(
+        'DIGISELLER_UNDERCUT_VALUE'
+    )
+    DIGISELLER_MODE: Optional[str] = _env_optional_str('DIGISELLER_MODE')
+    DIGISELLER_FIXED_PRICE: Optional[float] = _env_optional_float(
+        'DIGISELLER_FIXED_PRICE'
+    )
+    DIGISELLER_STEP_UP_VALUE: Optional[float] = _env_optional_float(
+        'DIGISELLER_STEP_UP_VALUE'
+    )
+    DIGISELLER_CHECK_INTERVAL: Optional[int] = _env_optional_int(
+        'DIGISELLER_CHECK_INTERVAL'
+    )
+    DIGISELLER_COOLDOWN_SECONDS: Optional[int] = _env_optional_int(
+        'DIGISELLER_COOLDOWN_SECONDS'
+    )
     
     # Конкуренты (список URL)
     COMPETITOR_URLS: List[str] = None
