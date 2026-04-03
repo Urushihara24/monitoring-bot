@@ -474,7 +474,9 @@ class Storage:
             parsed = urlsplit(raw)
             if parsed.scheme and parsed.netloc:
                 path = parsed.path or ''
-                if path and path != '/':
+                if path == '/':
+                    path = ''
+                elif path:
                     path = path.rstrip('/')
                 return urlunsplit(
                     (

@@ -70,6 +70,19 @@ def test_public_normalize_competitor_urls_helper(tmp_path):
     assert urls == ['https://a.example/x', 'https://b.example/y']
 
 
+def test_normalize_competitor_urls_deduplicates_root_slash(tmp_path):
+    db_path = tmp_path / 'state.db'
+    storage = Storage(str(db_path))
+    urls = storage.normalize_competitor_urls(
+        [
+            'https://example.com/',
+            'https://example.com',
+            'https://example.com/#fragment',
+        ]
+    )
+    assert urls == ['https://example.com']
+
+
 def test_runtime_config_override(tmp_path):
     db_path = tmp_path / 'state.db'
     storage = Storage(str(db_path))
