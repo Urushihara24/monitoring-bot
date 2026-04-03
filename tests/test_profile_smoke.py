@@ -8,11 +8,15 @@ class FakeClient:
         api_ok=True,
         read_price=0.2649,
         update_results=None,
+        perms_result=None,
+        perms_error=None,
     ):
         self.api_ok = api_ok
         self.read_price = read_price
         self.update_results = list(update_results or [True])
         self.update_calls = []
+        self.perms_result = perms_result
+        self.perms_error = perms_error
 
     def check_api_access(self):
         return self.api_ok
@@ -25,6 +29,13 @@ class FakeClient:
         if not self.update_results:
             return True
         return self.update_results.pop(0)
+
+    def get_token_perms_status(self):
+        if self.perms_error:
+            raise RuntimeError(self.perms_error)
+        if self.perms_result is None:
+            return True, 'ok'
+        return self.perms_result
 
 
 def test_smoke_noop_success():
@@ -40,6 +51,8 @@ def test_smoke_noop_success():
     assert result.current_price == 0.2649
     assert result.probe_price == 0.2649
     assert result.verify_price == 0.2649
+    assert result.token_perms_ok is True
+    assert result.token_perms_desc == 'ok'
     assert client.update_calls == [(123, 0.2649)]
 
 
@@ -76,3 +89,25 @@ def test_smoke_write_probe_failure():
     assert result.product_read_ok is True
     assert result.write_probe_ok is False
     assert result.error == 'write_probe_failed'
+
+
+def test_smoke_collects_token_perms_result():
+    client = FakeClient(perms_result=(True, 'products.read, products.write'))
+
+    result = run_profile_smoke(client, 123, mutate=False)
+
+    assert result.error is None
+    assert result.token_perms_ok is True
+    assert result.token_perms_desc == 'products.read, products.write'
+
+
+def test_smoke_token_perms_exception_is_non_fatal():
+    client = FakeClient(perms_error='boom')
+
+    result = run_profile_smoke(client, 123, mutate=False)
+
+    assert result.error is None
+    assert result.api_access is True
+    assert result.write_probe_ok is True
+    assert result.token_perms_ok is False
+    assert result.token_perms_desc == 'exception:boom'

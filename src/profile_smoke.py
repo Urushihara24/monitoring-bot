@@ -28,6 +28,8 @@ class SmokeResult:
     mutated: bool
     probe_price: Optional[float]
     verify_price: Optional[float]
+    token_perms_ok: Optional[bool]
+    token_perms_desc: Optional[str]
     error: Optional[str]
 
 
@@ -46,6 +48,9 @@ def run_profile_smoke(
     mutate=True: выполняется небольшое изменение цены и rollback.
     """
     try:
+        token_perms_ok: Optional[bool] = None
+        token_perms_desc: Optional[str] = None
+
         if not client:
             return SmokeResult(
                 api_access=False,
@@ -56,6 +61,8 @@ def run_profile_smoke(
                 mutated=False,
                 probe_price=None,
                 verify_price=None,
+                token_perms_ok=token_perms_ok,
+                token_perms_desc=token_perms_desc,
                 error='api_client_missing',
             )
 
@@ -69,8 +76,19 @@ def run_profile_smoke(
                 mutated=False,
                 probe_price=None,
                 verify_price=None,
+                token_perms_ok=token_perms_ok,
+                token_perms_desc=token_perms_desc,
                 error='product_id_missing',
             )
+
+        if hasattr(client, 'get_token_perms_status'):
+            try:
+                raw_ok, raw_desc = client.get_token_perms_status()
+                token_perms_ok = bool(raw_ok)
+                token_perms_desc = str(raw_desc)
+            except Exception as exc:
+                token_perms_ok = False
+                token_perms_desc = f'exception:{exc}'
 
         api_access = bool(client.check_api_access())
         if not api_access:
@@ -83,6 +101,8 @@ def run_profile_smoke(
                 mutated=False,
                 probe_price=None,
                 verify_price=None,
+                token_perms_ok=token_perms_ok,
+                token_perms_desc=token_perms_desc,
                 error='api_access_failed',
             )
 
@@ -97,6 +117,8 @@ def run_profile_smoke(
                 mutated=False,
                 probe_price=None,
                 verify_price=None,
+                token_perms_ok=token_perms_ok,
+                token_perms_desc=token_perms_desc,
                 error='price_read_failed',
             )
         current_price = _round4(current_price)
@@ -122,6 +144,8 @@ def run_profile_smoke(
                 mutated=mutated,
                 probe_price=probe_price,
                 verify_price=None,
+                token_perms_ok=token_perms_ok,
+                token_perms_desc=token_perms_desc,
                 error='write_probe_failed',
             )
 
@@ -149,6 +173,8 @@ def run_profile_smoke(
             mutated=mutated,
             probe_price=probe_price,
             verify_price=verify_price,
+            token_perms_ok=token_perms_ok,
+            token_perms_desc=token_perms_desc,
             error=None,
         )
     except Exception as exc:
@@ -161,5 +187,7 @@ def run_profile_smoke(
             mutated=bool(mutate),
             probe_price=None,
             verify_price=None,
+            token_perms_ok=None,
+            token_perms_desc=None,
             error=f'exception:{exc}',
         )

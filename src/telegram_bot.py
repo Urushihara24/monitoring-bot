@@ -295,6 +295,14 @@ class TelegramBot:
             f'Probe price: {self._fmt_price(result.probe_price)}',
             f'Verify price: {self._fmt_price(result.verify_price)}',
         ]
+        token_perms_ok = getattr(result, 'token_perms_ok', None)
+        token_perms_desc = getattr(result, 'token_perms_desc', None)
+        if token_perms_ok is not None or token_perms_desc:
+            lines.append(
+                'Token perms: '
+                f'{"OK" if token_perms_ok else "FAIL"} '
+                f'({token_perms_desc or "N/A"})'
+            )
         if result.error:
             lines.append(f'Error: {result.error}')
         await update.message.reply_text(
