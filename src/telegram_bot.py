@@ -257,12 +257,26 @@ class TelegramBot:
         )
 
     async def cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if not update.effective_chat:
+        if not update.effective_user or not update.effective_chat:
+            return
+        if not self._check_access(update.effective_user.id):
+            if update.message:
+                await update.message.reply_text(
+                    '❌ Нет доступа',
+                    reply_markup=ReplyKeyboardRemove(),
+                )
             return
         await self.send_status(update.effective_chat.id, update)
 
     async def cmd_diag(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if not update.effective_chat:
+        if not update.effective_user or not update.effective_chat:
+            return
+        if not self._check_access(update.effective_user.id):
+            if update.message:
+                await update.message.reply_text(
+                    '❌ Нет доступа',
+                    reply_markup=ReplyKeyboardRemove(),
+                )
             return
         await self.send_diagnostics(update.effective_chat.id, update)
 
