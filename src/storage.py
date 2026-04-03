@@ -125,6 +125,7 @@ class Storage:
             # Миграция legacy таблицы state -> profile_state[ggsel].
             self._migrate_legacy_state(conn)
             self._migrate_profile_state_columns(conn)
+            self._migrate_price_history_table(conn)
             self._migrate_runtime_settings_table(conn)
             self._migrate_settings_history_table(conn)
             self._migrate_alert_state_table(conn)
@@ -246,6 +247,54 @@ class Storage:
                 (DEFAULT_PROFILE,),
             )
         conn.execute('DROP TABLE runtime_settings_legacy')
+
+    def _migrate_price_history_table(self, conn: sqlite3.Connection):
+        """
+        Миграция legacy price_history без profile_id в профильный формат.
+        """
+        columns = self._table_columns(conn, 'price_history')
+        if 'profile_id' in columns:
+            return
+
+        conn.execute('ALTER TABLE price_history RENAME TO price_history_legacy')
+        conn.execute(
+            '''
+            CREATE TABLE price_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_id TEXT NOT NULL,
+                old_price REAL,
+                new_price REAL,
+                competitor_price REAL,
+                reason TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            '''
+        )
+        legacy_columns = self._table_columns(conn, 'price_history_legacy')
+        required = {'old_price', 'new_price', 'competitor_price', 'reason'}
+        if required.issubset(legacy_columns):
+            conn.execute(
+                '''
+                INSERT INTO price_history (
+                    profile_id,
+                    old_price,
+                    new_price,
+                    competitor_price,
+                    reason,
+                    timestamp
+                )
+                SELECT
+                    ?,
+                    old_price,
+                    new_price,
+                    competitor_price,
+                    reason,
+                    timestamp
+                FROM price_history_legacy
+                ''',
+                (DEFAULT_PROFILE,),
+            )
+        conn.execute('DROP TABLE price_history_legacy')
 
     def _migrate_settings_history_table(self, conn: sqlite3.Connection):
         """

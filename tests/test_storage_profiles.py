@@ -272,3 +272,52 @@ def test_migrates_legacy_history_and_alert_tables(tmp_path):
     assert rows[0]['key'] == 'MODE'
     # После миграции legacy алерт должен блокировать повторную отправку.
     assert storage.should_send_alert('x', cooldown_seconds=3600, profile_id='ggsel') is False
+
+
+def test_migrates_legacy_price_history_without_profile_id(tmp_path):
+    db = tmp_path / 'legacy_price_history.db'
+    with sqlite3.connect(str(db)) as conn:
+        conn.execute(
+            '''
+            CREATE TABLE price_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                old_price REAL,
+                new_price REAL,
+                competitor_price REAL,
+                reason TEXT,
+                timestamp TIMESTAMP
+            )
+            '''
+        )
+        conn.execute(
+            '''
+            INSERT INTO price_history (
+                old_price, new_price, competitor_price, reason, timestamp
+            )
+            VALUES (?, ?, ?, ?, ?)
+            ''',
+            (
+                0.26,
+                0.2649,
+                0.27,
+                'base_formula',
+                '2026-04-03 12:00:00',
+            ),
+        )
+        conn.commit()
+
+    Storage(db_path=str(db))
+    with sqlite3.connect(str(db)) as conn:
+        row = conn.execute(
+            '''
+            SELECT profile_id, old_price, new_price
+            FROM price_history
+            ORDER BY id DESC
+            LIMIT 1
+            '''
+        ).fetchone()
+
+    assert row is not None
+    assert row[0] == 'ggsel'
+    assert row[1] == 0.26
+    assert row[2] == 0.2649
