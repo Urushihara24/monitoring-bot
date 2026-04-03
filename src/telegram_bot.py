@@ -603,28 +603,47 @@ class TelegramBot:
         target_price = state.get('last_target_price')
         if target_price is None:
             target_price = state.get('last_price')
-        live_price: Optional[float] = None
+        display_price: Optional[float] = None
         client = self._api_client(profile_id)
         product_id = self._product_id(profile_id)
+        get_display_price = (
+            getattr(client, 'get_display_price', None) if client else None
+        )
         get_my_price = getattr(client, 'get_my_price', None) if client else None
-        if callable(get_my_price) and product_id > 0:
+        if callable(get_display_price) and product_id > 0:
+            try:
+                resolved_price = await asyncio.to_thread(
+                    get_display_price,
+                    product_id,
+                )
+                if resolved_price is not None:
+                    display_price = float(resolved_price)
+            except Exception as e:
+                logger.warning(
+                    '[%s] Не удалось получить display-цену для статуса: %s',
+                    profile_name,
+                    e,
+                )
+        if display_price is None and callable(get_my_price) and product_id > 0:
             try:
                 api_price = await asyncio.to_thread(get_my_price, product_id)
                 if api_price is not None:
-                    live_price = float(api_price)
+                    display_price = float(api_price)
             except Exception as e:
                 logger.warning(
                     '[%s] Не удалось получить live-цену для статуса: %s',
                     profile_name,
                     e,
                 )
+        if display_price is None:
+            display_price = target_price
         competitor_price = state.get('last_competitor_min')
         target_price_str = (
             f'{target_price:.4f}' if target_price is not None else 'N/A'
         )
-        live_price_str = (
-            f'{live_price:.4f}'
-            if live_price is not None else 'N/A'
+        display_price_str = (
+            f'{display_price:.4f}'
+            if display_price is not None else 'N/A'
         )
         competitor_price_str = (
             f'{competitor_price:.4f}'
@@ -634,8 +653,8 @@ class TelegramBot:
         text = f"""📊 Статус
 
 🧩 Профиль: {profile_name}
-💰 Выставлено ботом: {target_price_str}₽
-📡 Моя цена (API): {live_price_str}₽
+💰 Моя цена: {display_price_str}₽
+🎯 Выставлено ботом: {target_price_str}₽
 📈 Цена конкурента: {competitor_price_str}₽
 🔍 Позиция: {competitor_info}
 🔗 URL: {competitor_url}

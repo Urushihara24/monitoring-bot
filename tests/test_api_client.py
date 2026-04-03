@@ -121,6 +121,49 @@ def test_get_my_price_when_no_info_returns_none(monkeypatch):
     assert client.get_my_price(111) is None
 
 
+def test_get_public_price_from_unit_amount(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(
+        client,
+        '_request_with_retry',
+        lambda *a, **k: FakeResponse(
+            200,
+            {
+                'data': {
+                    'prices_unit': {'unit_amount': '0.2549'},
+                    'price': 0.25,
+                }
+            },
+        ),
+    )
+    assert client.get_public_price(111) == 0.2549
+
+
+def test_get_public_price_falls_back_to_price(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(
+        client,
+        '_request_with_retry',
+        lambda *a, **k: FakeResponse(
+            200,
+            {
+                'data': {
+                    'prices_unit': {},
+                    'price': 0.2711,
+                }
+            },
+        ),
+    )
+    assert client.get_public_price(111) == 0.2711
+
+
+def test_get_display_price_prefers_public(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(client, 'get_public_price', lambda product_id, timeout=10: 0.2549)
+    monkeypatch.setattr(client, 'get_my_price', lambda product_id, timeout=10: 0.25)
+    assert client.get_display_price(111) == 0.2549
+
+
 def test_get_update_task_status_success(monkeypatch):
     client = make_client()
     captured: dict[str, Any] = {}
