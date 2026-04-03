@@ -350,6 +350,46 @@ async def test_status_prefers_live_api_price_over_state():
 
 
 @pytest.mark.asyncio
+async def test_status_falls_back_to_state_when_live_api_fails():
+    class ApiClient:
+        def get_my_price(self, _product_id):
+            raise RuntimeError('api timeout')
+
+    bot = TelegramBot(
+        api_clients={'ggsel': ApiClient()},
+        profile_products={'ggsel': 1},
+        profile_default_urls={'ggsel': ['https://example.com']},
+        profile_labels={'ggsel': 'GGSEL'},
+    )
+    bot.admin_ids = {1}
+    bot._state = lambda _profile: {
+        'last_target_price': 0.2649,
+        'last_price': 0.26,
+        'last_competitor_min': 0.27,
+        'last_update': None,
+        'last_competitor_rank': None,
+        'last_competitor_parse_at': None,
+        'last_competitor_url': 'https://example.com/item-1',
+        'last_competitor_method': 'api4_goods',
+        'auto_mode': True,
+        'update_count': 1,
+        'skip_count': 2,
+    }
+    bot._runtime = lambda _profile: SimpleNamespace(
+        MODE='STEP_UP',
+        CHECK_INTERVAL=60,
+        COMPETITOR_URLS=['https://example.com/item-1'],
+    )
+    update = make_update(BTN_STATUS)
+
+    await bot.send_status(100, update)
+
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert '💰 Моя цена: 0.2649₽' in args[0]
+
+
+@pytest.mark.asyncio
 async def test_pending_price_action_formats_to_4dp(monkeypatch):
     bot = make_bot()
     bot.pending_actions[100] = ('UNDERCUT_VALUE', 'ggsel')
