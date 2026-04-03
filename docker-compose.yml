@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   monitoring-bot:
     build: .
@@ -18,23 +16,10 @@ services:
       # Данные бота
       - ./data:/app/data
       - ./logs:/app/logs
-      # Distill Web Monitor data (опционально, для fallback)
-      # Раскомментируйте если используете локальный Distill
-      # - ~/.config/Distill Web Monitor/data:/app/distill-data:ro
     env_file:
       - .env
     environment:
       - TZ=Europe/Moscow
-      # Переменные для Playwright (headless режим)
-      - PLAYWRIGHT_BROWSERS_PATH=/app/.ms-playwright
-      - PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
-      # Переменные для Distill.io (опционально)
-      - DISTILL_LOCAL_DATA_DIR=/app/distill-data
-    cap_add:
-      # Нужно для Playwright в Docker
-      - SYS_ADMIN
-    security_opt:
-      - seccomp=unconfined
     networks:
       - monitoring-net
 

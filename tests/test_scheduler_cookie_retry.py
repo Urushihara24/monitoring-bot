@@ -1,16 +1,15 @@
-"""Тесты устойчивости scheduler при протухании cookies."""
+"""Тесты scheduler для ретрая парсинга при протухших cookies."""
 
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import Mock
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import src.scheduler as scheduler_module
-from src.distill_parser import DistillResult
 from src.rsc_parser import ParseResult
 from src.scheduler import Scheduler
 
@@ -24,14 +23,14 @@ class DummyTelegramBot:
 
 
 @pytest.mark.asyncio
-async def test_parse_retries_after_cookie_refresh(monkeypatch):
-    """После успешного refresh cookies должен быть retry парсинга."""
+async def test_parse_retries_without_cookies_after_expired(monkeypatch):
+    """После cookies_expired должен быть retry без cookies."""
     scheduler = Scheduler(DummyApiClient(), DummyTelegramBot())
     runtime = SimpleNamespace(COMPETITOR_COOKIES='old_cookie=1')
 
     parse_calls = []
 
-    def fake_parse(url, timeout=15, cookies=None, **kwargs):
+    def fake_parse(url, timeout=15, cookies=None):
         parse_calls.append(cookies)
         if len(parse_calls) == 1:
             return ParseResult(
@@ -53,23 +52,6 @@ async def test_parse_retries_after_cookie_refresh(monkeypatch):
         'rsc_parser',
         SimpleNamespace(parse_url=fake_parse),
     )
-    monkeypatch.setattr(scheduler_module.config, 'AUTO_UPDATE_COOKIES', True)
-    monkeypatch.setattr(
-        scheduler_module.storage,
-        'get_runtime_config',
-        lambda *_args, **_kwargs: SimpleNamespace(
-            COMPETITOR_COOKIES='fresh_cookie=1',
-            RSC_USE_PLAYWRIGHT=True,
-            RSC_USE_SELENIUM_FALLBACK=True,
-            SELENIUM_USE_REAL_PROFILE=False,
-            SELENIUM_CHROME_USER_DATA_DIR='',
-            SELENIUM_CHROME_PROFILE_DIR='Default',
-            SELENIUM_HEADLESS=True,
-        ),
-    )
-
-    refresh_mock = AsyncMock(return_value=True)
-    monkeypatch.setattr(scheduler, '_update_cookies_now', refresh_mock)
 
     result = await scheduler._parse_competitor_price(
         'https://example.com/product',
@@ -79,25 +61,34 @@ async def test_parse_retries_after_cookie_refresh(monkeypatch):
 
     assert result.success is True
     assert result.price == 0.3349
-    assert parse_calls == ['old_cookie=1', 'fresh_cookie=1']
-    refresh_mock.assert_awaited_once()
+    assert parse_calls == ['old_cookie=1', None]
 
 
 @pytest.mark.asyncio
-async def test_parse_uses_distill_fallback_when_refresh_failed(monkeypatch):
-    """Если refresh не удался, должен сработать Distill fallback."""
+async def test_parse_returns_error_when_retry_failed(monkeypatch):
+    """Если повтор без cookies не помог, возвращаем последнюю ошибку."""
     scheduler = Scheduler(DummyApiClient(), DummyTelegramBot())
     runtime = SimpleNamespace(COMPETITOR_COOKIES='old_cookie=1')
 
     parse_calls = []
 
-    def fake_parse(url, timeout=15, cookies=None, **kwargs):
+    def fake_parse(url, timeout=15, cookies=None):
         parse_calls.append(cookies)
+        if len(parse_calls) == 1:
+            return ParseResult(
+                success=False,
+                error='expired',
+                url=url,
+                method='stealth_requests',
+                cookies_expired=True,
+            )
         return ParseResult(
             success=False,
-            error='expired',
+            error='HTTP 403',
             url=url,
             method='stealth_requests',
+            block_reason='http_403',
+            status_code=403,
             cookies_expired=True,
         )
 
@@ -106,19 +97,6 @@ async def test_parse_uses_distill_fallback_when_refresh_failed(monkeypatch):
         'rsc_parser',
         SimpleNamespace(parse_url=fake_parse),
     )
-    monkeypatch.setattr(scheduler_module.config, 'AUTO_UPDATE_COOKIES', True)
-
-    refresh_mock = AsyncMock(return_value=False)
-    monkeypatch.setattr(scheduler, '_update_cookies_now', refresh_mock)
-    scheduler.distill = SimpleNamespace(
-        api_key='distill_key',
-        local_data_dir=None,
-        get_price=lambda _url, timeout=10: DistillResult(
-            success=True,
-            price=0.3210,
-            method='cloud_api',
-        ),
-    )
 
     result = await scheduler._parse_competitor_price(
         'https://example.com/product',
@@ -126,62 +104,19 @@ async def test_parse_uses_distill_fallback_when_refresh_failed(monkeypatch):
         timeout=5,
     )
 
-    assert result.success is True
-    assert result.price == 0.321
-    assert result.method == 'distill_cloud_api'
-    assert parse_calls == ['old_cookie=1']
-    refresh_mock.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_parse_skips_refresh_when_auto_update_disabled(monkeypatch):
-    """При AUTO_UPDATE_COOKIES=false refresh не должен запускаться."""
-    scheduler = Scheduler(DummyApiClient(), DummyTelegramBot())
-    runtime = SimpleNamespace(COMPETITOR_COOKIES='old_cookie=1')
-
-    def fake_parse(url, timeout=15, cookies=None, **kwargs):
-        return ParseResult(
-            success=False,
-            error='expired',
-            url=url,
-            method='stealth_requests',
-            cookies_expired=True,
-        )
-
-    monkeypatch.setattr(
-        scheduler_module,
-        'rsc_parser',
-        SimpleNamespace(parse_url=fake_parse),
-    )
-    monkeypatch.setattr(scheduler_module.config, 'AUTO_UPDATE_COOKIES', False)
-
-    refresh_mock = AsyncMock(return_value=True)
-    monkeypatch.setattr(scheduler, '_update_cookies_now', refresh_mock)
-    scheduler.distill = SimpleNamespace(
-        api_key='distill_key',
-        local_data_dir=None,
-        get_price=lambda _url, timeout=10: DistillResult(
-            success=True,
-            price=0.315,
-            method='cloud_api',
-        ),
-    )
-
-    result = await scheduler._parse_competitor_price(
-        'https://example.com/product',
-        runtime=runtime,
-        timeout=5,
-    )
-
-    assert result.success is True
-    assert result.price == 0.315
-    refresh_mock.assert_not_awaited()
+    assert result.success is False
+    assert result.error == 'HTTP 403'
+    assert result.status_code == 403
+    assert parse_calls == ['old_cookie=1', None]
 
 
 @pytest.mark.asyncio
 async def test_sync_cookies_from_env_updates_runtime(monkeypatch, tmp_path):
     """Cookies из .env должны попадать в runtime без перезапуска."""
-    env_text = 'COMPETITOR_COOKIES=fresh_cookie=1$$o6; another=2\n'
+    env_text = (
+        'GGSEL_COMPETITOR_COOKIES=fresh_cookie=1$$o6; another=2\n'
+        'COMPETITOR_COOKIES=legacy_cookie=1\n'
+    )
     (tmp_path / '.env').write_text(env_text, encoding='utf-8')
     monkeypatch.chdir(tmp_path)
 
@@ -253,3 +188,44 @@ async def test_sync_cookies_from_env_no_runtime_write_when_same(
 
     assert synced is True
     set_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_sync_cookies_from_env_uses_digiseller_profile_key(
+    monkeypatch,
+    tmp_path,
+):
+    """Для профиля digiseller берётся профильный ключ из .env."""
+    env_text = (
+        'DIGISELLER_COMPETITOR_COOKIES=dig_cookie=1\n'
+        'COMPETITOR_COOKIES=shared_cookie=2\n'
+    )
+    (tmp_path / '.env').write_text(env_text, encoding='utf-8')
+    monkeypatch.chdir(tmp_path)
+
+    scheduler = Scheduler(
+        DummyApiClient(),
+        DummyTelegramBot(),
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+    )
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'get_runtime_setting',
+        lambda *args, **kwargs: '',
+    )
+    set_calls = []
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'set_runtime_setting',
+        lambda key, value, **kwargs: set_calls.append((key, value, kwargs)),
+    )
+
+    synced = await scheduler._sync_cookies_from_env()
+
+    assert synced is True
+    assert len(set_calls) == 1
+    key, value, kwargs = set_calls[0]
+    assert key == 'COMPETITOR_COOKIES'
+    assert value == 'dig_cookie=1'
+    assert kwargs.get('profile_id') == 'digiseller'

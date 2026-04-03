@@ -26,38 +26,55 @@ def test_parse_html_fallback_selector():
     assert result.price == 70.0
 
 
-def test_parse_url_uses_playwright_fallback(monkeypatch):
+def test_parse_url_success_uses_stealth(monkeypatch):
+    parser = RSCParser(max_retries=0)
+    monkeypatch.setattr(
+        parser,
+        '_parse_with_stealth',
+        lambda *_a, **_kw: ParseResult(
+            success=True,
+            price=0.3349,
+            method='stealth_requests',
+        ),
+    )
+    result = parser.parse_url('https://example.com', timeout=3)
+    assert result.success
+    assert result.method == 'stealth_requests'
+
+
+def test_parse_url_uses_api_fallback(monkeypatch):
     parser = RSCParser(max_retries=0)
     monkeypatch.setattr(
         parser,
         '_parse_with_stealth',
         lambda *_a, **_kw: ParseResult(
             success=False,
-            error='blocked',
+            error='HTTP 401',
             method='stealth_requests',
             cookies_expired=True,
+            block_reason='http_401',
+            status_code=401,
         ),
     )
     monkeypatch.setattr(
         parser,
-        '_parse_with_playwright',
+        '_parse_with_goods_api',
         lambda *_a, **_kw: ParseResult(
             success=True,
-            price=0.3349,
-            method='playwright',
+            price=0.3311,
+            method='api4_goods',
         ),
     )
     result = parser.parse_url(
-        'https://example.com',
+        'https://ggsel.net/catalog/product/item-123',
         timeout=3,
-        use_playwright=True,
-        use_selenium_fallback=False,
     )
     assert result.success
-    assert result.method == 'playwright'
+    assert result.price == 0.3311
+    assert result.method == 'api4_goods'
 
 
-def test_parse_url_all_failed_collects_reason(monkeypatch):
+def test_parse_url_failed_preserves_reason(monkeypatch):
     parser = RSCParser(max_retries=0)
     monkeypatch.setattr(
         parser,
@@ -73,32 +90,48 @@ def test_parse_url_all_failed_collects_reason(monkeypatch):
     )
     monkeypatch.setattr(
         parser,
-        '_parse_with_playwright',
+        '_parse_with_goods_api',
         lambda *_a, **_kw: ParseResult(
             success=False,
-            error='captcha',
-            method='playwright',
-            cookies_expired=True,
-            block_reason='captcha',
+            error='API fallback HTTP 503',
+            method='api4_goods',
+            status_code=503,
         ),
     )
-    monkeypatch.setattr(
-        parser,
-        '_parse_with_selenium',
-        lambda *_a, **_kw: ParseResult(
-            success=False,
-            error='timeout',
-            method='selenium',
-        ),
-    )
-
     result = parser.parse_url(
-        'https://example.com',
+        'https://ggsel.net/catalog/product/item-123',
         timeout=3,
-        use_playwright=True,
-        use_selenium_fallback=True,
     )
     assert not result.success
     assert result.cookies_expired
-    assert result.block_reason in {'http_403', 'captcha'}
-    assert 'stealth_requests' in (result.error or '')
+    assert result.block_reason == 'http_403'
+    assert result.status_code == 403
+    assert 'HTTP 403' in (result.error or '')
+
+
+def test_parse_url_skips_goods_api_for_non_ggsel_domain(monkeypatch):
+    parser = RSCParser(max_retries=0)
+    monkeypatch.setattr(
+        parser,
+        '_parse_with_stealth',
+        lambda *_a, **_kw: ParseResult(
+            success=False,
+            error='HTTP 403',
+            method='stealth_requests',
+            cookies_expired=True,
+            block_reason='http_403',
+            status_code=403,
+        ),
+    )
+    fallback_called = {'value': False}
+
+    def fake_goods_api(*_a, **_kw):
+        fallback_called['value'] = True
+        return ParseResult(success=True, price=0.25, method='api4_goods')
+
+    monkeypatch.setattr(parser, '_parse_with_goods_api', fake_goods_api)
+
+    result = parser.parse_url('https://example.com/product/123', timeout=3)
+
+    assert not result.success
+    assert fallback_called['value'] is False

@@ -5,12 +5,34 @@
 from __future__ import annotations
 
 import sqlite3
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 DEFAULT_PROFILE = 'ggsel'
+PRICE_PRECISION = Decimal('0.0001')
+STATE_PRICE_FIELDS = {
+    'last_price',
+    'last_target_price',
+    'last_target_competitor_min',
+    'last_competitor_price',
+    'last_competitor_min',
+}
+RUNTIME_PRICE_KEYS = {
+    'MIN_PRICE',
+    'MAX_PRICE',
+    'DESIRED_PRICE',
+    'UNDERCUT_VALUE',
+    'FIXED_PRICE',
+    'STEP_UP_VALUE',
+    'WEAK_PRICE_CEIL_LIMIT',
+    'IGNORE_DELTA',
+    'COMPETITOR_CHANGE_DELTA',
+    'MAX_DOWN_STEP',
+    'FAST_REBOUND_DELTA',
+}
 
 
 class Storage:
@@ -31,6 +53,8 @@ class Storage:
                     last_price REAL,
                     last_update TIMESTAMP,
                     last_cycle TIMESTAMP,
+                    last_target_price REAL,
+                    last_target_competitor_min REAL,
                     last_competitor_price REAL,
                     last_competitor_min REAL,
                     last_competitor_rank INTEGER,
@@ -100,11 +124,259 @@ class Storage:
 
             # Миграция legacy таблицы state -> profile_state[ggsel].
             self._migrate_legacy_state(conn)
+            self._migrate_profile_state_columns(conn)
+            self._migrate_price_history_table(conn)
+            self._migrate_runtime_settings_table(conn)
+            self._migrate_settings_history_table(conn)
+            self._migrate_alert_state_table(conn)
+            self._backfill_target_state(conn)
+            self._normalize_profile_state_prices(conn)
 
             # Создаём базовые записи профилей.
             self._ensure_profile_state(conn, 'ggsel')
             self._ensure_profile_state(conn, 'digiseller')
+            self._normalize_runtime_price_settings(conn)
             conn.commit()
+
+    def _table_columns(self, conn: sqlite3.Connection, table: str) -> set[str]:
+        rows = conn.execute(f'PRAGMA table_info({table})').fetchall()
+        return {row[1] for row in rows}
+
+    def _migrate_profile_state_columns(self, conn: sqlite3.Connection):
+        """Добавляет новые колонки в profile_state без потери данных."""
+        rows = conn.execute('PRAGMA table_info(profile_state)').fetchall()
+        existing = {row[1] for row in rows}
+        required = {
+            'last_target_price': 'REAL',
+            'last_target_competitor_min': 'REAL',
+        }
+        for column, type_def in required.items():
+            if column in existing:
+                continue
+            conn.execute(
+                f'ALTER TABLE profile_state ADD COLUMN {column} {type_def}'
+            )
+
+    def _backfill_target_state(self, conn: sqlite3.Connection):
+        """
+        Заполняет target-поля из текущего состояния, если они пустые.
+        Нужно для мягкого апгрейда без "лишнего первого reconcile".
+        """
+        conn.execute(
+            '''
+            UPDATE profile_state
+            SET last_target_price = last_price
+            WHERE last_target_price IS NULL
+              AND last_price IS NOT NULL
+            '''
+        )
+        conn.execute(
+            '''
+            UPDATE profile_state
+            SET last_target_competitor_min = last_competitor_min
+            WHERE last_target_competitor_min IS NULL
+              AND last_competitor_min IS NOT NULL
+            '''
+        )
+
+    def _normalize_profile_state_prices(self, conn: sqlite3.Connection):
+        """Нормализует price-поля profile_state до 4 знаков."""
+        for column in STATE_PRICE_FIELDS:
+            conn.execute(
+                f'''
+                UPDATE profile_state
+                SET {column} = ROUND({column}, 4)
+                WHERE {column} IS NOT NULL
+                '''
+            )
+
+    def _normalize_runtime_price_settings(self, conn: sqlite3.Connection):
+        """Нормализует runtime price-настройки до фиксированного формата 0.0000."""
+        placeholders = ', '.join('?' for _ in RUNTIME_PRICE_KEYS)
+        rows = conn.execute(
+            f'''
+            SELECT profile_id, key, value
+            FROM runtime_settings
+            WHERE key IN ({placeholders})
+            ''',
+            tuple(RUNTIME_PRICE_KEYS),
+        ).fetchall()
+        for profile_id, key, value in rows:
+            normalized = self._normalize_price(value)
+            if normalized is None:
+                continue
+            formatted = f'{normalized:.4f}'
+            if str(value) == formatted:
+                continue
+            conn.execute(
+                '''
+                UPDATE runtime_settings
+                SET value = ?
+                WHERE profile_id = ? AND key = ?
+                ''',
+                (formatted, profile_id, key),
+            )
+
+    def _migrate_runtime_settings_table(self, conn: sqlite3.Connection):
+        """
+        Миграция legacy runtime_settings(key,value) -> profile runtime_settings.
+        """
+        columns = self._table_columns(conn, 'runtime_settings')
+        if 'profile_id' in columns:
+            return
+
+        conn.execute('ALTER TABLE runtime_settings RENAME TO runtime_settings_legacy')
+        conn.execute(
+            '''
+            CREATE TABLE runtime_settings (
+                profile_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT,
+                PRIMARY KEY (profile_id, key)
+            )
+            '''
+        )
+        legacy_columns = self._table_columns(conn, 'runtime_settings_legacy')
+        if {'key', 'value'}.issubset(legacy_columns):
+            conn.execute(
+                '''
+                INSERT OR REPLACE INTO runtime_settings (profile_id, key, value)
+                SELECT ?, key, value
+                FROM runtime_settings_legacy
+                ''',
+                (DEFAULT_PROFILE,),
+            )
+        conn.execute('DROP TABLE runtime_settings_legacy')
+
+    def _migrate_price_history_table(self, conn: sqlite3.Connection):
+        """
+        Миграция legacy price_history без profile_id в профильный формат.
+        """
+        columns = self._table_columns(conn, 'price_history')
+        if 'profile_id' in columns:
+            return
+
+        conn.execute('ALTER TABLE price_history RENAME TO price_history_legacy')
+        conn.execute(
+            '''
+            CREATE TABLE price_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_id TEXT NOT NULL,
+                old_price REAL,
+                new_price REAL,
+                competitor_price REAL,
+                reason TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            '''
+        )
+        legacy_columns = self._table_columns(conn, 'price_history_legacy')
+        required = {'old_price', 'new_price', 'competitor_price', 'reason'}
+        if required.issubset(legacy_columns):
+            conn.execute(
+                '''
+                INSERT INTO price_history (
+                    profile_id,
+                    old_price,
+                    new_price,
+                    competitor_price,
+                    reason,
+                    timestamp
+                )
+                SELECT
+                    ?,
+                    old_price,
+                    new_price,
+                    competitor_price,
+                    reason,
+                    timestamp
+                FROM price_history_legacy
+                ''',
+                (DEFAULT_PROFILE,),
+            )
+        conn.execute('DROP TABLE price_history_legacy')
+
+    def _migrate_settings_history_table(self, conn: sqlite3.Connection):
+        """
+        Миграция legacy settings_history без profile_id в профильный формат.
+        """
+        columns = self._table_columns(conn, 'settings_history')
+        if 'profile_id' in columns:
+            return
+
+        conn.execute('ALTER TABLE settings_history RENAME TO settings_history_legacy')
+        conn.execute(
+            '''
+            CREATE TABLE settings_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                old_value TEXT,
+                new_value TEXT,
+                user_id INTEGER,
+                source TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            '''
+        )
+        legacy_columns = self._table_columns(conn, 'settings_history_legacy')
+        required = {'key', 'old_value', 'new_value'}
+        if required.issubset(legacy_columns):
+            conn.execute(
+                '''
+                INSERT INTO settings_history (
+                    profile_id,
+                    key,
+                    old_value,
+                    new_value,
+                    user_id,
+                    source,
+                    timestamp
+                )
+                SELECT
+                    ?,
+                    key,
+                    old_value,
+                    new_value,
+                    user_id,
+                    source,
+                    timestamp
+                FROM settings_history_legacy
+                ''',
+                (DEFAULT_PROFILE,),
+            )
+        conn.execute('DROP TABLE settings_history_legacy')
+
+    def _migrate_alert_state_table(self, conn: sqlite3.Connection):
+        """
+        Миграция legacy alert_state(key,last_sent) -> профильный формат.
+        """
+        columns = self._table_columns(conn, 'alert_state')
+        if 'profile_id' in columns:
+            return
+
+        conn.execute('ALTER TABLE alert_state RENAME TO alert_state_legacy')
+        conn.execute(
+            '''
+            CREATE TABLE alert_state (
+                profile_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                last_sent TIMESTAMP,
+                PRIMARY KEY (profile_id, key)
+            )
+            '''
+        )
+        legacy_columns = self._table_columns(conn, 'alert_state_legacy')
+        if {'key', 'last_sent'}.issubset(legacy_columns):
+            conn.execute(
+                '''
+                INSERT OR REPLACE INTO alert_state (profile_id, key, last_sent)
+                SELECT ?, key, last_sent
+                FROM alert_state_legacy
+                ''',
+                (DEFAULT_PROFILE,),
+            )
+        conn.execute('DROP TABLE alert_state_legacy')
 
     def _migrate_legacy_state(self, conn: sqlite3.Connection):
         """Перенос legacy state(id=1) в profile_state[ggsel]."""
@@ -181,6 +453,18 @@ class Storage:
         except Exception:
             return None
 
+    def _normalize_price(self, value) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            normalized = Decimal(str(value).replace(',', '.')).quantize(
+                PRICE_PRECISION,
+                rounding=ROUND_HALF_UP,
+            )
+            return float(normalized)
+        except Exception:
+            return None
+
     # ================================
     # Profile state
     # ================================
@@ -197,11 +481,19 @@ class Storage:
             if not row:
                 return self._default_state()
             return {
-                'last_price': row['last_price'],
+                'last_price': self._normalize_price(row['last_price']),
                 'last_update': self._parse_dt(row['last_update']),
                 'last_cycle': self._parse_dt(row['last_cycle']),
-                'last_competitor_price': row['last_competitor_price'],
-                'last_competitor_min': row['last_competitor_min'],
+                'last_target_price': self._normalize_price(row['last_target_price']),
+                'last_target_competitor_min': self._normalize_price(
+                    row['last_target_competitor_min']
+                ),
+                'last_competitor_price': self._normalize_price(
+                    row['last_competitor_price']
+                ),
+                'last_competitor_min': self._normalize_price(
+                    row['last_competitor_min']
+                ),
                 'last_competitor_rank': row['last_competitor_rank'],
                 'last_competitor_url': row['last_competitor_url'],
                 'last_competitor_parse_at': self._parse_dt(
@@ -222,6 +514,8 @@ class Storage:
             'last_price': None,
             'last_update': None,
             'last_cycle': None,
+            'last_target_price': None,
+            'last_target_competitor_min': None,
             'last_competitor_price': None,
             'last_competitor_min': None,
             'last_competitor_rank': None,
@@ -243,6 +537,8 @@ class Storage:
             'last_price',
             'last_update',
             'last_cycle',
+            'last_target_price',
+            'last_target_competitor_min',
             'last_competitor_price',
             'last_competitor_min',
             'last_competitor_rank',
@@ -267,6 +563,9 @@ class Storage:
         ):
             if dt_key in updates and isinstance(updates[dt_key], datetime):
                 updates[dt_key] = updates[dt_key].isoformat()
+        for price_key in STATE_PRICE_FIELDS:
+            if price_key in updates:
+                updates[price_key] = self._normalize_price(updates[price_key])
         if 'auto_mode' in updates:
             updates['auto_mode'] = 1 if updates['auto_mode'] else 0
 
@@ -317,6 +616,9 @@ class Storage:
         profile_id: str = DEFAULT_PROFILE,
     ):
         profile = self._normalize_profile(profile_id)
+        old_price = self._normalize_price(old_price)
+        new_price = self._normalize_price(new_price)
+        competitor_price = self._normalize_price(competitor_price)
         with sqlite3.connect(str(self.db_path)) as conn:
             conn.execute(
                 '''
@@ -332,12 +634,6 @@ class Storage:
                 (profile, old_price, new_price, competitor_price, reason),
             )
             conn.commit()
-
-    def get_last_update(self, profile_id: str = DEFAULT_PROFILE) -> Optional[datetime]:
-        return self.get_state(profile_id).get('last_update')
-
-    def get_last_price(self, profile_id: str = DEFAULT_PROFILE) -> Optional[float]:
-        return self.get_state(profile_id).get('last_price')
 
     # ================================
     # Runtime settings
@@ -371,8 +667,14 @@ class Storage:
         profile_id: str = DEFAULT_PROFILE,
     ):
         profile = self._normalize_profile(profile_id)
+        normalized_value = str(value)
+        if key in RUNTIME_PRICE_KEYS:
+            price_value = self._normalize_price(normalized_value)
+            if price_value is not None:
+                normalized_value = f'{price_value:.4f}'
+
         old_value = self.get_runtime_setting(key, profile_id=profile)
-        if old_value == value:
+        if old_value == normalized_value:
             return
         with sqlite3.connect(str(self.db_path)) as conn:
             conn.execute(
@@ -382,7 +684,7 @@ class Storage:
                 ON CONFLICT(profile_id, key)
                 DO UPDATE SET value = excluded.value
                 ''',
-                (profile, key, value),
+                (profile, key, normalized_value),
             )
             conn.execute(
                 '''
@@ -396,7 +698,14 @@ class Storage:
                 )
                 VALUES (?, ?, ?, ?, ?, ?)
                 ''',
-                (profile, key, old_value, value, user_id, source),
+                (
+                    profile,
+                    key,
+                    old_value,
+                    normalized_value,
+                    user_id,
+                    source,
+                ),
             )
             conn.commit()
 
@@ -460,11 +769,6 @@ class Storage:
                 base_config.STEP_UP_VALUE,
                 profile,
             ),
-            'LOW_PRICE_THRESHOLD': self._get_float(
-                'LOW_PRICE_THRESHOLD',
-                base_config.LOW_PRICE_THRESHOLD,
-                profile,
-            ),
             'WEAK_PRICE_CEIL_LIMIT': self._get_float(
                 'WEAK_PRICE_CEIL_LIMIT',
                 base_config.WEAK_PRICE_CEIL_LIMIT,
@@ -510,36 +814,6 @@ class Storage:
                 base_config.COMPETITOR_COOKIES,
                 profile,
             ),
-            'SELENIUM_USE_REAL_PROFILE': self._get_bool(
-                'SELENIUM_USE_REAL_PROFILE',
-                base_config.SELENIUM_USE_REAL_PROFILE,
-                profile,
-            ),
-            'SELENIUM_CHROME_USER_DATA_DIR': self._get_str(
-                'SELENIUM_CHROME_USER_DATA_DIR',
-                base_config.SELENIUM_CHROME_USER_DATA_DIR,
-                profile,
-            ),
-            'SELENIUM_CHROME_PROFILE_DIR': self._get_str(
-                'SELENIUM_CHROME_PROFILE_DIR',
-                base_config.SELENIUM_CHROME_PROFILE_DIR,
-                profile,
-            ),
-            'SELENIUM_HEADLESS': self._get_bool(
-                'SELENIUM_HEADLESS',
-                base_config.SELENIUM_HEADLESS,
-                profile,
-            ),
-            'RSC_USE_PLAYWRIGHT': self._get_bool(
-                'RSC_USE_PLAYWRIGHT',
-                base_config.RSC_USE_PLAYWRIGHT,
-                profile,
-            ),
-            'RSC_USE_SELENIUM_FALLBACK': self._get_bool(
-                'RSC_USE_SELENIUM_FALLBACK',
-                base_config.RSC_USE_SELENIUM_FALLBACK,
-                profile,
-            ),
             'NOTIFY_SKIP': self._get_bool(
                 'NOTIFY_SKIP',
                 base_config.NOTIFY_SKIP,
@@ -563,6 +837,11 @@ class Storage:
             'COMPETITOR_CHANGE_COOLDOWN_SECONDS': self._get_int(
                 'COMPETITOR_CHANGE_COOLDOWN_SECONDS',
                 base_config.COMPETITOR_CHANGE_COOLDOWN_SECONDS,
+                profile,
+            ),
+            'UPDATE_ONLY_ON_COMPETITOR_CHANGE': self._get_bool(
+                'UPDATE_ONLY_ON_COMPETITOR_CHANGE',
+                base_config.UPDATE_ONLY_ON_COMPETITOR_CHANGE,
                 profile,
             ),
             'NOTIFY_PARSER_ISSUES': self._get_bool(
@@ -611,7 +890,11 @@ class Storage:
         if value is None:
             return default
         try:
-            return float(value)
+            parsed = float(value)
+            if key in RUNTIME_PRICE_KEYS:
+                normalized = self._normalize_price(parsed)
+                return default if normalized is None else normalized
+            return parsed
         except Exception:
             return default
 
@@ -629,23 +912,6 @@ class Storage:
         if value is None:
             return default
         return value.strip().lower() in ('1', 'true', 'yes', 'on')
-
-    def get_all_runtime_settings(
-        self,
-        profile_id: str = DEFAULT_PROFILE,
-    ) -> Dict[str, str]:
-        profile = self._normalize_profile(profile_id)
-        with sqlite3.connect(str(self.db_path)) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                '''
-                SELECT key, value FROM runtime_settings
-                WHERE profile_id = ?
-                ORDER BY key
-                ''',
-                (profile,),
-            ).fetchall()
-            return {row['key']: row['value'] for row in rows}
 
     def get_settings_history(
         self,

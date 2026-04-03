@@ -170,6 +170,43 @@ class DigiSellerClient(GGSELClient):
             return None
         return product.price
 
+    def _build_update_price_payload(
+        self,
+        product_id: int,
+        price_4dp: str,
+    ) -> list[dict[str, Any]]:
+        """
+        Для DigiSeller отправляем float-цену в bulk payload.
+        """
+        return [
+            {
+                'product_id': product_id,
+                'price': float(price_4dp),
+                'variants': [],
+            }
+        ]
+
+    def _is_async_task_success(
+        self,
+        *,
+        status: int,
+        success_count: int,
+        error_count: int,
+        total_count: int,
+    ) -> bool:
+        """
+        DigiSeller async semantics:
+        2 = Error, 3 = Done.
+        """
+        return (
+            status == 3
+            and error_count == 0
+            and (success_count > 0 or total_count == 0)
+        )
+
+    def _is_async_task_error(self, *, status: int) -> bool:
+        return status == 2
+
     def check_api_access(self) -> bool:
         """
         Проверка доступа к DigiSeller API.
