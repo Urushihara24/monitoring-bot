@@ -130,6 +130,21 @@ class TelegramBot:
         if profile in self.available_profiles:
             self.chat_profile[chat_id] = profile
 
+    def _resolve_profile_arg(self, value: str) -> Optional[str]:
+        normalized = (value or '').strip().lower()
+        if not normalized:
+            return None
+        aliases = {
+            'gg': 'ggsel',
+            'ggsel': 'ggsel',
+            'digi': 'digiseller',
+            'digiseller': 'digiseller',
+        }
+        resolved = aliases.get(normalized, normalized)
+        if resolved in self.available_profiles:
+            return resolved
+        return None
+
     def _runtime(self, profile_id: str):
         return storage.get_runtime_config(
             config,
@@ -258,6 +273,21 @@ class TelegramBot:
 
         chat_id = update.effective_chat.id
         profile_id = self._active_profile(chat_id)
+        if context and context.args:
+            candidate = self._resolve_profile_arg(context.args[0])
+            if not candidate:
+                available = ', '.join(
+                    self._profile_name(pid).lower() for pid in self.available_profiles
+                )
+                await update.message.reply_text(
+                    (
+                        f'❌ Неизвестный профиль: {context.args[0]}\n'
+                        f'Доступно: {available}'
+                    ),
+                    reply_markup=self.get_main_keyboard(profile_id),
+                )
+                return
+            profile_id = candidate
         profile_name = self._profile_name(profile_id)
         client = self._api_client(profile_id)
         product_id = self._product_id(profile_id)
