@@ -53,6 +53,33 @@ def test_competitor_urls_profile_specific(tmp_path):
     ]
 
 
+def test_competitor_urls_profile_specific_are_deduplicated(tmp_path):
+    db = tmp_path / 'state.db'
+    storage = Storage(db_path=str(db))
+    storage.set_competitor_urls(
+        [
+            'https://a.example/item-1/',
+            'https://a.example/item-1',
+            'https://a.example/item-1#x',
+        ],
+        profile_id='ggsel',
+    )
+    storage.set_competitor_urls(
+        [
+            'https://b.example/item-2/',
+            'https://b.example/item-2',
+        ],
+        profile_id='digiseller',
+    )
+
+    assert storage.get_competitor_urls([], profile_id='ggsel') == [
+        'https://a.example/item-1'
+    ]
+    assert storage.get_competitor_urls([], profile_id='digiseller') == [
+        'https://b.example/item-2'
+    ]
+
+
 def test_alert_throttle_per_profile(tmp_path):
     db = tmp_path / 'state.db'
     storage = Storage(db_path=str(db))
