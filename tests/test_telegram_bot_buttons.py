@@ -96,6 +96,11 @@ def test_main_keyboard_is_not_overloaded():
     bot._state = lambda _profile: {'auto_mode': True}
     texts = keyboard_texts(bot.get_main_keyboard('ggsel'))
     assert BTN_DIAGNOSTICS not in texts
+    assert BTN_UP not in texts
+    assert BTN_DOWN not in texts
+    settings_texts = keyboard_texts(bot.get_settings_keyboard())
+    assert BTN_UP in settings_texts
+    assert BTN_DOWN in settings_texts
 
 
 @pytest.mark.asyncio

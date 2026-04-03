@@ -182,7 +182,6 @@ class TelegramBot:
         return ReplyKeyboardMarkup(
             [
                 [BTN_STATUS],
-                [BTN_UP, BTN_DOWN],
                 [auto_btn],
                 [BTN_PROFILE, BTN_SETTINGS],
             ],
@@ -192,6 +191,7 @@ class TelegramBot:
     def get_settings_keyboard(self):
         return ReplyKeyboardMarkup(
             [
+                [BTN_UP, BTN_DOWN],
                 [BTN_PRICE, BTN_STEP],
                 [BTN_MIN, BTN_MAX],
                 [BTN_INTERVAL, BTN_MODE],
