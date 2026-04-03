@@ -41,6 +41,7 @@ BTN_AUTO_OFF = '🔕 Авто: ВЫКЛ'
 BTN_PROFILE = '🧩 Профиль'
 BTN_SETTINGS = '⚙ Настройки'
 BTN_BACK = '🔙 Назад'
+BTN_DIAG_LEGACY = '🩺 Диагностика'
 
 # Настройки
 BTN_PRICE = '🎯 Цена'
@@ -470,6 +471,9 @@ class TelegramBot:
             return
         if text == BTN_SETTINGS:
             await self.send_settings(chat_id, update)
+            return
+        if text == BTN_DIAG_LEGACY:
+            await self.send_diagnostics(chat_id, update)
             return
         # Выбор профиля
         for pid in self.available_profiles:
