@@ -8,6 +8,7 @@ from src.telegram_bot import (
     BTN_AUTO_OFF,
     BTN_AUTO_ON,
     BTN_BACK,
+    BTN_DIAG_LEGACY,
     BTN_DOWN,
     BTN_HISTORY,
     BTN_INTERVAL,
@@ -131,6 +132,18 @@ async def test_main_buttons_route_to_handlers():
     settings = make_update(BTN_SETTINGS)
     await bot.handle_message(settings, None)
     bot.send_settings.assert_awaited_once_with(100, settings)
+
+
+@pytest.mark.asyncio
+async def test_legacy_diag_button_routes_to_send_diagnostics():
+    bot = make_bot()
+    bot._state = lambda _profile: {'auto_mode': True}
+    bot.send_diagnostics = AsyncMock()
+    update = make_update(BTN_DIAG_LEGACY)
+
+    await bot.handle_message(update, None)
+
+    bot.send_diagnostics.assert_awaited_once_with(100, update)
 
 
 @pytest.mark.asyncio
