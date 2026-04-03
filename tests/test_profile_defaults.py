@@ -52,6 +52,41 @@ def test_build_profile_runtime_defaults_for_digiseller():
     assert defaults['COOLDOWN_SECONDS'] == '20'
 
 
+def test_build_profile_runtime_defaults_formats_bool_and_extended_keys():
+    cfg = SimpleNamespace(
+        DIGISELLER_POSITION_FILTER_ENABLED=True,
+        DIGISELLER_UPDATE_ONLY_ON_COMPETITOR_CHANGE=False,
+        DIGISELLER_NOTIFY_COMPETITOR_CHANGE=True,
+        DIGISELLER_FAST_CHECK_INTERVAL_MIN=20,
+        DIGISELLER_FAST_CHECK_INTERVAL_MAX=60,
+        DIGISELLER_MAX_DOWN_STEP=0.03,
+    )
+
+    defaults = build_profile_runtime_defaults(cfg, 'digiseller')
+
+    assert defaults['POSITION_FILTER_ENABLED'] == 'true'
+    assert defaults['UPDATE_ONLY_ON_COMPETITOR_CHANGE'] == 'false'
+    assert defaults['NOTIFY_COMPETITOR_CHANGE'] == 'true'
+    assert defaults['FAST_CHECK_INTERVAL_MIN'] == '20'
+    assert defaults['FAST_CHECK_INTERVAL_MAX'] == '60'
+    assert defaults['MAX_DOWN_STEP'] == '0.03'
+
+
+def test_build_profile_runtime_defaults_reads_missing_attrs_from_env(monkeypatch):
+    cfg = SimpleNamespace()
+    monkeypatch.setenv('DIGISELLER_IGNORE_DELTA', '0.001')
+    monkeypatch.setenv('DIGISELLER_HARD_FLOOR_ENABLED', 'false')
+    monkeypatch.setenv('DIGISELLER_WEAK_POSITION_THRESHOLD', '25')
+    monkeypatch.setenv('DIGISELLER_MODE', 'fixed')
+
+    defaults = build_profile_runtime_defaults(cfg, 'digiseller')
+
+    assert defaults['IGNORE_DELTA'] == '0.001'
+    assert defaults['HARD_FLOOR_ENABLED'] == 'false'
+    assert defaults['WEAK_POSITION_THRESHOLD'] == '25'
+    assert defaults['MODE'] == 'FIXED'
+
+
 def test_build_profile_runtime_defaults_non_digiseller_empty():
     cfg = SimpleNamespace()
     assert build_profile_runtime_defaults(cfg, 'ggsel') == {}
