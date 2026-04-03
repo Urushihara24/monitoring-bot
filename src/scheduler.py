@@ -379,6 +379,24 @@ class Scheduler:
                 cookies=None,
             )
             if retry_result.success:
+                if (
+                    cookies
+                    and (
+                        not refreshed_cookies
+                        or refreshed_cookies == cookies
+                    )
+                ):
+                    storage.set_runtime_setting(
+                        'COMPETITOR_COOKIES',
+                        '',
+                        source='auto_clear_expired',
+                        profile_id=self.profile_id,
+                    )
+                    logger.info(
+                        '[%s] Очистил протухшие runtime cookies после '
+                        'успешного парсинга без cookies',
+                        self.profile_name,
+                    )
                 return retry_result
             result = retry_result
 
