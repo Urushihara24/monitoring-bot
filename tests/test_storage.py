@@ -54,7 +54,7 @@ def test_settings_history_written(tmp_path):
     assert len(history) == 1
     row = history[0]
     assert row['key'] == 'MIN_PRICE'
-    assert row['new_value'] == '0.50'
+    assert row['new_value'] == '0.5000'
     assert row['user_id'] == 123
     assert row['source'] == 'telegram'
 

@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 import requests
 
-from src.api_client import GGSELClient, Product
+from src.api_client import GGSELClient
 
 
 class FakeResponse:
@@ -30,64 +30,6 @@ def make_client() -> GGSELClient:
         lang='ru-RU',
         access_token='token-123',
     )
-
-
-def test_get_products_success_and_mapping(monkeypatch):
-    client = make_client()
-    captured: dict[str, Any] = {}
-
-    def fake_request(method, url, **kwargs):
-        captured['method'] = method
-        captured['url'] = url
-        captured.update(kwargs)
-        return FakeResponse(
-            200,
-            {
-                'retval': 0,
-                'rows': [
-                    {
-                        'id_goods': 10,
-                        'name_goods': 'Steam key',
-                        'price': '0.31',
-                        'currency': 'RUB',
-                        'num_in_stock': 8,
-                        'visible': 1,
-                    }
-                ],
-            },
-        )
-
-    monkeypatch.setattr(client, '_request_with_retry', fake_request)
-
-    items = client.get_products(page=2, count=5)
-
-    assert len(items) == 1
-    assert isinstance(items[0], Product)
-    assert items[0].id == 10
-    assert items[0].price == 0.31
-    assert items[0].status == 'active'
-    assert captured['method'] == 'GET'
-    assert captured['url'].endswith('/products/list')
-    assert captured['params']['page'] == 2
-    assert captured['params']['count'] == 5
-    assert captured['params']['token'] == 'token-123'
-    assert captured['headers']['lang'] == 'ru-RU'
-
-
-def test_get_products_error_retval_returns_empty(monkeypatch):
-    client = make_client()
-    monkeypatch.setattr(
-        client,
-        '_request_with_retry',
-        lambda *a, **k: FakeResponse(200, {'retval': 1, 'message': 'error'}),
-    )
-    assert client.get_products() == []
-
-
-def test_get_products_404_returns_empty(monkeypatch):
-    client = make_client()
-    monkeypatch.setattr(client, '_request_with_retry', lambda *a, **k: FakeResponse(404, {}))
-    assert client.get_products() == []
 
 
 def test_get_product_info_success(monkeypatch):

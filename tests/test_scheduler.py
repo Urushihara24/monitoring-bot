@@ -1,8 +1,8 @@
 import pytest
-from types import SimpleNamespace
 
 import src.scheduler as scheduler_mod
 from src.logic import PriceDecision
+from src.rsc_parser import ParseResult
 from src.storage import Storage
 from src.config import Config
 
@@ -31,33 +31,59 @@ class DummyTelegramBot:
     async def notify_error(self, message):
         self.errors.append(message)
 
-    async def notify_skip(self, current_price, target_price, competitor_price, reason):
+    async def notify_skip(
+        self,
+        current_price,
+        target_price,
+        competitor_price,
+        reason,
+        profile_name=None,
+    ):
         self.skips.append(
             {
                 'current_price': current_price,
                 'target_price': target_price,
                 'competitor_price': competitor_price,
                 'reason': reason,
+                'profile_name': profile_name,
             }
         )
 
-    async def notify_price_updated(self, old_price, new_price, competitor_price, reason):
+    async def notify_price_updated(
+        self,
+        old_price,
+        new_price,
+        competitor_price,
+        reason,
+        profile_name=None,
+    ):
         self.updates.append(
             {
                 'old_price': old_price,
                 'new_price': new_price,
                 'competitor_price': competitor_price,
                 'reason': reason,
+                'profile_name': profile_name,
             }
         )
 
-    async def notify_competitor_price_changed(self, old_price, new_price, delta, rank=None):
+    async def notify_competitor_price_changed(
+        self,
+        old_price,
+        new_price,
+        delta,
+        rank=None,
+        url=None,
+        profile_name=None,
+    ):
         self.competitor_changes.append(
             {
                 'old_price': old_price,
                 'new_price': new_price,
                 'delta': delta,
                 'rank': rank,
+                'url': url,
+                'profile_name': profile_name,
             }
         )
 
@@ -80,7 +106,16 @@ async def test_scheduler_notifies_competitor_price_change(monkeypatch, tmp_path)
     monkeypatch.setattr(
         scheduler_mod.rsc_parser,
         'parse_url',
-        lambda url, timeout=10: SimpleNamespace(success=True, price=0.315, error=None, offers=None, rank=3),
+        lambda url, timeout=10, cookies=None: ParseResult(
+            success=True,
+            price=0.315,
+            error=None,
+            offers=[],
+            rank=3,
+            method='stealth_requests',
+            status_code=200,
+            url=url,
+        ),
     )
     monkeypatch.setattr(
         scheduler_mod,
@@ -124,7 +159,16 @@ async def test_scheduler_skip_notifications_are_throttled(monkeypatch, tmp_path)
     monkeypatch.setattr(
         scheduler_mod.rsc_parser,
         'parse_url',
-        lambda url, timeout=10: SimpleNamespace(success=True, price=0.30, error=None, offers=None, rank=1),
+        lambda url, timeout=10, cookies=None: ParseResult(
+            success=True,
+            price=0.30,
+            error=None,
+            offers=[],
+            rank=1,
+            method='stealth_requests',
+            status_code=200,
+            url=url,
+        ),
     )
     monkeypatch.setattr(
         scheduler_mod,
