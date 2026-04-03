@@ -525,3 +525,95 @@ async def test_run_cycle_syncs_last_price_from_api(monkeypatch):
     await scheduler.run_cycle()
 
     assert any(call.get('last_price') == 0.2655 for call in update_calls)
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_falls_back_to_state_when_get_my_price_raises(monkeypatch):
+    def raise_api_error(_product_id):
+        raise RuntimeError('api timeout')
+
+    api_client = SimpleNamespace(
+        get_my_price=Mock(side_effect=raise_api_error),
+        update_price=Mock(),
+    )
+    scheduler = Scheduler(
+        api_client,
+        DummyTelegramBot(),
+        profile_id='ggsel',
+        profile_name='GGSEL',
+        product_id=4697439,
+        competitor_urls=['https://example.com/item-1'],
+    )
+
+    runtime = make_runtime()
+    state = {
+        'auto_mode': True,
+        'last_competitor_min': 0.27,
+        'last_update': datetime.now(),
+        'last_price': 0.2649,
+    }
+
+    monkeypatch.setattr(scheduler, '_runtime', lambda: runtime)
+    monkeypatch.setattr(scheduler, '_state', lambda: state)
+    monkeypatch.setattr(
+        scheduler_module,
+        'validate_runtime_config',
+        lambda _runtime: (True, []),
+    )
+    monkeypatch.setattr(
+        scheduler,
+        '_sync_cookies_from_env',
+        AsyncMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        scheduler,
+        '_reload_cookies_from_backup',
+        AsyncMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        scheduler,
+        '_parse_competitor_price',
+        AsyncMock(
+            return_value=ParseResult(
+                success=True,
+                price=0.27,
+                url='https://example.com/item-1',
+                method='stealth_requests',
+            )
+        ),
+    )
+    monkeypatch.setattr(scheduler, '_notify_competitor_change_if_needed', AsyncMock())
+    monkeypatch.setattr(scheduler, '_notify_parser_issue_if_needed', AsyncMock())
+    monkeypatch.setattr(scheduler, '_notify_skip_throttled', AsyncMock())
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'update_state',
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'increment_skip_count',
+        lambda **_kwargs: None,
+    )
+
+    captured = {}
+
+    def fake_calculate_price(**kwargs):
+        captured['current_price'] = kwargs.get('current_price')
+        return PriceDecision(
+            action='skip',
+            price=0.2649,
+            reason='test_skip',
+            old_price=kwargs.get('current_price'),
+            competitor_price=0.27,
+        )
+
+    monkeypatch.setattr(
+        scheduler_module,
+        'calculate_price',
+        fake_calculate_price,
+    )
+
+    await scheduler.run_cycle()
+
+    assert captured['current_price'] == 0.2649
