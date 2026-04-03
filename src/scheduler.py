@@ -319,7 +319,10 @@ class Scheduler:
     ) -> ParseResult:
         """Каскадный парсинг: только stealth_requests."""
         logger.info('[%s] 🔍 Парсинг цены: %s', self.profile_name, url)
-        cookies = runtime.COMPETITOR_COOKIES or config.COMPETITOR_COOKIES or None
+        # Используем cookies только из runtime (БД/env-sync),
+        # без fallback на config, чтобы не возвращать протухшие значения
+        # из process env после авто-очистки runtime cookies.
+        cookies = runtime.COMPETITOR_COOKIES or None
 
         result = await asyncio.to_thread(
             rsc_parser.parse_url,
@@ -346,11 +349,7 @@ class Scheduler:
                 await self._reload_cookies_from_backup()
 
             refreshed_runtime = self._runtime()
-            refreshed_cookies = (
-                refreshed_runtime.COMPETITOR_COOKIES
-                or config.COMPETITOR_COOKIES
-                or None
-            )
+            refreshed_cookies = refreshed_runtime.COMPETITOR_COOKIES or None
             if refreshed_cookies and refreshed_cookies != cookies:
                 logger.info(
                     '[%s] Использую обновлённые cookies из runtime '
