@@ -16,6 +16,8 @@ services:
       # Данные бота
       - ./data:/app/data
       - ./logs:/app/logs
+      # Нужен для live-sync cookies из .env без рестарта контейнера
+      - ./.env:/app/.env:ro
     env_file:
       - .env
     environment:

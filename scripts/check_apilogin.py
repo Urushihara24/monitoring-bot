@@ -17,6 +17,20 @@ if str(ROOT) not in sys.path:
 from src.config import config
 
 
+def _response_retval(data: dict) -> int | None:
+    """Поддержка разных вариантов ключа retval в ответе API."""
+    if not isinstance(data, dict):
+        return None
+    for key in ('retval', 'retVal', 'ret_val'):
+        if key not in data:
+            continue
+        try:
+            return int(data.get(key))
+        except Exception:
+            return None
+    return None
+
+
 def main() -> int:
     missing = []
     if not config.GGSEL_API_KEY:
@@ -57,13 +71,13 @@ def main() -> int:
         print('apilogin-check: body_head=' + repr(resp.text[:300]))
         return 1
 
-    retval = data.get('retval')
+    retval = _response_retval(data)
     print(f'apilogin-check: retval={retval}')
     print(f'apilogin-check: retdesc={data.get("retdesc") or data.get("desc")}')
 
     token = data.get('token')
     valid_thru = data.get('valid_thru')
-    if token:
+    if token and retval in (None, 0):
         print(f'apilogin-check: token_received=yes len={len(str(token))}')
         print(f'apilogin-check: valid_thru={valid_thru}')
         return 0

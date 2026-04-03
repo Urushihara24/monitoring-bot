@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import datetime, timedelta
+import sqlite3
 
 from src.storage import Storage
 
@@ -49,6 +50,33 @@ def test_competitor_urls_profile_specific(tmp_path):
     assert storage.get_competitor_urls([], profile_id='digiseller') == [
         'https://b.example',
         'https://c.example',
+    ]
+
+
+def test_competitor_urls_profile_specific_are_deduplicated(tmp_path):
+    db = tmp_path / 'state.db'
+    storage = Storage(db_path=str(db))
+    storage.set_competitor_urls(
+        [
+            'https://a.example/item-1/',
+            'https://a.example/item-1',
+            'https://a.example/item-1#x',
+        ],
+        profile_id='ggsel',
+    )
+    storage.set_competitor_urls(
+        [
+            'https://b.example/item-2/',
+            'https://b.example/item-2',
+        ],
+        profile_id='digiseller',
+    )
+
+    assert storage.get_competitor_urls([], profile_id='ggsel') == [
+        'https://a.example/item-1'
+    ]
+    assert storage.get_competitor_urls([], profile_id='digiseller') == [
+        'https://b.example/item-2'
     ]
 
 
@@ -193,3 +221,132 @@ def test_runtime_price_settings_backfilled_to_4dp_on_reload(tmp_path):
     raw = reloaded.get_runtime_setting('DESIRED_PRICE', profile_id='ggsel')
 
     assert raw == '0.3500'
+
+
+def test_migrates_legacy_runtime_settings_without_profile_id(tmp_path):
+    db = tmp_path / 'legacy_runtime.db'
+    with sqlite3.connect(str(db)) as conn:
+        conn.execute(
+            '''
+            CREATE TABLE runtime_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+            '''
+        )
+        conn.execute(
+            "INSERT INTO runtime_settings (key, value) VALUES (?, ?)",
+            ('CHECK_INTERVAL', '30'),
+        )
+        conn.commit()
+
+    storage = Storage(db_path=str(db))
+
+    value = storage.get_runtime_setting('CHECK_INTERVAL', profile_id='ggsel')
+    assert value == '30'
+
+
+def test_migrates_legacy_history_and_alert_tables(tmp_path):
+    db = tmp_path / 'legacy_misc.db'
+    recent = datetime.now() - timedelta(minutes=10)
+    recent_str = recent.strftime('%Y-%m-%d %H:%M:%S')
+    with sqlite3.connect(str(db)) as conn:
+        conn.execute(
+            '''
+            CREATE TABLE settings_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key TEXT NOT NULL,
+                old_value TEXT,
+                new_value TEXT,
+                user_id INTEGER,
+                source TEXT,
+                timestamp TIMESTAMP
+            )
+            '''
+        )
+        conn.execute(
+            '''
+            INSERT INTO settings_history (
+                key, old_value, new_value, user_id, source, timestamp
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            ''',
+            (
+                'MODE',
+                'FIXED',
+                'STEP_UP',
+                1,
+                'test',
+                recent_str,
+            ),
+        )
+        conn.execute(
+            '''
+            CREATE TABLE alert_state (
+                key TEXT PRIMARY KEY,
+                last_sent TIMESTAMP
+            )
+            '''
+        )
+        conn.execute(
+            "INSERT INTO alert_state (key, last_sent) VALUES (?, ?)",
+            ('x', recent_str),
+        )
+        conn.commit()
+
+    storage = Storage(db_path=str(db))
+
+    rows = storage.get_settings_history(limit=10, profile_id='ggsel')
+    assert rows
+    assert rows[0]['key'] == 'MODE'
+    # После миграции legacy алерт должен блокировать повторную отправку.
+    assert storage.should_send_alert('x', cooldown_seconds=3600, profile_id='ggsel') is False
+
+
+def test_migrates_legacy_price_history_without_profile_id(tmp_path):
+    db = tmp_path / 'legacy_price_history.db'
+    with sqlite3.connect(str(db)) as conn:
+        conn.execute(
+            '''
+            CREATE TABLE price_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                old_price REAL,
+                new_price REAL,
+                competitor_price REAL,
+                reason TEXT,
+                timestamp TIMESTAMP
+            )
+            '''
+        )
+        conn.execute(
+            '''
+            INSERT INTO price_history (
+                old_price, new_price, competitor_price, reason, timestamp
+            )
+            VALUES (?, ?, ?, ?, ?)
+            ''',
+            (
+                0.26,
+                0.2649,
+                0.27,
+                'base_formula',
+                '2026-04-03 12:00:00',
+            ),
+        )
+        conn.commit()
+
+    Storage(db_path=str(db))
+    with sqlite3.connect(str(db)) as conn:
+        row = conn.execute(
+            '''
+            SELECT profile_id, old_price, new_price
+            FROM price_history
+            ORDER BY id DESC
+            LIMIT 1
+            '''
+        ).fetchone()
+
+    assert row is not None
+    assert row[0] == 'ggsel'
+    assert row[1] == 0.26
+    assert row[2] == 0.2649

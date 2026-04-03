@@ -17,6 +17,10 @@ from typing import Dict, List, Optional
 from .api_client import GGSELClient
 from .config import config
 from .digiseller_client import DigiSellerClient
+from .profile_defaults import (
+    build_profile_runtime_defaults,
+    seed_profile_runtime_defaults,
+)
 from .scheduler import Scheduler
 from .storage import storage
 from .telegram_bot import TelegramBot
@@ -93,7 +97,7 @@ def _build_profiles(logger: logging.Logger):
             logger.warning('[GGSEL] Профиль включен, но нет COMPETITOR_URLS')
         if not config.GGSEL_PRODUCT_ID:
             logger.warning('[GGSEL] Профиль включен, но GGSEL_PRODUCT_ID пуст')
-        if not config.GGSEL_API_KEY and not config.GGSEL_ACCESS_TOKEN:
+        elif not config.GGSEL_API_KEY and not config.GGSEL_ACCESS_TOKEN:
             logger.warning('[GGSEL] Профиль включен, но не задан API key/token')
         else:
             profiles.append(
@@ -126,7 +130,7 @@ def _build_profiles(logger: logging.Logger):
             logger.warning(
                 '[DIGISELLER] Профиль включен, но DIGISELLER_PRODUCT_ID пуст'
             )
-        if not config.DIGISELLER_API_KEY and not config.DIGISELLER_ACCESS_TOKEN:
+        elif not config.DIGISELLER_API_KEY and not config.DIGISELLER_ACCESS_TOKEN:
             logger.warning(
                 '[DIGISELLER] Профиль включен, но не задан API key/token'
             )
@@ -246,6 +250,20 @@ async def main():
             storage.set_competitor_urls(
                 profile['competitor_urls'],
                 profile_id=pid,
+            )
+
+        profile_defaults = build_profile_runtime_defaults(config, pid)
+        seeded = seed_profile_runtime_defaults(
+            storage,
+            pid,
+            profile_defaults,
+        )
+        for key, value in seeded.items():
+            logger.info(
+                '[%s] Runtime default seeded: %s=%s',
+                pname,
+                key,
+                value,
             )
 
     schedulers = [

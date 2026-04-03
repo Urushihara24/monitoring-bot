@@ -9,7 +9,7 @@ import asyncio
 import logging
 import unicodedata
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from telegram import (
     ReplyKeyboardMarkup,
@@ -26,6 +26,7 @@ from telegram.ext import (
 )
 
 from .config import config
+from .profile_smoke import run_profile_smoke
 from .storage import DEFAULT_PROFILE, storage
 from .validator import validate_runtime_config
 
@@ -39,7 +40,6 @@ BTN_AUTO_ON = '🔔 Авто: ВКЛ'
 BTN_AUTO_OFF = '🔕 Авто: ВЫКЛ'
 BTN_PROFILE = '🧩 Профиль'
 BTN_SETTINGS = '⚙ Настройки'
-BTN_DIAGNOSTICS = '🩺 Диагностика'
 BTN_BACK = '🔙 Назад'
 
 # Настройки
@@ -70,7 +70,7 @@ class TelegramBot:
         self.bot_token = config.TELEGRAM_BOT_TOKEN
         self.admin_ids = set(config.TELEGRAM_ADMIN_IDS)
         self._app: Optional[Application] = None
-        self.pending_actions: Dict[int, str] = {}
+        self.pending_actions: Dict[int, Tuple[str, str]] = {}
         self.chat_profile: Dict[int, str] = {}
 
         if api_clients is None:
@@ -129,6 +129,85 @@ class TelegramBot:
         if profile in self.available_profiles:
             self.chat_profile[chat_id] = profile
 
+    def _set_pending_action(
+        self,
+        chat_id: int,
+        action: str,
+        profile_id: str,
+    ):
+        """Сохраняет pending-действие с привязкой к активному профилю."""
+        self.pending_actions[chat_id] = (action, profile_id)
+
+    def _get_pending_action(self, chat_id: int) -> Tuple[Optional[str], str]:
+        """
+        Возвращает (action, profile_id) для pending-действия.
+        Поддерживает soft-миграцию legacy-значения (str) в (str, profile_id).
+        """
+        pending = self.pending_actions.get(chat_id)
+        if pending is None:
+            return None, self._active_profile(chat_id)
+        if isinstance(pending, tuple) and len(pending) == 2:
+            action, profile_id = pending
+            return action, profile_id
+
+        # Soft migration для in-memory legacy формата.
+        action = str(pending)
+        profile_id = self._active_profile(chat_id)
+        self.pending_actions[chat_id] = (action, profile_id)
+        return action, profile_id
+
+    def _resolve_profile_arg(self, value: str) -> Optional[str]:
+        normalized = (value or '').strip().lower()
+        if not normalized:
+            return None
+        aliases = {
+            'gg': 'ggsel',
+            'ggsel': 'ggsel',
+            'dg': 'digiseller',
+            'digi': 'digiseller',
+            'digiseller': 'digiseller',
+            'plati': 'digiseller',
+        }
+        resolved = aliases.get(normalized, normalized)
+        if resolved in self.available_profiles:
+            return resolved
+        return None
+
+    async def _resolve_command_profile(
+        self,
+        *,
+        chat_id: int,
+        update: Update,
+        context: Optional[ContextTypes.DEFAULT_TYPE],
+    ) -> Optional[str]:
+        """
+        Возвращает профиль для slash-команды.
+        По умолчанию — активный профиль чата.
+        Если передан аргумент и он невалидный — отправляет ошибку и
+        возвращает None.
+        """
+        profile_id = self._active_profile(chat_id)
+        if not context or not getattr(context, 'args', None):
+            return profile_id
+
+        candidate = self._resolve_profile_arg(context.args[0])
+        if candidate:
+            return candidate
+
+        if update.message:
+            available = ', '.join(
+                self._profile_name(pid).lower()
+                for pid in self.available_profiles
+            )
+            await update.message.reply_text(
+                (
+                    f'❌ Неизвестный профиль: {context.args[0]}\n'
+                    f'Доступно: {available}'
+                ),
+                reply_markup=self.get_main_keyboard(profile_id),
+            )
+        return None
+
     def _runtime(self, profile_id: str):
         return storage.get_runtime_config(
             config,
@@ -145,22 +224,29 @@ class TelegramBot:
     def _product_id(self, profile_id: str) -> int:
         return int(self.profile_products.get(profile_id, 0))
 
+    def _fmt_price(self, value) -> str:
+        if value is None:
+            return 'N/A'
+        try:
+            return f'{float(value):.4f}'
+        except Exception:
+            return str(value)
+
     # ================================
     # Keyboards
     # ================================
     def _profile_button(self, profile_id: str) -> str:
         return f'🧩 {self._profile_name(profile_id)}'
 
-    def get_main_keyboard(self, profile_id: str):
-        auto_mode = self._state(profile_id).get('auto_mode', True)
+    def get_main_keyboard(self, profile_id: Optional[str] = None):
+        profile = profile_id or self.default_profile
+        auto_mode = self._state(profile).get('auto_mode', True)
         auto_btn = BTN_AUTO_ON if auto_mode else BTN_AUTO_OFF
         return ReplyKeyboardMarkup(
             [
                 [BTN_STATUS],
-                [BTN_UP, BTN_DOWN],
                 [auto_btn],
                 [BTN_PROFILE, BTN_SETTINGS],
-                [BTN_DIAGNOSTICS],
             ],
             resize_keyboard=True,
         )
@@ -168,6 +254,7 @@ class TelegramBot:
     def get_settings_keyboard(self):
         return ReplyKeyboardMarkup(
             [
+                [BTN_UP, BTN_DOWN],
                 [BTN_PRICE, BTN_STEP],
                 [BTN_MIN, BTN_MAX],
                 [BTN_INTERVAL, BTN_MODE],
@@ -197,6 +284,8 @@ class TelegramBot:
     def _setup_handlers(self):
         self.app.add_handler(CommandHandler('start', self.cmd_start))
         self.app.add_handler(CommandHandler('status', self.cmd_status))
+        self.app.add_handler(CommandHandler('diag', self.cmd_diag))
+        self.app.add_handler(CommandHandler('smoke', self.cmd_smoke))
         self.app.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
         )
@@ -231,9 +320,114 @@ class TelegramBot:
         )
 
     async def cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if not update.effective_chat:
+        if not update.effective_user or not update.effective_chat:
             return
-        await self.send_status(update.effective_chat.id, update)
+        if not self._check_access(update.effective_user.id):
+            if update.message:
+                await update.message.reply_text(
+                    '❌ Нет доступа',
+                    reply_markup=ReplyKeyboardRemove(),
+                )
+            return
+        chat_id = update.effective_chat.id
+        profile_id = await self._resolve_command_profile(
+            chat_id=chat_id,
+            update=update,
+            context=context,
+        )
+        if profile_id is None:
+            return
+        await self.send_status(chat_id, update, profile_id=profile_id)
+
+    async def cmd_diag(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not update.effective_user or not update.effective_chat:
+            return
+        if not self._check_access(update.effective_user.id):
+            if update.message:
+                await update.message.reply_text(
+                    '❌ Нет доступа',
+                    reply_markup=ReplyKeyboardRemove(),
+                )
+            return
+        chat_id = update.effective_chat.id
+        profile_id = await self._resolve_command_profile(
+            chat_id=chat_id,
+            update=update,
+            context=context,
+        )
+        if profile_id is None:
+            return
+        await self.send_diagnostics(chat_id, update, profile_id=profile_id)
+
+    async def cmd_smoke(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not update.effective_user or not update.effective_chat or not update.message:
+            return
+        if not self._check_access(update.effective_user.id):
+            await update.message.reply_text(
+                '❌ Нет доступа',
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            return
+
+        chat_id = update.effective_chat.id
+        profile_id = await self._resolve_command_profile(
+            chat_id=chat_id,
+            update=update,
+            context=context,
+        )
+        if profile_id is None:
+            return
+        profile_name = self._profile_name(profile_id)
+        client = self._api_client(profile_id)
+        product_id = self._product_id(profile_id)
+
+        if not client or not product_id:
+            await update.message.reply_text(
+                (
+                    '❌ Smoke недоступен: не настроены '
+                    'API-клиент или product_id для профиля'
+                ),
+                reply_markup=self.get_main_keyboard(profile_id),
+            )
+            return
+
+        await update.message.reply_text(
+            f'🧪 Запуск smoke API для профиля {profile_name}...',
+            reply_markup=self.get_main_keyboard(profile_id),
+        )
+
+        result = await asyncio.to_thread(
+            run_profile_smoke,
+            client,
+            int(product_id),
+            mutate=False,
+            verify_read=True,
+        )
+        lines = [
+            '🧪 Smoke API',
+            '',
+            f'Профиль: {profile_name}',
+            f'API: {"OK" if result.api_access else "FAIL"}',
+            f'Read: {"OK" if result.product_read_ok else "FAIL"}',
+            f'Write probe: {"OK" if result.write_probe_ok else "FAIL"}',
+            f'Current price: {self._fmt_price(result.current_price)}',
+            f'Probe price: {self._fmt_price(result.probe_price)}',
+            f'Verify price: {self._fmt_price(result.verify_price)}',
+        ]
+        token_perms_ok = getattr(result, 'token_perms_ok', None)
+        token_perms_desc = getattr(result, 'token_perms_desc', None)
+        if token_perms_ok is not None or token_perms_desc:
+            lines.append(
+                'Token perms: '
+                f'{"OK" if token_perms_ok else "FAIL"} '
+                f'({token_perms_desc or "N/A"})'
+            )
+        if result.error:
+            lines.append(f'Error: {result.error}')
+        await update.message.reply_text(
+            '\n'.join(lines),
+            reply_markup=self.get_main_keyboard(profile_id),
+        )
 
     # ================================
     # Message handler
@@ -277,51 +471,54 @@ class TelegramBot:
         if text == BTN_SETTINGS:
             await self.send_settings(chat_id, update)
             return
-        if text == BTN_DIAGNOSTICS:
-            await self.send_diagnostics(chat_id, update)
-            return
-
         # Выбор профиля
         for pid in self.available_profiles:
             if text == self._profile_button(pid):
+                had_pending = chat_id in self.pending_actions
                 self._set_profile(chat_id, pid)
+                if had_pending:
+                    self.pending_actions.pop(chat_id, None)
+                suffix = (
+                    '\n⚠️ Незавершённый ввод сброшен.'
+                    if had_pending else ''
+                )
                 await update.message.reply_text(
-                    f'✅ Активный профиль: {self._profile_name(pid)}',
+                    f'✅ Активный профиль: {self._profile_name(pid)}{suffix}',
                     reply_markup=self.get_main_keyboard(pid),
                 )
                 return
 
         # Настройки
         if text == BTN_PRICE:
-            self.pending_actions[chat_id] = 'DESIRED_PRICE'
+            self._set_pending_action(chat_id, 'DESIRED_PRICE', profile_id)
             await update.message.reply_text(
                 'Введи желаемую цену (например 0.35):',
                 reply_markup=self.get_settings_keyboard(),
             )
             return
         if text == BTN_STEP:
-            self.pending_actions[chat_id] = 'UNDERCUT_VALUE'
+            self._set_pending_action(chat_id, 'UNDERCUT_VALUE', profile_id)
             await update.message.reply_text(
                 'Введи шаг снижения (например 0.0051):',
                 reply_markup=self.get_settings_keyboard(),
             )
             return
         if text == BTN_MIN:
-            self.pending_actions[chat_id] = 'MIN_PRICE'
+            self._set_pending_action(chat_id, 'MIN_PRICE', profile_id)
             await update.message.reply_text(
                 'Введи минимальную цену:',
                 reply_markup=self.get_settings_keyboard(),
             )
             return
         if text == BTN_MAX:
-            self.pending_actions[chat_id] = 'MAX_PRICE'
+            self._set_pending_action(chat_id, 'MAX_PRICE', profile_id)
             await update.message.reply_text(
                 'Введи максимальную цену:',
                 reply_markup=self.get_settings_keyboard(),
             )
             return
         if text == BTN_INTERVAL:
-            self.pending_actions[chat_id] = 'CHECK_INTERVAL'
+            self._set_pending_action(chat_id, 'CHECK_INTERVAL', profile_id)
             runtime = self._runtime(profile_id)
             await update.message.reply_text(
                 (
@@ -339,7 +536,7 @@ class TelegramBot:
             await self.toggle_position_filter(chat_id, user_id, update)
             return
         if text == BTN_ADD_URL:
-            self.pending_actions[chat_id] = 'ADD_URL'
+            self._set_pending_action(chat_id, 'ADD_URL', profile_id)
             await update.message.reply_text(
                 'Отправь URL конкурента:',
                 reply_markup=self.get_settings_keyboard(),
@@ -371,16 +568,30 @@ class TelegramBot:
     # ================================
     # Status and diagnostics
     # ================================
-    async def send_status(self, chat_id: int, update: Update):
+    async def send_status(
+        self,
+        chat_id: int,
+        update: Update,
+        profile_id: Optional[str] = None,
+    ):
         if not update.message:
             return
-        profile_id = self._active_profile(chat_id)
+        profile = profile_id or self._active_profile(chat_id)
+        if profile not in self.available_profiles:
+            profile = self._active_profile(chat_id)
+        profile_id = profile
         profile_name = self._profile_name(profile_id)
         state = self._state(profile_id)
         runtime = self._runtime(profile_id)
 
         competitor_rank = state.get('last_competitor_rank')
         competitor_info = f'#{competitor_rank}' if competitor_rank else 'N/A'
+        monitor_enabled = bool(runtime.COMPETITOR_URLS)
+        monitor_mode = (
+            f'АКТИВЕН ({len(runtime.COMPETITOR_URLS)} URL)'
+            if monitor_enabled
+            else 'ВЫКЛ (нет URL)'
+        )
         last_update = state.get('last_update')
         update_str = last_update.strftime('%Y-%m-%d %H:%M') if last_update else 'Никогда'
 
@@ -389,11 +600,51 @@ class TelegramBot:
         competitor_url = state.get('last_competitor_url') or 'N/A'
         parse_method = state.get('last_competitor_method') or 'N/A'
 
-        my_price = state.get('last_target_price')
-        if my_price is None:
-            my_price = state.get('last_price')
+        target_price = state.get('last_target_price')
+        if target_price is None:
+            target_price = state.get('last_price')
+        display_price: Optional[float] = None
+        client = self._api_client(profile_id)
+        product_id = self._product_id(profile_id)
+        get_display_price = (
+            getattr(client, 'get_display_price', None) if client else None
+        )
+        get_my_price = getattr(client, 'get_my_price', None) if client else None
+        if callable(get_display_price) and product_id > 0:
+            try:
+                resolved_price = await asyncio.to_thread(
+                    get_display_price,
+                    product_id,
+                )
+                if resolved_price is not None:
+                    display_price = float(resolved_price)
+            except Exception as e:
+                logger.warning(
+                    '[%s] Не удалось получить display-цену для статуса: %s',
+                    profile_name,
+                    e,
+                )
+        if display_price is None and callable(get_my_price) and product_id > 0:
+            try:
+                api_price = await asyncio.to_thread(get_my_price, product_id)
+                if api_price is not None:
+                    display_price = float(api_price)
+            except Exception as e:
+                logger.warning(
+                    '[%s] Не удалось получить live-цену для статуса: %s',
+                    profile_name,
+                    e,
+                )
+        if display_price is None:
+            display_price = target_price
         competitor_price = state.get('last_competitor_min')
-        my_price_str = f'{my_price:.4f}' if my_price is not None else 'N/A'
+        target_price_str = (
+            f'{target_price:.4f}' if target_price is not None else 'N/A'
+        )
+        display_price_str = (
+            f'{display_price:.4f}'
+            if display_price is not None else 'N/A'
+        )
         competitor_price_str = (
             f'{competitor_price:.4f}'
             if competitor_price is not None else 'N/A'
@@ -402,12 +653,14 @@ class TelegramBot:
         text = f"""📊 Статус
 
 🧩 Профиль: {profile_name}
-💰 Моя цена: {my_price_str}₽
+💰 Моя цена: {display_price_str}₽
+🎯 Выставлено ботом: {target_price_str}₽
 📈 Цена конкурента: {competitor_price_str}₽
 🔍 Позиция: {competitor_info}
 🔗 URL: {competitor_url}
 🧪 Метод парсинга: {parse_method}
 🕓 Последний парс: {parse_at_str}
+📡 Мониторинг: {monitor_mode}
 
 🔔 Авто: {'ВКЛ' if state.get('auto_mode', True) else 'ВЫКЛ'}
 🎯 Режим: {runtime.MODE}
@@ -428,6 +681,12 @@ class TelegramBot:
         profile_id = self._active_profile(chat_id)
         profile_name = self._profile_name(profile_id)
         runtime = self._runtime(profile_id)
+        monitor_enabled = bool(runtime.COMPETITOR_URLS)
+        monitor_mode = (
+            f'АКТИВЕН ({len(runtime.COMPETITOR_URLS)} URL)'
+            if monitor_enabled
+            else 'ВЫКЛ (нет URL)'
+        )
 
         text = f"""⚙️ Настройки
 
@@ -446,6 +705,7 @@ class TelegramBot:
 🚀 FAST_REBOUND_DELTA: {runtime.FAST_REBOUND_DELTA:.4f}₽
 🔁 Обновлять только при изменении конкурента: {'Да' if runtime.UPDATE_ONLY_ON_COMPETITOR_CHANGE else 'Нет'}
 📍 Позиция: {'Вкл' if runtime.POSITION_FILTER_ENABLED else 'Выкл'}
+📡 Мониторинг: {monitor_mode}
 🔗 Конкурентов: {len(runtime.COMPETITOR_URLS)}
 """
         await update.message.reply_text(
@@ -453,10 +713,18 @@ class TelegramBot:
             reply_markup=self.get_settings_keyboard(),
         )
 
-    async def send_diagnostics(self, chat_id: int, update: Update):
+    async def send_diagnostics(
+        self,
+        chat_id: int,
+        update: Update,
+        profile_id: Optional[str] = None,
+    ):
         if not update.message:
             return
-        profile_id = self._active_profile(chat_id)
+        profile = profile_id or self._active_profile(chat_id)
+        if profile not in self.available_profiles:
+            profile = self._active_profile(chat_id)
+        profile_id = profile
         profile_name = self._profile_name(profile_id)
         state = self._state(profile_id)
         runtime = self._runtime(profile_id)
@@ -477,6 +745,22 @@ class TelegramBot:
             except Exception as e:
                 logger.error('Ошибка API в диагностике: %s', e)
 
+        perms_line = None
+        if profile_id == 'digiseller' and client and hasattr(
+            client,
+            'get_token_perms_status',
+        ):
+            try:
+                perms_ok, perms_desc = await asyncio.to_thread(
+                    client.get_token_perms_status,
+                )
+                perms_line = (
+                    f'Token perms: {"OK" if perms_ok else "FAIL"} '
+                    f'({perms_desc})'
+                )
+            except Exception as e:
+                logger.error('Ошибка token/perms в диагностике: %s', e)
+
         now = datetime.now()
         last_cycle = state.get('last_cycle')
         age = int((now - last_cycle).total_seconds()) if last_cycle else 0
@@ -485,7 +769,10 @@ class TelegramBot:
             '',
             f'Профиль: {profile_name}',
             f'API: {"OK" if api_ok else "FAIL"}',
-            f'Product: {"OK" if product_ok else "FAIL"} ({product_price}₽)',
+            (
+                f'Product: {"OK" if product_ok else "FAIL"} '
+                f'({self._fmt_price(product_price)}₽)'
+            ),
             f'Config: {"OK" if is_valid else "INVALID"}',
             f'Heartbeat: {age}s',
             f'Auto: {"ON" if state.get("auto_mode", True) else "OFF"}',
@@ -496,6 +783,8 @@ class TelegramBot:
                 f'{state.get("last_competitor_block_reason") or "N/A"}'
             ),
         ]
+        if perms_line:
+            lines.append(perms_line)
         if errors:
             lines.append('Errors: ' + '; '.join(errors[:3]))
         await update.message.reply_text(
@@ -631,7 +920,7 @@ class TelegramBot:
                 reply_markup=self.get_settings_keyboard(),
             )
             return
-        self.pending_actions[chat_id] = 'REMOVE_URL'
+        self._set_pending_action(chat_id, 'REMOVE_URL', profile_id)
         lines = ['Удали номер URL:'] + [f'{i}. {u}' for i, u in enumerate(urls, 1)]
         await update.message.reply_text(
             '\n'.join(lines),
@@ -670,10 +959,20 @@ class TelegramBot:
     ):
         if not update.message:
             return
-        action = self.pending_actions.get(chat_id)
+        action, pending_profile_id = self._get_pending_action(chat_id)
         if not action:
             return
         profile_id = self._active_profile(chat_id)
+        if pending_profile_id != profile_id:
+            self.pending_actions.pop(chat_id, None)
+            await update.message.reply_text(
+                (
+                    '⚠️ Незавершённый ввод сброшен: '
+                    'активный профиль был изменён.'
+                ),
+                reply_markup=self.get_main_keyboard(profile_id),
+            )
+            return
         runtime = self._runtime(profile_id)
 
         if action in {'DESIRED_PRICE', 'UNDERCUT_VALUE', 'MIN_PRICE', 'MAX_PRICE'}:
@@ -744,27 +1043,37 @@ class TelegramBot:
             return
 
         if action == 'ADD_URL':
-            if not text.startswith('http'):
+            candidate_urls = storage.normalize_competitor_urls([text])
+            if not candidate_urls:
                 await update.message.reply_text(
-                    '❌ Нужен URL',
+                    '❌ Нужен валидный URL (http/https)',
                     reply_markup=self.get_settings_keyboard(),
                 )
                 return
+            candidate_url = candidate_urls[0]
             urls = storage.get_competitor_urls(
                 self.profile_default_urls.get(profile_id, []),
                 profile_id=profile_id,
             )
-            if text not in urls:
-                urls.append(text)
-                storage.set_competitor_urls(
-                    urls,
-                    user_id=user_id,
-                    source='telegram',
-                    profile_id=profile_id,
+            normalized_before = storage.normalize_competitor_urls(urls)
+            normalized_after = storage.normalize_competitor_urls(
+                normalized_before + [candidate_url]
+            )
+            if normalized_after == normalized_before:
+                await update.message.reply_text(
+                    'ℹ️ URL уже есть в списке. Отправь другой URL или нажми Назад.',
+                    reply_markup=self.get_settings_keyboard(),
                 )
+                return
+            storage.set_competitor_urls(
+                normalized_after,
+                user_id=user_id,
+                source='telegram',
+                profile_id=profile_id,
+            )
             self.pending_actions.pop(chat_id, None)
             await update.message.reply_text(
-                '✅ URL добавлен',
+                f'✅ URL добавлен: {normalized_after[-1]}',
                 reply_markup=self.get_settings_keyboard(),
             )
             await self.send_settings(chat_id, update)
@@ -797,6 +1106,11 @@ class TelegramBot:
                     reply_markup=self.get_settings_keyboard(),
                 )
                 await self.send_settings(chat_id, update)
+                return
+            await update.message.reply_text(
+                '❌ Неверный номер URL',
+                reply_markup=self.get_settings_keyboard(),
+            )
             return
 
     # ================================

@@ -12,28 +12,47 @@ nano .env
 ## 2. Запуск контейнера
 
 ```bash
+# Docker Compose v2
 docker compose down
 docker compose up -d --build
 docker compose logs -f
+
+# Если на сервере только legacy docker-compose:
+docker-compose down
+docker-compose up -d --build
+docker-compose logs -f
 ```
 
 ## 3. Проверка
 
 ```bash
+# Проверка healthcheck локально (по state.db)
 python3 healthcheck.py
-python3 scripts/smoke_profiles_api.py
-pytest
+
+# Проверка API smoke внутри контейнера (использует runtime .env)
+docker compose exec -T monitoring-pricing-bot python3 scripts/smoke_profiles_api.py
+
+# Если на сервере только legacy docker-compose:
+docker-compose exec -T monitoring-pricing-bot python3 scripts/smoke_profiles_api.py
 ```
 
 ## 4. Cookies refresh
 
 Обновление cookies выполняется внешним способом (браузер/ваш инструмент),
-после чего нужно обновить `COMPETITOR_COOKIES` в `.env`:
+после чего обновите профильный ключ в `.env`:
+- `GGSEL_COMPETITOR_COOKIES`
+- `DIGISELLER_COMPETITOR_COOKIES`
+- (fallback) `COMPETITOR_COOKIES`
 
 ```bash
 nano .env
-docker compose restart
 ```
+
+Рестарт контейнера не требуется: бот на каждом цикле пытается подтянуть свежие
+cookies из `.env` (файл примонтирован в контейнер как read-only).
+Если env-файл лежит в другом месте, задайте `ENV_FILE_PATH=/path/to/.env`.
+Если старые cookies уже протухли, бот может автоматически очистить их в runtime
+после успешного запроса без cookies (сам `.env` при этом не изменяется).
 
 ## 5. Watchdog
 
