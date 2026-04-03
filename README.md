@@ -69,7 +69,10 @@ Pipeline:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
+# runtime deps
 pip install -r requirements.txt
+# для запуска тестов/линтеров
+pip install -r requirements-dev.txt
 cp .env.example .env
 ```
 
@@ -227,7 +230,7 @@ pytest -q
 python3 -m compileall src scripts healthcheck.py
 ```
 
-Если у вас Python 3.14+, используйте версии из `requirements.txt`
+Если у вас Python 3.14+, используйте версии из `requirements-dev.txt`
 (`pytest==8.4.2`, `pytest-asyncio==1.2.0`), чтобы избежать deprecated warning
 от старого `pytest-asyncio`.
 
