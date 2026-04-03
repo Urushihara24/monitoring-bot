@@ -156,6 +156,10 @@ docker compose logs -f
   для DigiSeller дополнительно показывает `token/perms`.
   Можно указать профиль аргументом: `/smoke ggsel` или `/smoke digiseller`.
 
+Алиасы профилей в аргументах команд:
+- GGSEL: `gg`, `ggsel`
+- DigiSeller: `digi`, `dg`, `digiseller`, `plati`
+
 Главное меню:
 - `📊 Статус`
 - `🔔 Авто: ВКЛ/ВЫКЛ`
