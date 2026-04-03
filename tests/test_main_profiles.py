@@ -97,3 +97,36 @@ def test_build_profiles_skips_digiseller_without_credentials(monkeypatch):
     ids = [profile['id'] for profile in profiles]
     assert ids == ['ggsel']
 
+
+def test_build_profiles_skips_digiseller_without_product_id(monkeypatch):
+    import src.main as main_module
+
+    _set_profile_config(monkeypatch)
+    monkeypatch.setattr(main_module.config, 'DIGISELLER_PRODUCT_ID', 0)
+
+    monkeypatch.setattr(
+        main_module.storage,
+        'get_competitor_urls',
+        lambda default_urls, profile_id='ggsel': default_urls,
+    )
+
+    profiles = _build_profiles(logging.getLogger('test-main'))
+    ids = [profile['id'] for profile in profiles]
+    assert ids == ['ggsel']
+
+
+def test_build_profiles_skips_ggsel_without_product_id(monkeypatch):
+    import src.main as main_module
+
+    _set_profile_config(monkeypatch)
+    monkeypatch.setattr(main_module.config, 'GGSEL_PRODUCT_ID', 0)
+
+    monkeypatch.setattr(
+        main_module.storage,
+        'get_competitor_urls',
+        lambda default_urls, profile_id='ggsel': default_urls,
+    )
+
+    profiles = _build_profiles(logging.getLogger('test-main'))
+    ids = [profile['id'] for profile in profiles]
+    assert ids == ['digiseller']

@@ -97,7 +97,7 @@ def _build_profiles(logger: logging.Logger):
             logger.warning('[GGSEL] Профиль включен, но нет COMPETITOR_URLS')
         if not config.GGSEL_PRODUCT_ID:
             logger.warning('[GGSEL] Профиль включен, но GGSEL_PRODUCT_ID пуст')
-        if not config.GGSEL_API_KEY and not config.GGSEL_ACCESS_TOKEN:
+        elif not config.GGSEL_API_KEY and not config.GGSEL_ACCESS_TOKEN:
             logger.warning('[GGSEL] Профиль включен, но не задан API key/token')
         else:
             profiles.append(
@@ -130,7 +130,7 @@ def _build_profiles(logger: logging.Logger):
             logger.warning(
                 '[DIGISELLER] Профиль включен, но DIGISELLER_PRODUCT_ID пуст'
             )
-        if not config.DIGISELLER_API_KEY and not config.DIGISELLER_ACCESS_TOKEN:
+        elif not config.DIGISELLER_API_KEY and not config.DIGISELLER_ACCESS_TOKEN:
             logger.warning(
                 '[DIGISELLER] Профиль включен, но не задан API key/token'
             )
