@@ -403,6 +403,79 @@ class GGSELClient:
         logger.warning(f"Не удалось получить цену товара {product_id}")
         return None
 
+    def _coerce_price(self, value: Any) -> Optional[float]:
+        """Безопасно преобразует цену к float с 4 знаками."""
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            try:
+                price = float(value)
+            except Exception:
+                return None
+            return round(price, 4) if price > 0 else None
+        if isinstance(value, str):
+            cleaned = value.strip().replace(",", ".")
+            try:
+                price = float(cleaned)
+            except Exception:
+                return None
+            return round(price, 4) if price > 0 else None
+        return None
+
+    def get_public_price(self, product_id: int, timeout: int = 10) -> Optional[float]:
+        """
+        Получение цены с публичной витрины GGSEL (api4).
+
+        Для ряда товаров витрина и seller endpoint могут различаться
+        из-за внутренних округлений/надбавок; для статуса используем
+        именно витринную цену.
+        """
+        url = f"https://api4.ggsel.com/goods/{int(product_id)}"
+        response = self._request_with_retry(
+            "GET",
+            url,
+            timeout=timeout,
+            max_retries=2,
+            headers={"Accept": "application/json"},
+        )
+        if response is None or response.status_code != 200:
+            return None
+        try:
+            payload = response.json()
+        except Exception:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        data = payload.get("data") or {}
+        if not isinstance(data, dict):
+            return None
+
+        prices_unit = data.get("prices_unit") or {}
+        if isinstance(prices_unit, dict):
+            price = self._coerce_price(prices_unit.get("unit_amount"))
+            if price is not None:
+                logger.info(
+                    "Публичная цена товара %s: %s RUB",
+                    product_id,
+                    price,
+                )
+                return price
+
+        price = self._coerce_price(data.get("price"))
+        if price is not None:
+            logger.info("Публичная цена товара %s: %s RUB", product_id, price)
+        return price
+
+    def get_display_price(self, product_id: int, timeout: int = 10) -> Optional[float]:
+        """
+        Цена для отображения в статусе.
+        Приоритет: публичная витрина -> seller API.
+        """
+        public_price = self.get_public_price(product_id, timeout=timeout)
+        if public_price is not None:
+            return public_price
+        return self.get_my_price(product_id, timeout=timeout)
+
     def get_update_task_status(
         self, task_id: str, timeout: int = 10
     ) -> Optional[Dict[str, Any]]:
