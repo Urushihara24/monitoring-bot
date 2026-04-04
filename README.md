@@ -260,6 +260,12 @@ python3 scripts/smoke_chat_api.py --profile all
 python3 scripts/smoke_chat_api.py --profile digiseller --send-probe
 ```
 
+Smoke доступности текстов инструкций (без отправки сообщений):
+
+```bash
+python3 scripts/smoke_instruction_data.py --profile all
+```
+
 ## Тесты и проверки
 
 ```bash
