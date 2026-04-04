@@ -392,7 +392,17 @@ async def test_scheduler_digiseller_chat_autoreply_uses_template(monkeypatch, tm
     monkeypatch.setattr(scheduler_mod, 'config', cfg)
 
     class EnglishApi(DummyChatApiClient):
+        def __init__(self):
+            super().__init__()
+            self.order_info_locales = []
+
+        def list_chats(self, **kwargs):
+            if kwargs.get('page') == 1:
+                return [{'id_i': 111, 'id_d': 5077639, 'lang': 'en-US'}]
+            return []
+
         def get_order_info(self, _order_id, **_kwargs):
+            self.order_info_locales.append(_kwargs.get('locale'))
             return {
                 'locale': 'en-US',
                 'options': [{'value': 'will add'}],
@@ -414,6 +424,7 @@ async def test_scheduler_digiseller_chat_autoreply_uses_template(monkeypatch, tm
 
     assert api.sent_messages == [(111, 'Use template EN')]
     assert api.product_info_calls == []
+    assert api.order_info_locales == ['en']
 
 
 @pytest.mark.asyncio
