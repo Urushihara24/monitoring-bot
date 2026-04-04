@@ -165,6 +165,7 @@ class DigiSellerClient(GGSELClient):
         self,
         product_id: int,
         timeout: int = 10,
+        lang: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Получение информации о товаре:
@@ -174,7 +175,7 @@ class DigiSellerClient(GGSELClient):
         response = self._authorized_request(
             'GET',
             url,
-            params={'seller_id': self.seller_id, 'lang': self.lang},
+            params={'seller_id': self.seller_id, 'lang': lang or self.lang},
             timeout=timeout,
         )
         if response is None:

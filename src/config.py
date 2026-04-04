@@ -91,6 +91,33 @@ class Config:
     )
     DIGISELLER_ENABLED: bool = _env_bool('DIGISELLER_ENABLED', False)
     DIGISELLER_COMPETITOR_URLS: List[str] = None
+    DIGISELLER_CHAT_AUTOREPLY_ENABLED: bool = _env_bool(
+        'DIGISELLER_CHAT_AUTOREPLY_ENABLED',
+        False,
+    )
+    DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS: List[int] = None
+    DIGISELLER_CHAT_AUTOREPLY_PAGE_SIZE: int = int(
+        os.getenv('DIGISELLER_CHAT_AUTOREPLY_PAGE_SIZE', '50')
+    )
+    DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES: int = int(
+        os.getenv('DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES', '2')
+    )
+    DIGISELLER_CHAT_TEMPLATE_RU_ALREADY: str = os.getenv(
+        'DIGISELLER_CHAT_TEMPLATE_RU_ALREADY',
+        '',
+    )
+    DIGISELLER_CHAT_TEMPLATE_RU_ADD: str = os.getenv(
+        'DIGISELLER_CHAT_TEMPLATE_RU_ADD',
+        '',
+    )
+    DIGISELLER_CHAT_TEMPLATE_EN_ALREADY: str = os.getenv(
+        'DIGISELLER_CHAT_TEMPLATE_EN_ALREADY',
+        '',
+    )
+    DIGISELLER_CHAT_TEMPLATE_EN_ADD: str = os.getenv(
+        'DIGISELLER_CHAT_TEMPLATE_EN_ADD',
+        '',
+    )
     # Профильные дефолты runtime для DigiSeller (используются только если
     # ключи не были переопределены в runtime_settings ранее).
     DIGISELLER_MIN_PRICE: Optional[float] = _env_optional_float(
@@ -259,6 +286,21 @@ class Config:
             self.DIGISELLER_COMPETITOR_URLS = [
                 x.strip() for x in d_urls_str.split(',') if x.strip()
             ]
+
+        if self.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS is None:
+            raw_ids = os.getenv('DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS', '')
+            parsed_ids = []
+            for chunk in raw_ids.split(','):
+                normalized = chunk.strip()
+                if not normalized:
+                    continue
+                try:
+                    value = int(float(normalized))
+                except ValueError:
+                    continue
+                if value > 0:
+                    parsed_ids.append(value)
+            self.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = parsed_ids
 
 
 # Глобальный экземпляр конфигурации
