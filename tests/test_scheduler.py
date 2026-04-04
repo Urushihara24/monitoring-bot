@@ -630,6 +630,164 @@ async def test_scheduler_digiseller_chat_autoreply_prefers_add_info_en_for_add_m
 
 
 @pytest.mark.asyncio
+async def test_scheduler_digiseller_chat_autoreply_detects_mode_from_variant_id(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    class VariantIdApi(DummyChatApiClient):
+        def get_order_info(self, _order_id, **_kwargs):
+            return {
+                'locale': 'ru-RU',
+                'id_d': 5077639,
+                'options': [
+                    {
+                        'question': 'Уже в друзьях?',
+                        'variant_id': 1,
+                        'variants': [
+                            {'id': 1, 'name': 'Уже в друзьях'},
+                            {'id': 2, 'name': 'Добавит'},
+                        ],
+                    }
+                ],
+                'add_info': 'Add instruction',
+                'info': 'Main instruction',
+            }
+
+        def get_product_info(self, product_id, timeout=10, lang=None):
+            self.product_info_calls.append((product_id, lang))
+            return {'info': 'Product info fallback'}
+
+    bot = DummyTelegramBot()
+    api = VariantIdApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    assert api.sent_messages == [(111, 'Main instruction')]
+    assert api.product_info_calls == []
+
+
+@pytest.mark.asyncio
+async def test_scheduler_digiseller_chat_autoreply_detects_mode_from_bool_choice(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    class BoolChoiceApi(DummyChatApiClient):
+        def get_order_info(self, _order_id, **_kwargs):
+            return {
+                'locale': 'ru-RU',
+                'id_d': 5077639,
+                'options': [
+                    {
+                        'name': 'Уже в друзьях?',
+                        'value': '0',
+                    }
+                ],
+                'add_info': 'Add instruction',
+                'info': 'Main instruction',
+            }
+
+        def get_product_info(self, product_id, timeout=10, lang=None):
+            self.product_info_calls.append((product_id, lang))
+            return {'info': 'Product info fallback'}
+
+    bot = DummyTelegramBot()
+    api = BoolChoiceApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    assert api.sent_messages == [(111, 'Add instruction')]
+    assert api.product_info_calls == []
+
+
+@pytest.mark.asyncio
+async def test_scheduler_digiseller_chat_autoreply_maps_selected_id_to_variant_text(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    class SelectedIdApi(DummyChatApiClient):
+        def get_order_info(self, _order_id, **_kwargs):
+            return {
+                'locale': 'ru-RU',
+                'id_d': 5077639,
+                'options': [
+                    {
+                        'name': 'Выбор сценария',
+                        'selected_id': 2,
+                        'variants': [
+                            {'id': 1, 'name': 'Уже в друзьях'},
+                            {'id': 2, 'name': 'Добавит'},
+                        ],
+                    }
+                ],
+                'add_info': 'Add instruction',
+                'info': 'Main instruction',
+            }
+
+        def get_product_info(self, product_id, timeout=10, lang=None):
+            self.product_info_calls.append((product_id, lang))
+            return {'info': 'Product info fallback'}
+
+    bot = DummyTelegramBot()
+    api = SelectedIdApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    assert api.sent_messages == [(111, 'Add instruction')]
+    assert api.product_info_calls == []
+
+
+@pytest.mark.asyncio
 async def test_scheduler_digiseller_chat_autoreply_uses_order_info_instruction_first(
     monkeypatch,
     tmp_path,
