@@ -1052,6 +1052,74 @@ async def test_scheduler_digiseller_chat_autoreply_uses_selected_variant_add_inf
 
 
 @pytest.mark.asyncio
+async def test_scheduler_digiseller_chat_autoreply_prefers_friend_option_over_other_options(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    class MixedOptionsApi(DummyChatApiClient):
+        def get_order_info(self, _order_id, **_kwargs):
+            return {
+                'locale': 'ru-RU',
+                'id_d': 5077639,
+                'options': [
+                    {
+                        'name': 'Способ оплаты',
+                        'selected_id': 1,
+                        'variants': [
+                            {
+                                'id': 1,
+                                'name': 'Карта',
+                                'add_info': 'Wrong payment instruction',
+                            },
+                        ],
+                    },
+                    {
+                        'name': 'Уже в друзьях?',
+                        'selected_id': 2,
+                        'variants': [
+                            {'id': 1, 'name': 'Уже в друзьях'},
+                            {
+                                'id': 2,
+                                'name': 'Добавит',
+                                'add_info': 'Correct friend instruction',
+                            },
+                        ],
+                    },
+                ],
+                'add_info': 'Fallback add',
+            }
+
+        def get_product_info(self, product_id, timeout=10, lang=None):
+            self.product_info_calls.append((product_id, lang))
+            return {'add_info': 'Product add fallback'}
+
+    bot = DummyTelegramBot()
+    api = MixedOptionsApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    assert api.sent_messages == [(111, 'Correct friend instruction')]
+    assert api.product_info_calls == []
+
+
+@pytest.mark.asyncio
 async def test_scheduler_digiseller_chat_autoreply_uses_order_info_instruction_first(
     monkeypatch,
     tmp_path,
