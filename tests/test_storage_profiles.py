@@ -97,6 +97,30 @@ def test_runtime_settings_with_last_change_returns_timestamp(tmp_path):
     assert rows[0]['last_change'] is not None
 
 
+def test_runtime_settings_with_last_change_keeps_profile_isolation(tmp_path):
+    db = tmp_path / 'state.db'
+    storage = Storage(db_path=str(db))
+    storage.set_runtime_setting(
+        'CHAT_AUTOREPLY_SENT:42',
+        '2026-04-02T10:00:00',
+        profile_id='ggsel',
+    )
+    storage.set_runtime_setting(
+        'CHAT_AUTOREPLY_SENT:42',
+        '2026-04-03T10:00:00',
+        profile_id='digiseller',
+    )
+
+    rows = storage.list_runtime_settings_with_last_change(
+        profile_id='digiseller',
+        key_prefix='CHAT_AUTOREPLY_SENT:',
+    )
+    assert len(rows) == 1
+    assert rows[0]['key'] == 'CHAT_AUTOREPLY_SENT:42'
+    assert rows[0]['value'] == '2026-04-03T10:00:00'
+    assert rows[0]['last_change'] is not None
+
+
 def test_competitor_urls_profile_specific(tmp_path):
     db = tmp_path / 'state.db'
     storage = Storage(db_path=str(db))
