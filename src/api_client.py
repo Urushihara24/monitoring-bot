@@ -297,6 +297,7 @@ class GGSELClient:
         url: str,
         max_retries: int = 3,
         timeout: int = 10,
+        suppress_404_log: bool = False,
         **kwargs,
     ) -> Optional[requests.Response]:
         """
@@ -307,6 +308,7 @@ class GGSELClient:
             url: URL
             max_retries: Количество попыток
             timeout: Таймаут
+            suppress_404_log: Не логировать 404 как ошибку (для probe)
             **kwargs: Аргументы для requests
 
         Returns:
@@ -320,7 +322,8 @@ class GGSELClient:
 
                 # 404 не retry-им
                 if response.status_code == 404:
-                    logger.error(f"API endpoint не найден (404): {url}")
+                    if not suppress_404_log:
+                        logger.error(f"API endpoint не найден (404): {url}")
                     return response
 
                 # 401/403 retry-им с задержкой
@@ -923,6 +926,7 @@ class GGSELClient:
             url,
             timeout=timeout,
             max_retries=2,
+            suppress_404_log=True,
             **kwargs,
         )
         if response is None:

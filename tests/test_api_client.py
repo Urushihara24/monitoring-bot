@@ -545,6 +545,30 @@ def test_request_with_retry_404_no_retries(monkeypatch):
     assert calls['n'] == 1
 
 
+def test_request_with_retry_404_suppresses_not_found_log(monkeypatch):
+    client = make_client()
+    calls = {'n': 0}
+    errors: list[tuple] = []
+
+    def fake_request(method, url, timeout=10, **kwargs):
+        calls['n'] += 1
+        return FakeResponse(404, {})
+
+    monkeypatch.setattr(client.session, 'request', fake_request)
+    monkeypatch.setattr('src.api_client.logger.error', lambda *a, **k: errors.append(a))
+
+    response = client._request_with_retry(
+        'GET',
+        'https://x.test',
+        max_retries=3,
+        suppress_404_log=True,
+    )
+    assert response is not None
+    assert response.status_code == 404
+    assert calls['n'] == 1
+    assert errors == []
+
+
 def test_request_with_retry_timeout_exhausted(monkeypatch):
     client = make_client()
     calls = {'n': 0}
