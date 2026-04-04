@@ -109,6 +109,7 @@ def _build_profiles(logger: logging.Logger):
                     'require_api_on_start': config.GGSEL_REQUIRE_API_ON_START,
                     'client': GGSELClient(
                         api_key=config.GGSEL_API_KEY,
+                        api_secret=config.GGSEL_API_SECRET,
                         seller_id=config.GGSEL_SELLER_ID,
                         base_url=config.GGSEL_BASE_URL,
                         lang=config.GGSEL_LANG,
@@ -146,6 +147,7 @@ def _build_profiles(logger: logging.Logger):
                     ),
                     'client': DigiSellerClient(
                         api_key=config.DIGISELLER_API_KEY,
+                        api_secret=config.DIGISELLER_API_SECRET,
                         seller_id=config.DIGISELLER_SELLER_ID,
                         base_url=config.DIGISELLER_BASE_URL,
                         lang=config.DIGISELLER_LANG,

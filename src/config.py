@@ -64,8 +64,10 @@ class Config:
     TELEGRAM_ADMIN_IDS: List[int] = None
     
     # GGSEL API
-    # Секретный API key (используется для получения access token через /apilogin)
+    # API key или JWT access token (legacy)
     GGSEL_API_KEY: str = os.getenv('GGSEL_API_KEY', '')
+    # Явный секрет для подписи /apilogin (если GGSEL_API_KEY = JWT)
+    GGSEL_API_SECRET: str = os.getenv('GGSEL_API_SECRET', '')
     # Опционально: можно явно передать готовый access token
     GGSEL_ACCESS_TOKEN: str = os.getenv('GGSEL_ACCESS_TOKEN', '')
     GGSEL_SELLER_ID: int = int(os.getenv('GGSEL_SELLER_ID', '8175'))
@@ -77,6 +79,8 @@ class Config:
 
     # DigiSeller API (второй профиль)
     DIGISELLER_API_KEY: str = os.getenv('DIGISELLER_API_KEY', '')
+    # Явный секрет для подписи /apilogin (если DIGISELLER_API_KEY = JWT)
+    DIGISELLER_API_SECRET: str = os.getenv('DIGISELLER_API_SECRET', '')
     DIGISELLER_ACCESS_TOKEN: str = os.getenv('DIGISELLER_ACCESS_TOKEN', '')
     DIGISELLER_SELLER_ID: int = int(os.getenv('DIGISELLER_SELLER_ID', '0'))
     DIGISELLER_PRODUCT_ID: int = int(os.getenv('DIGISELLER_PRODUCT_ID', '0'))

@@ -41,17 +41,22 @@ class GGSELClient:
         base_url: str,
         lang: str = "ru-RU",
         access_token: str = "",
+        api_secret: str = "",
     ):
         """
         Args:
-            api_key: API ключ (или access token для legacy-конфига)
+            api_key: API key или access token (JWT) в legacy-конфиге
             seller_id: ID продавца
             base_url: Базовый URL API
             lang: Язык (по умолчанию ru-RU)
             access_token: Access token (если не задан, может быть
                 получен из api_key для legacy-конфига)
+            api_secret: Секрет для подписи ApiLogin (sha256(secret+timestamp)).
+                Если не задан, используется api_key, только если он не похож
+                на JWT.
         """
         self.api_key = api_key
+        self.api_secret = (api_secret or "").strip()
         self.seller_id = seller_id
         self.base_url = (base_url or "").rstrip("/")
         self.lang = lang
@@ -142,14 +147,22 @@ class GGSELClient:
     def _refresh_access_token(self, timeout: int = 10) -> bool:
         """
         Получение access token через ApiLogin:
-        sign = sha256(api_key + timestamp)
+        sign = sha256(api_secret + timestamp)
         """
-        if not self.api_key:
-            logger.error("ApiLogin невозможен: GGSEL_API_KEY пуст")
+        sign_secret = self.api_secret
+        if not sign_secret and self.api_key and not self._is_probably_jwt(
+            self.api_key
+        ):
+            sign_secret = self.api_key
+        if not sign_secret:
+            logger.error(
+                "ApiLogin невозможен: не задан API secret "
+                "(GGSEL_API_SECRET/DIGISELLER_API_SECRET)"
+            )
             return False
 
         timestamp = str(int(time.time()))
-        sign_input = (self.api_key + timestamp).encode("utf-8")
+        sign_input = (sign_secret + timestamp).encode("utf-8")
         sign = hashlib.sha256(sign_input).hexdigest()
         payload = {
             "seller_id": self.seller_id,

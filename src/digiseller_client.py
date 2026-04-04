@@ -29,6 +29,7 @@ class DigiSellerClient(GGSELClient):
         base_url: str,
         lang: str = 'ru-RU',
         access_token: str = '',
+        api_secret: str = '',
         default_product_id: int = 0,
     ):
         super().__init__(
@@ -37,6 +38,7 @@ class DigiSellerClient(GGSELClient):
             base_url=base_url,
             lang=lang,
             access_token=access_token,
+            api_secret=api_secret,
         )
         self.default_product_id = int(default_product_id or 0)
 
