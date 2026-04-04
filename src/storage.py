@@ -1039,8 +1039,16 @@ class Storage:
                 profile,
             ),
         }
+        # Важно: пустой список default_urls для профиля должен оставаться пустым,
+        # а не падать обратно в глобальный COMPETITOR_URLS.
+        # Fallback к base_config используем только когда default_urls не передан.
+        runtime_default_urls = (
+            base_config.COMPETITOR_URLS
+            if default_urls is None
+            else default_urls
+        )
         runtime['COMPETITOR_URLS'] = self.get_competitor_urls(
-            default_urls=default_urls or base_config.COMPETITOR_URLS,
+            default_urls=runtime_default_urls,
             profile_id=profile,
         )
         return SimpleNamespace(**runtime)

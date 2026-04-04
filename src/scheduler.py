@@ -79,7 +79,13 @@ class Scheduler:
         self.profile_id = (profile_id or DEFAULT_PROFILE).strip().lower()
         self.profile_name = profile_name
         self.product_id = int(product_id or 0)
-        self.default_competitor_urls = competitor_urls or []
+        # None => использовать профильный default из config/storage.
+        # []   => явно пустой список (например, DIGISELLER без мониторинга).
+        self.default_competitor_urls = (
+            competitor_urls
+            if competitor_urls is not None
+            else None
+        )
         self._running = False
         self._env_cookies_signature: Optional[tuple[str, int, int]] = None
         self._env_cookies_cached_value: Optional[str] = None
@@ -1574,6 +1580,44 @@ class Scheduler:
                             self.profile_name,
                             e,
                         )
+                    requested_price = decision.price
+                    previous_price = (
+                        decision.old_price
+                        if decision.old_price is not None
+                        else current_price
+                    )
+                    # Бывает, что API возвращает успешный ответ, но цена фактически
+                    # не меняется (ограничения платформы/прав доступа и т.п.).
+                    # В таком случае не считаем это обновлением и не шлём success.
+                    if (
+                        previous_price is not None
+                        and abs(float(requested_price) - float(previous_price))
+                        >= ignore_delta
+                        and abs(float(applied_price) - float(previous_price))
+                        < ignore_delta
+                    ):
+                        logger.warning(
+                            '[%s] API подтвердил update, но цена не изменилась: '
+                            'было=%.4f, запрос=%.4f, стало=%.4f',
+                            self.profile_name,
+                            float(previous_price),
+                            float(requested_price),
+                            float(applied_price),
+                        )
+                        storage.update_state(
+                            profile_id=self.profile_id,
+                            last_price=applied_price,
+                        )
+                        storage.increment_skip_count(profile_id=self.profile_id)
+                        await self._notify_error_throttled(
+                            key='update_price_no_effect',
+                            message=(
+                                'API подтвердил обновление, но фактическая '
+                                'цена не изменилась'
+                            ),
+                            cooldown_seconds=180,
+                        )
+                        return
 
                     storage.increment_update_count(profile_id=self.profile_id)
                     storage.update_state(

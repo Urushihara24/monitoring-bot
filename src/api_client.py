@@ -81,11 +81,14 @@ class GGSELClient:
     def _resolve_api_login_secret(self) -> str:
         """
         Возвращает секрет для подписи /apilogin.
-        Приоритет: api_secret -> api_key (если это не JWT).
+        Приоритет: api_secret -> api_key.
+
+        В ряде инсталляций GGSEL "api key" может выглядеть как JWT-строка,
+        но фактически использоваться как секрет подписи для /apilogin.
         """
         if self.api_secret:
             return self.api_secret
-        if self.api_key and not self._is_probably_jwt(self.api_key):
+        if self.api_key:
             return self.api_key
         return ""
 

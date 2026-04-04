@@ -299,6 +299,51 @@ def test_runtime_price_settings_are_normalized_to_4dp(tmp_path):
     assert runtime.UNDERCUT_VALUE == 0.0051
 
 
+def test_runtime_config_keeps_empty_profile_default_urls(tmp_path):
+    db = tmp_path / 'state.db'
+    storage = Storage(db_path=str(db))
+
+    cfg = type('Cfg', (), {
+        'MIN_PRICE': 0.1,
+        'MAX_PRICE': 10.0,
+        'DESIRED_PRICE': 1.0,
+        'UNDERCUT_VALUE': 0.0051,
+        'MODE': 'FIXED',
+        'FIXED_PRICE': 1.0,
+        'STEP_UP_VALUE': 0.01,
+        'WEAK_PRICE_CEIL_LIMIT': 0.3,
+        'POSITION_FILTER_ENABLED': False,
+        'WEAK_POSITION_THRESHOLD': 20,
+        'COOLDOWN_SECONDS': 10,
+        'IGNORE_DELTA': 0.001,
+        'CHECK_INTERVAL': 60,
+        'FAST_CHECK_INTERVAL_MIN': 20,
+        'FAST_CHECK_INTERVAL_MAX': 60,
+        'COMPETITOR_COOKIES': '',
+        'NOTIFY_SKIP': False,
+        'NOTIFY_SKIP_COOLDOWN_SECONDS': 300,
+        'NOTIFY_COMPETITOR_CHANGE': True,
+        'COMPETITOR_CHANGE_DELTA': 0.0001,
+        'COMPETITOR_CHANGE_COOLDOWN_SECONDS': 60,
+        'UPDATE_ONLY_ON_COMPETITOR_CHANGE': True,
+        'NOTIFY_PARSER_ISSUES': True,
+        'PARSER_ISSUE_COOLDOWN_SECONDS': 300,
+        'HARD_FLOOR_ENABLED': True,
+        'MAX_DOWN_STEP': 0.05,
+        'FAST_REBOUND_DELTA': 0.01,
+        'FAST_REBOUND_BYPASS_COOLDOWN': True,
+        'COMPETITOR_URLS': ['https://global.example/item'],
+    })
+
+    runtime = storage.get_runtime_config(
+        cfg,
+        profile_id='digiseller',
+        default_urls=[],
+    )
+
+    assert runtime.COMPETITOR_URLS == []
+
+
 def test_runtime_price_settings_backfilled_to_4dp_on_reload(tmp_path):
     db = tmp_path / 'state.db'
     storage = Storage(db_path=str(db))

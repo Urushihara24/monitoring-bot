@@ -553,14 +553,14 @@ def test_can_refresh_access_token_uses_plain_api_key():
     assert client.can_refresh_access_token() is True
 
 
-def test_can_refresh_access_token_false_for_jwt_without_secret():
+def test_can_refresh_access_token_true_for_jwt_without_secret():
     client = GGSELClient(
         api_key='a.b.c',
         seller_id=8175,
         base_url='https://seller.ggsel.com/api_sellers/api',
         lang='ru-RU',
     )
-    assert client.can_refresh_access_token() is False
+    assert client.can_refresh_access_token() is True
 
 
 def test_can_refresh_access_token_true_for_jwt_with_secret():
@@ -574,21 +574,36 @@ def test_can_refresh_access_token_true_for_jwt_with_secret():
     assert client.can_refresh_access_token() is True
 
 
-def test_refresh_access_token_jwt_key_without_secret_skips_apilogin(monkeypatch):
+def test_refresh_access_token_uses_jwt_like_api_key_when_secret_missing(monkeypatch):
     client = GGSELClient(
         api_key='a.b.c',
         seller_id=8175,
         base_url='https://seller.ggsel.com/api_sellers/api',
         lang='ru-RU',
     )
+    captured: dict[str, Any] = {}
 
-    def fail_request(*args, **kwargs):  # pragma: no cover
-        raise AssertionError('request should not be called without sign secret')
+    def fake_request(method, url, **kwargs):
+        captured['method'] = method
+        captured['url'] = url
+        captured.update(kwargs)
+        return FakeResponse(
+            200,
+            {
+                'retval': 0,
+                'token': 'issued-token-with-jwt-like-key',
+                'valid_thru': '2030-01-01T00:00:00Z',
+            },
+        )
 
-    monkeypatch.setattr(client, '_request_with_retry', fail_request)
+    monkeypatch.setattr(client, '_request_with_retry', fake_request)
 
     ok = client._refresh_access_token()
-    assert ok is False
+    assert ok is True
+    assert client.access_token == 'issued-token-with-jwt-like-key'
+    assert captured['method'] == 'POST'
+    assert captured['url'].endswith('/apilogin')
+    assert len(captured['json']['sign']) == 64
 
 
 def test_refresh_access_token_uses_explicit_api_secret(monkeypatch):

@@ -545,6 +545,112 @@ async def test_run_cycle_reconciles_when_unchanged_but_price_drift(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_run_cycle_treats_no_effect_update_as_skip(monkeypatch):
+    api_client = SimpleNamespace(
+        # 1-й вызов: текущая цена перед update, 2-й: перечитка после update
+        get_my_price=Mock(side_effect=[2.21, 2.21]),
+        update_price=Mock(),
+    )
+    scheduler = Scheduler(
+        api_client,
+        DummyTelegramBot(),
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=['https://example.com/item-1'],
+    )
+
+    runtime = make_runtime(IGNORE_DELTA=0.001)
+    state = {
+        'auto_mode': True,
+        'last_competitor_min': 0.30,
+        'last_update': None,
+        'last_price': 2.21,
+    }
+
+    monkeypatch.setattr(scheduler, '_runtime', lambda: runtime)
+    monkeypatch.setattr(scheduler, '_state', lambda: state)
+    monkeypatch.setattr(
+        scheduler_module,
+        'validate_runtime_config',
+        lambda _runtime: (True, []),
+    )
+    monkeypatch.setattr(
+        scheduler,
+        '_sync_cookies_from_env',
+        AsyncMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        scheduler,
+        '_reload_cookies_from_backup',
+        AsyncMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        scheduler,
+        '_parse_competitor_price',
+        AsyncMock(
+            return_value=ParseResult(
+                success=True,
+                price=0.33,
+                url='https://example.com/item-1',
+                method='stealth_requests',
+            )
+        ),
+    )
+    monkeypatch.setattr(scheduler, '_notify_competitor_change_if_needed', AsyncMock())
+    monkeypatch.setattr(scheduler, '_notify_parser_issue_if_needed', AsyncMock())
+    monkeypatch.setattr(scheduler, '_notify_skip_throttled', AsyncMock())
+    monkeypatch.setattr(scheduler, '_update_price', AsyncMock(return_value=True))
+    notify_error = AsyncMock()
+    monkeypatch.setattr(scheduler, '_notify_error_throttled', notify_error)
+    scheduler.telegram_bot.notify_price_updated = AsyncMock()
+    monkeypatch.setattr(
+        scheduler_module,
+        'calculate_price',
+        lambda **_kwargs: PriceDecision(
+            action='update',
+            price=0.40,
+            reason='base_formula_max_down_step(0.03)_max_capped(0.4)',
+            old_price=2.21,
+            competitor_price=0.33,
+        ),
+    )
+
+    update_calls = []
+    skip_calls = []
+    update_count_calls = []
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'update_state',
+        lambda **kwargs: update_calls.append(kwargs),
+    )
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'increment_skip_count',
+        lambda **kwargs: skip_calls.append(kwargs),
+    )
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'increment_update_count',
+        lambda **kwargs: update_count_calls.append(kwargs),
+    )
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'add_price_history',
+        lambda **_kwargs: None,
+    )
+
+    await scheduler.run_cycle()
+
+    scheduler._update_price.assert_awaited_once()
+    assert skip_calls, 'no-effect update must be treated as skip'
+    assert not update_count_calls, 'update_count must not grow on no-effect update'
+    scheduler.telegram_bot.notify_price_updated.assert_not_awaited()
+    notify_error.assert_awaited()
+    assert any(call.get('last_price') == 2.21 for call in update_calls)
+
+
+@pytest.mark.asyncio
 async def test_run_cycle_skips_when_target_already_applied(monkeypatch):
     api_client = SimpleNamespace(
         get_my_price=Mock(return_value=0.26),
