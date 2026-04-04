@@ -2,6 +2,8 @@
 Тесты для storage.py
 """
 
+import sqlite3
+
 from src.storage import Storage
 from src.config import Config
 
@@ -132,3 +134,20 @@ def test_alert_throttling(tmp_path):
     storage = Storage(str(db_path))
     assert storage.should_send_alert('test_key', cooldown_seconds=60) is True
     assert storage.should_send_alert('test_key', cooldown_seconds=60) is False
+
+
+def test_alert_throttling_handles_invalid_last_sent(tmp_path):
+    db_path = tmp_path / 'state.db'
+    storage = Storage(str(db_path))
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.execute(
+            '''
+            INSERT OR REPLACE INTO alert_state (profile_id, key, last_sent)
+            VALUES (?, ?, ?)
+            ''',
+            ('ggsel', 'broken_key', 'not-a-timestamp'),
+        )
+        conn.commit()
+
+    assert storage.should_send_alert('broken_key', cooldown_seconds=60) is True
+    assert storage.should_send_alert('broken_key', cooldown_seconds=60) is False

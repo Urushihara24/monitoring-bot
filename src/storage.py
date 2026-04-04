@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime
@@ -36,6 +37,8 @@ RUNTIME_PRICE_KEYS = {
     'MAX_DOWN_STEP',
     'FAST_REBOUND_DELTA',
 }
+
+logger = logging.getLogger(__name__)
 
 
 class Storage:
@@ -1149,7 +1152,13 @@ class Storage:
                     if (now - last_sent).total_seconds() < cooldown_seconds:
                         return False
                 except Exception:
-                    pass
+                    logger.warning(
+                        '[%s] Некорректный last_sent в alert_state: key=%s, '
+                        'value=%r',
+                        profile,
+                        key,
+                        row['last_sent'],
+                    )
 
             conn.execute(
                 '''

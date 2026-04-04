@@ -257,7 +257,11 @@ class RSCParser:
                             offers=[Offer(price=unit_price)],
                         )
                 except (ValueError, TypeError):
-                    pass
+                    logger.debug(
+                        'Некорректные unitsToPay/unitsToGet: %r / %r',
+                        units_to_pay.get('value'),
+                        units_to_get.get('value'),
+                    )
 
             json_ld_price = self._extract_price_from_json_ld(soup)
             if json_ld_price is not None:

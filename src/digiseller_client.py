@@ -298,8 +298,8 @@ class DigiSellerClient(GGSELClient):
         if visible is not None:
             try:
                 status = 'active' if int(visible) == 1 else 'hidden'
-            except Exception:
-                pass
+            except (TypeError, ValueError):
+                status = 'active'
 
         return Product(
             id=int(product_id),
