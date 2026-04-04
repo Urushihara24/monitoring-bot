@@ -651,7 +651,11 @@ class Scheduler:
         if not raw:
             return None
         try:
-            return datetime.fromisoformat(raw)
+            normalized = raw.replace('Z', '+00:00')
+            parsed = datetime.fromisoformat(normalized)
+            if parsed.tzinfo is not None:
+                parsed = parsed.astimezone().replace(tzinfo=None)
+            return parsed
         except Exception:
             return None
 

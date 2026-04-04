@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import sqlite3
 
 import pytest
@@ -698,6 +698,61 @@ async def test_scheduler_cleanup_removes_legacy_sent_markers_by_history_age(
     assert (
         test_storage.get_runtime_setting(
             'CHAT_AUTOREPLY_SENT:legacy',
+            profile_id='digiseller',
+        ) is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_scheduler_cleanup_accepts_utc_z_timestamp(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    old_utc = (
+        datetime.now(timezone.utc) - timedelta(days=60)
+    ).isoformat().replace('+00:00', 'Z')
+    test_storage.set_runtime_setting(
+        'CHAT_AUTOREPLY_SENT:utc',
+        old_utc,
+        profile_id='digiseller',
+    )
+    test_storage.set_runtime_setting(
+        'CHAT_AUTOREPLY_LAST_CLEANUP_AT',
+        (datetime.now() - timedelta(hours=48)).isoformat(),
+        profile_id='digiseller',
+    )
+
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
+    cfg.DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS = 30
+    cfg.DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS = 1
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    class NoChatsApi(DummyChatApiClient):
+        def list_chats(self, **kwargs):
+            return []
+
+    bot = DummyTelegramBot()
+    api = NoChatsApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    assert (
+        test_storage.get_runtime_setting(
+            'CHAT_AUTOREPLY_SENT:utc',
             profile_id='digiseller',
         ) is None
     )

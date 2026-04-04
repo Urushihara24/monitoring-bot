@@ -237,7 +237,10 @@ class TelegramBot:
         if not raw:
             return 'Никогда'
         try:
-            dt = datetime.fromisoformat(raw)
+            normalized = raw.replace('Z', '+00:00')
+            dt = datetime.fromisoformat(normalized)
+            if dt.tzinfo is not None:
+                dt = dt.astimezone().replace(tzinfo=None)
             return dt.strftime('%Y-%m-%d %H:%M:%S')
         except Exception:
             return raw

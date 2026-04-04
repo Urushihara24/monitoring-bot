@@ -356,7 +356,7 @@ async def test_status_shows_digiseller_chat_autoreply_block(monkeypatch):
             'CHAT_AUTOREPLY_SENT_COUNT': '7',
             'CHAT_AUTOREPLY_DUPLICATE_COUNT': '3',
             'CHAT_AUTOREPLY_LAST_RUN_AT': '2026-04-04T10:00:00',
-            'CHAT_AUTOREPLY_LAST_SENT_AT': '2026-04-04T10:01:00',
+            'CHAT_AUTOREPLY_LAST_SENT_AT': '2026-04-04T10:01:00Z',
             'CHAT_AUTOREPLY_LAST_ERROR': '',
         }
         return mapping.get(key)
@@ -376,6 +376,8 @@ async def test_status_shows_digiseller_chat_autoreply_block(monkeypatch):
     assert '📦 Товары: 5077639, 5104800' in args[0]
     assert '📨 Отправлено: 7' in args[0]
     assert '🧷 Дубликаты: 3' in args[0]
+    assert '🕓 Последняя отправка:' in args[0]
+    assert '10:01:00Z' not in args[0]
 
 
 @pytest.mark.asyncio
