@@ -786,11 +786,19 @@ class Scheduler:
                             'content_id',
                         ),
                     )
+                    locale_hint = self._extract_locale(chat) or 'ru'
+                    order_locale = 'en' if locale_hint == 'en' else 'ru'
                     order_info = self.api_client.get_order_info(
                         order_id,
-                        locale='ru',
+                        locale=order_locale,
                         timeout=10,
                     ) or {}
+                    if not order_info and order_locale != 'ru':
+                        order_info = self.api_client.get_order_info(
+                            order_id,
+                            locale='ru',
+                            timeout=10,
+                        ) or {}
                     order_product = self._extract_numeric_field(
                         order_info,
                         (
