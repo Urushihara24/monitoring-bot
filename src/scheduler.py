@@ -577,6 +577,12 @@ class Scheduler:
                 unique.append(item)
         return unique
 
+    def _product_info_locales_to_try(self, locale_hint: str) -> list[str]:
+        raw = (locale_hint or '').strip().lower()
+        if raw.startswith('en'):
+            return ['en-US', 'ru-RU']
+        return ['ru-RU', 'en-US']
+
     def _iter_order_option_dicts(self, payload: Any):
         if isinstance(payload, dict):
             options_value = payload.get('options')
@@ -1270,6 +1276,7 @@ class Scheduler:
                         mode=mode,
                     )
                     message = self._sanitize_message(template)
+                    message_source = 'template'
                     if not message:
                         message = self._pick_selected_option_instruction(
                             {
@@ -1279,34 +1286,48 @@ class Scheduler:
                             mode=mode,
                             locale=locale,
                         )
+                        if message:
+                            message_source = 'order_selected_option'
                     if not message:
                         message = self._pick_instruction_text(
                             order_info,
                             mode=mode,
                             locale=locale,
                         )
+                        if message:
+                            message_source = 'order_info'
                     if not message:
-                        info_lang = 'en-US' if locale == 'en' else 'ru-RU'
-                        cache_key = (int(product_id), info_lang)
-                        product_info = product_info_cache.get(cache_key)
-                        if product_info is None:
-                            product_info = self.api_client.get_product_info(
-                                product_id,
-                                timeout=10,
-                                lang=info_lang,
-                            ) or {}
-                            product_info_cache[cache_key] = product_info
-                        message = self._pick_selected_option_instruction(
-                            product_info,
-                            mode=mode,
-                            locale=locale,
-                        )
-                        if not message:
+                        for info_lang in self._product_info_locales_to_try(locale):
+                            cache_key = (int(product_id), info_lang)
+                            product_info = product_info_cache.get(cache_key)
+                            if product_info is None:
+                                product_info = self.api_client.get_product_info(
+                                    product_id,
+                                    timeout=10,
+                                    lang=info_lang,
+                                ) or {}
+                                product_info_cache[cache_key] = product_info
+                            info_locale = (
+                                'en' if info_lang.lower().startswith('en') else 'ru'
+                            )
+                            message = self._pick_selected_option_instruction(
+                                product_info,
+                                mode=mode,
+                                locale=info_locale,
+                            )
+                            if message:
+                                message_source = (
+                                    f'product_selected_option[{info_lang}]'
+                                )
+                                break
                             message = self._pick_instruction_text(
                                 product_info,
                                 mode=mode,
-                                locale=locale,
+                                locale=info_locale,
                             )
+                            if message:
+                                message_source = f'product_info[{info_lang}]'
+                                break
 
                     if not message:
                         logger.warning(
@@ -1352,12 +1373,13 @@ class Scheduler:
                     sent_count += 1
                     logger.info(
                         '[%s] Инструкция отправлена: order_id=%s '
-                        '(product_id=%s, locale=%s, mode=%s)',
+                        '(product_id=%s, locale=%s, mode=%s, source=%s)',
                         self.profile_name,
                         order_id,
                         product_id,
                         locale,
                         mode,
+                        message_source,
                     )
 
             if sent_count > 0:
