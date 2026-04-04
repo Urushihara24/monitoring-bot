@@ -591,17 +591,16 @@ class Scheduler:
         return f'CHAT_AUTOREPLY_SENT:{order_id}'
 
     def _is_autoreply_sent(self, order_id: int) -> bool:
-        return (
-            storage.get_runtime_setting(
-                self._autoreply_key(order_id),
-                profile_id=self.profile_id,
-            ) == '1'
+        raw = storage.get_runtime_setting(
+            self._autoreply_key(order_id),
+            profile_id=self.profile_id,
         )
+        return bool((raw or '').strip())
 
     def _mark_autoreply_sent(self, order_id: int):
         storage.set_runtime_setting(
             self._autoreply_key(order_id),
-            '1',
+            datetime.now().isoformat(),
             source='chat_autoreply',
             profile_id=self.profile_id,
         )
@@ -646,6 +645,60 @@ class Scheduler:
             except (TypeError, ValueError):
                 current = 0
         self._chat_meta_set(key, str(max(0, current + int(delta))))
+
+    def _normalize_compare_text(self, raw: Any) -> str:
+        text = self._sanitize_message(raw).lower()
+        return re.sub(r'\s+', ' ', text).strip()
+
+    def _is_message_already_sent(self, order_id: int, message: str) -> bool:
+        if not bool(
+            getattr(
+                config,
+                'DIGISELLER_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES',
+                True,
+            )
+        ):
+            return False
+        if not hasattr(self.api_client, 'list_messages'):
+            return False
+        lookback = max(
+            1,
+            min(
+                200,
+                int(
+                    getattr(
+                        config,
+                        'DIGISELLER_CHAT_AUTOREPLY_LOOKBACK_MESSAGES',
+                        30,
+                    )
+                ),
+            ),
+        )
+        try:
+            messages = self.api_client.list_messages(
+                order_id,
+                count=lookback,
+                timeout=10,
+            )
+        except Exception:
+            return False
+        if not isinstance(messages, list) or not messages:
+            return False
+        expected = self._normalize_compare_text(message)
+        if not expected:
+            return False
+        for item in messages:
+            if not isinstance(item, dict):
+                continue
+            candidate = (
+                item.get('message')
+                or item.get('text')
+                or item.get('body')
+                or item.get('content')
+            )
+            if self._normalize_compare_text(candidate) == expected:
+                return True
+        return False
 
     async def _run_digiseller_chat_autoreply(self):
         if not self._chat_autoreply_enabled():
@@ -794,6 +847,20 @@ class Scheduler:
                             product_id,
                             locale,
                             mode,
+                        )
+                        continue
+
+                    if self._is_message_already_sent(order_id, message):
+                        self._mark_autoreply_sent(order_id)
+                        self._chat_meta_inc(
+                            'CHAT_AUTOREPLY_DUPLICATE_COUNT',
+                            delta=1,
+                        )
+                        logger.info(
+                            '[%s] Пропуск отправки: инструкция уже есть в '
+                            'чате order_id=%s',
+                            self.profile_name,
+                            order_id,
                         )
                         continue
 

@@ -315,6 +315,7 @@ class DummyChatApiClient:
     def __init__(self):
         self.sent_messages = []
         self.product_info_calls = []
+        self.message_queries = []
 
     def list_chats(self, **kwargs):
         if kwargs.get('page') == 1:
@@ -335,6 +336,10 @@ class DummyChatApiClient:
     def send_chat_message(self, order_id, message, timeout=10):
         self.sent_messages.append((order_id, message))
         return True
+
+    def list_messages(self, order_id, **kwargs):
+        self.message_queries.append((order_id, kwargs))
+        return []
 
 
 @pytest.mark.asyncio
@@ -369,7 +374,7 @@ async def test_scheduler_digiseller_chat_autoreply_sent_once(monkeypatch, tmp_pa
         test_storage.get_runtime_setting(
             'CHAT_AUTOREPLY_SENT:111',
             profile_id='digiseller',
-        ) == '1'
+        ) is not None
     )
     assert len(bot.notifications) == 1
 
@@ -489,4 +494,53 @@ async def test_scheduler_digiseller_chat_autoreply_error_not_break_cycle(
             'CHAT_AUTOREPLY_LAST_ERROR',
             profile_id='digiseller',
         ) == 'chat api down'
+    )
+
+
+@pytest.mark.asyncio
+async def test_scheduler_digiseller_chat_autoreply_skips_duplicate_by_messages(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
+    cfg.DIGISELLER_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_LOOKBACK_MESSAGES = 30
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    class DuplicateApi(DummyChatApiClient):
+        def list_messages(self, order_id, **kwargs):
+            self.message_queries.append((order_id, kwargs))
+            return [{'message': 'Инструкция RU'}]
+
+    bot = DummyTelegramBot()
+    api = DuplicateApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    assert api.sent_messages == []
+    assert (
+        test_storage.get_runtime_setting(
+            'CHAT_AUTOREPLY_SENT:111',
+            profile_id='digiseller',
+        ) is not None
+    )
+    assert (
+        test_storage.get_runtime_setting(
+            'CHAT_AUTOREPLY_DUPLICATE_COUNT',
+            profile_id='digiseller',
+        ) == '1'
     )
