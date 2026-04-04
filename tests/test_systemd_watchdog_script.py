@@ -64,6 +64,7 @@ def _run_watchdog(
     smoke_marker: Path,
     watch_smoke: int,
     service_name: str = 'monitoring-bot.service',
+    extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env.update(
@@ -77,6 +78,8 @@ def _run_watchdog(
             'PATH': f'{bin_dir}{os.pathsep}{env.get("PATH", "")}',
         }
     )
+    if extra_env:
+        env.update(extra_env)
     return subprocess.run(
         ['bash', str(WATCHDOG_SCRIPT)],
         capture_output=True,
@@ -165,3 +168,39 @@ def test_watchdog_skips_smoke_when_disabled(tmp_path: Path):
     assert '[watchdog] ok' in proc.stdout
     assert not smoke_marker.exists()
     assert not systemctl_log.exists()
+
+
+def test_watchdog_forwards_chat_healthcheck_env(tmp_path: Path):
+    app_dir, bin_dir, systemctl_log, smoke_marker = _prepare_app(
+        tmp_path,
+        health_exit=0,
+        smoke_exit=0,
+    )
+    capture = tmp_path / 'health.env'
+    health_script = (
+        '#!/usr/bin/env python3\n'
+        'import os\n'
+        'from pathlib import Path\n'
+        'Path(os.environ["HEALTH_ENV_CAPTURE"]).write_text(\n'
+        '  "\\n".join([\n'
+        '    os.getenv("HEALTHCHECK_CHAT_AUTOREPLY_MAX_AGE_SECONDS", ""),\n'
+        '    os.getenv("HEALTHCHECK_FAIL_ON_CHAT_AUTOREPLY_ERROR", ""),\n'
+        '  ]), encoding="utf-8")\n'
+    )
+    _write_executable(app_dir / 'healthcheck.py', health_script)
+
+    proc = _run_watchdog(
+        app_dir=app_dir,
+        bin_dir=bin_dir,
+        systemctl_log=systemctl_log,
+        smoke_marker=smoke_marker,
+        watch_smoke=0,
+        extra_env={
+            'HEALTH_ENV_CAPTURE': str(capture),
+            'HEALTHCHECK_CHAT_AUTOREPLY_MAX_AGE_SECONDS': '777',
+            'HEALTHCHECK_FAIL_ON_CHAT_AUTOREPLY_ERROR': 'true',
+        },
+    )
+    assert proc.returncode == 0
+    captured = capture.read_text(encoding='utf-8').splitlines()
+    assert captured == ['777', 'true']
