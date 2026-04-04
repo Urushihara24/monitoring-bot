@@ -1,0 +1,17 @@
+"""
+Константы и хелперы для DigiSeller chat autoreply.
+"""
+
+from __future__ import annotations
+
+SENT_PREFIX = 'CHAT_AUTOREPLY_SENT:'
+KEY_LAST_RUN_AT = 'CHAT_AUTOREPLY_LAST_RUN_AT'
+KEY_LAST_SENT_AT = 'CHAT_AUTOREPLY_LAST_SENT_AT'
+KEY_LAST_ERROR = 'CHAT_AUTOREPLY_LAST_ERROR'
+KEY_SENT_COUNT = 'CHAT_AUTOREPLY_SENT_COUNT'
+KEY_DUPLICATE_COUNT = 'CHAT_AUTOREPLY_DUPLICATE_COUNT'
+KEY_LAST_CLEANUP_AT = 'CHAT_AUTOREPLY_LAST_CLEANUP_AT'
+
+
+def sent_key(order_id: int) -> str:
+    return f'{SENT_PREFIX}{int(order_id)}'

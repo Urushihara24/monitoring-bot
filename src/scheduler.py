@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from dotenv import dotenv_values
 
+from . import chat_autoreply as chat_keys
 from .config import config
 from .logic import calculate_price
 from .rsc_parser import ParseResult, rsc_parser
@@ -588,7 +589,7 @@ class Scheduler:
         return ''
 
     def _autoreply_key(self, order_id: int) -> str:
-        return f'CHAT_AUTOREPLY_SENT:{order_id}'
+        return chat_keys.sent_key(order_id)
 
     def _is_autoreply_sent(self, order_id: int) -> bool:
         raw = storage.get_runtime_setting(
@@ -682,14 +683,14 @@ class Scheduler:
         )
         now = datetime.now()
         last_cleanup = self._parse_iso_datetime(
-            self._chat_meta_get('CHAT_AUTOREPLY_LAST_CLEANUP_AT')
+            self._chat_meta_get(chat_keys.KEY_LAST_CLEANUP_AT)
         )
         if last_cleanup and (now - last_cleanup) < timedelta(hours=every_hours):
             return
 
         rows = storage.list_runtime_settings(
             profile_id=self.profile_id,
-            key_prefix='CHAT_AUTOREPLY_SENT:',
+            key_prefix=chat_keys.SENT_PREFIX,
             limit=20000,
         )
         threshold = now - timedelta(days=ttl_days)
@@ -717,7 +718,7 @@ class Scheduler:
                 deleted += 1
 
         self._chat_meta_set(
-            'CHAT_AUTOREPLY_LAST_CLEANUP_AT',
+            chat_keys.KEY_LAST_CLEANUP_AT,
             now.isoformat(),
         )
         if deleted > 0:
@@ -740,7 +741,7 @@ class Scheduler:
             ),
         )
         last_run = self._parse_iso_datetime(
-            self._chat_meta_get('CHAT_AUTOREPLY_LAST_RUN_AT')
+            self._chat_meta_get(chat_keys.KEY_LAST_RUN_AT)
         )
         if not last_run:
             return True
@@ -815,7 +816,7 @@ class Scheduler:
 
         started_at = datetime.now()
         self._chat_meta_set(
-            'CHAT_AUTOREPLY_LAST_RUN_AT',
+            chat_keys.KEY_LAST_RUN_AT,
             started_at.isoformat(),
         )
         try:
@@ -964,7 +965,7 @@ class Scheduler:
                     if self._is_message_already_sent(order_id, message):
                         self._mark_autoreply_sent(order_id)
                         self._chat_meta_inc(
-                            'CHAT_AUTOREPLY_DUPLICATE_COUNT',
+                            chat_keys.KEY_DUPLICATE_COUNT,
                             delta=1,
                         )
                         logger.info(
@@ -1003,11 +1004,11 @@ class Scheduler:
 
             if sent_count > 0:
                 self._chat_meta_set(
-                    'CHAT_AUTOREPLY_LAST_SENT_AT',
+                    chat_keys.KEY_LAST_SENT_AT,
                     datetime.now().isoformat(),
                 )
                 self._chat_meta_inc(
-                    'CHAT_AUTOREPLY_SENT_COUNT',
+                    chat_keys.KEY_SENT_COUNT,
                     delta=sent_count,
                 )
                 await self.telegram_bot.notify(
@@ -1017,9 +1018,9 @@ class Scheduler:
                         f'Отправлено: `{sent_count}`'
                     )
                 )
-            self._chat_meta_set('CHAT_AUTOREPLY_LAST_ERROR', '')
+            self._chat_meta_set(chat_keys.KEY_LAST_ERROR, '')
         except Exception as e:
-            self._chat_meta_set('CHAT_AUTOREPLY_LAST_ERROR', str(e))
+            self._chat_meta_set(chat_keys.KEY_LAST_ERROR, str(e))
             logger.error(
                 '[%s] Ошибка авто-отправки инструкций: %s',
                 self.profile_name,

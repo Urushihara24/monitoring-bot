@@ -25,6 +25,7 @@ from telegram.ext import (
     filters,
 )
 
+from . import chat_autoreply as chat_keys
 from .config import config
 from .profile_smoke import run_profile_smoke
 from .storage import DEFAULT_PROFILE, storage
@@ -286,11 +287,11 @@ class TelegramBot:
             products_text = 'по активному товару'
 
         raw_sent_count = storage.get_runtime_setting(
-            'CHAT_AUTOREPLY_SENT_COUNT',
+            chat_keys.KEY_SENT_COUNT,
             profile_id='digiseller',
         )
         raw_duplicate_count = storage.get_runtime_setting(
-            'CHAT_AUTOREPLY_DUPLICATE_COUNT',
+            chat_keys.KEY_DUPLICATE_COUNT,
             profile_id='digiseller',
         )
         sent_count = 0
@@ -307,19 +308,19 @@ class TelegramBot:
                 duplicate_count = 0
 
         last_run = storage.get_runtime_setting(
-            'CHAT_AUTOREPLY_LAST_RUN_AT',
+            chat_keys.KEY_LAST_RUN_AT,
             profile_id='digiseller',
         )
         last_sent = storage.get_runtime_setting(
-            'CHAT_AUTOREPLY_LAST_SENT_AT',
+            chat_keys.KEY_LAST_SENT_AT,
             profile_id='digiseller',
         )
         last_cleanup = storage.get_runtime_setting(
-            'CHAT_AUTOREPLY_LAST_CLEANUP_AT',
+            chat_keys.KEY_LAST_CLEANUP_AT,
             profile_id='digiseller',
         )
         last_error = storage.get_runtime_setting(
-            'CHAT_AUTOREPLY_LAST_ERROR',
+            chat_keys.KEY_LAST_ERROR,
             profile_id='digiseller',
         )
 
