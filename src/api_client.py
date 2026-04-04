@@ -8,6 +8,7 @@ import time
 import hashlib
 import base64
 import json
+import re
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
@@ -551,6 +552,33 @@ class GGSELClient:
         """
         return status == 3
 
+    def _extract_task_id_from_response(
+        self,
+        response: requests.Response,
+        result: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """
+        Извлекает taskId из JSON или plain-text ответа.
+
+        Некоторые API возвращают taskId в JSON, другие — просто UUID строкой.
+        """
+        if isinstance(result, dict):
+            task_id = result.get("taskId") or result.get("TaskId")
+            if task_id:
+                return str(task_id)
+
+        body = ""
+        try:
+            body = (response.text or "").strip()
+        except Exception:
+            body = ""
+        if not body:
+            return None
+
+        if re.fullmatch(r"[0-9a-fA-F-]{32,64}", body):
+            return body
+        return None
+
     def update_price(
         self, product_id: int, new_price: float, timeout: int = 10
     ) -> bool:
@@ -588,15 +616,18 @@ class GGSELClient:
             logger.error("GGSEL API endpoint не найден (404)")
             return False
 
+        result: Dict[str, Any] = {}
         try:
-            result = response.json()
+            parsed = response.json()
+            if isinstance(parsed, dict):
+                result = parsed
         except Exception as e:
-            logger.error(f"Ошибка парсинга JSON при обновлении цены: {e}")
-            return False
+            logger.warning(
+                "Ответ update_price не JSON (%s), пытаюсь прочитать taskId из текста",
+                e,
+            )
 
-        # Некоторые версии API возвращают ключ "taskId", другие — "TaskId"
-        # Оставляем оба варианта для совместимости
-        task_id = result.get("taskId") or result.get("TaskId")
+        task_id = self._extract_task_id_from_response(response, result)
 
         # Для async-обновления важно дождаться финального статуса задачи
         if task_id:
@@ -646,13 +677,177 @@ class GGSELClient:
 
         # Фоллбек: API вернул синхронный успешный ответ
         # (иногда обновление применяется без асинхронной задачи).
-        retval = self._response_retval(result)
-        if response.ok and retval in (None, 0):
+        retval = self._response_retval(result) if result else None
+        if response.ok and retval in (None, 0) and result:
             logger.info(f"✅ Цена обновлена: {price_4dp}")
             return True
 
-        logger.error(f"GGSEL API update error: {result}")
+        if result:
+            logger.error(f"GGSEL API update error: {result}")
+        else:
+            logger.error(
+                "GGSEL API update error: status=%s, body=%r",
+                response.status_code,
+                (response.text or "")[:300],
+            )
         return False
+
+    def list_chats(
+        self,
+        *,
+        filter_new: Optional[int] = None,
+        email: Optional[str] = None,
+        product_ids: Optional[list[int]] = None,
+        page_size: int = 50,
+        page: int = 1,
+        timeout: int = 10,
+    ) -> list[dict[str, Any]]:
+        """
+        Возвращает список чатов продавца.
+        GET /api_sellers/api/debates/v2/chats
+        """
+        url = f"{self.base_url}/debates/v2/chats"
+        params: Dict[str, Any] = {
+            "pagesize": page_size,
+            "page": page,
+        }
+        if filter_new is not None:
+            params["filter_new"] = int(filter_new)
+        if email:
+            params["email"] = email
+        if product_ids:
+            params["id_ds"] = ",".join(str(int(x)) for x in product_ids)
+
+        response = self._authorized_request(
+            "GET",
+            url,
+            params=params,
+            timeout=timeout,
+            max_retries=2,
+        )
+        if response is None or response.status_code >= 400:
+            return []
+        try:
+            payload = response.json()
+        except Exception:
+            return []
+        if not isinstance(payload, dict):
+            return []
+        items = payload.get("items")
+        return items if isinstance(items, list) else []
+
+    def list_messages(
+        self,
+        order_id: int,
+        *,
+        id_from: Optional[int] = None,
+        id_to: Optional[int] = None,
+        newer: Optional[int] = None,
+        count: int = 100,
+        timeout: int = 10,
+    ) -> list[dict[str, Any]]:
+        """
+        Возвращает сообщения по заказу.
+        GET /api_sellers/api/debates/v2
+        """
+        url = f"{self.base_url}/debates/v2"
+        params: Dict[str, Any] = {
+            "id_i": int(order_id),
+            "count": int(count),
+        }
+        if id_from is not None:
+            params["id_from"] = int(id_from)
+        if id_to is not None:
+            params["id_to"] = int(id_to)
+        if newer is not None:
+            params["newer"] = int(newer)
+
+        response = self._authorized_request(
+            "GET",
+            url,
+            params=params,
+            timeout=timeout,
+            max_retries=2,
+        )
+        if response is None or response.status_code >= 400:
+            return []
+        try:
+            payload = response.json()
+        except Exception:
+            return []
+        if isinstance(payload, list):
+            return payload
+        if isinstance(payload, dict) and isinstance(payload.get("items"), list):
+            return payload["items"]
+        return []
+
+    def send_chat_message(
+        self,
+        order_id: int,
+        message: str,
+        timeout: int = 10,
+    ) -> bool:
+        """
+        Отправляет сообщение в чат заказа.
+        POST /api_sellers/api/debates/v2
+        """
+        if not message.strip():
+            return False
+        url = f"{self.base_url}/debates/v2"
+        response = self._authorized_request(
+            "POST",
+            url,
+            params={"id_i": int(order_id)},
+            json={"message": message},
+            timeout=timeout,
+            max_retries=2,
+        )
+        if response is None or response.status_code >= 400:
+            return False
+        try:
+            payload = response.json()
+            if isinstance(payload, dict):
+                retval = self._response_retval(payload)
+                return retval in (None, 0)
+        except Exception:
+            # На некоторых инсталляциях endpoint может вернуть пустой body.
+            return response.ok
+        return response.ok
+
+    def get_order_info(
+        self,
+        invoice_id: int,
+        *,
+        locale: str = "ru",
+        timeout: int = 10,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Возвращает данные заказа.
+        GET /api_sellers/api/purchase/info/{invoice_id}
+        """
+        url = f"{self.base_url}/purchase/info/{int(invoice_id)}"
+        response = self._authorized_request(
+            "GET",
+            url,
+            headers={"locale": locale},
+            timeout=timeout,
+            max_retries=2,
+        )
+        if response is None or response.status_code >= 400:
+            return None
+        try:
+            payload = response.json()
+        except Exception:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        retval = self._response_retval(payload)
+        if retval not in (None, 0):
+            return None
+        content = payload.get("content")
+        if isinstance(content, dict):
+            return content
+        return payload
 
     def check_api_access(self) -> bool:
         """

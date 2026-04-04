@@ -356,10 +356,6 @@ class DigiSellerClient(GGSELClient):
         """
         logger.info('Проверка доступа к DigiSeller API...')
         perms_ok, perms_desc = self.get_token_perms_status(timeout=8)
-        if not perms_ok and perms_desc in {'http_401', 'http_403'}:
-            logger.error('DigiSeller API: доступ запрещён (%s)', perms_desc)
-            return False
-
         if not perms_ok:
             logger.warning(
                 'DigiSeller token/perms недоступен (%s), '
