@@ -688,7 +688,7 @@ class Scheduler:
         if last_cleanup and (now - last_cleanup) < timedelta(hours=every_hours):
             return
 
-        rows = storage.list_runtime_settings(
+        rows = storage.list_runtime_settings_with_last_change(
             profile_id=self.profile_id,
             key_prefix=chat_keys.SENT_PREFIX,
             limit=20000,
@@ -700,10 +700,7 @@ class Scheduler:
             value = str(row.get('value') or '')
             sent_at = self._parse_iso_datetime(value)
             if sent_at is None:
-                last_change_raw = storage.get_runtime_setting_last_change(
-                    key,
-                    profile_id=self.profile_id,
-                )
+                last_change_raw = row.get('last_change')
                 sent_at = self._parse_iso_datetime(last_change_raw)
             if sent_at is None:
                 continue

@@ -776,31 +776,40 @@ class Storage:
             rows = conn.execute(query, tuple(params)).fetchall()
             return [dict(row) for row in rows]
 
-    def get_runtime_setting_last_change(
+    def list_runtime_settings_with_last_change(
         self,
-        key: str,
         *,
         profile_id: str = DEFAULT_PROFILE,
-    ) -> Optional[str]:
+        key_prefix: Optional[str] = None,
+        limit: int = 10000,
+    ) -> List[dict]:
         profile = self._normalize_profile(profile_id)
+        query = '''
+            SELECT
+                rs.key AS key,
+                rs.value AS value,
+                (
+                    SELECT sh.timestamp
+                    FROM settings_history sh
+                    WHERE sh.profile_id = rs.profile_id
+                      AND sh.key = rs.key
+                    ORDER BY sh.id DESC
+                    LIMIT 1
+                ) AS last_change
+            FROM runtime_settings rs
+            WHERE rs.profile_id = ?
+        '''
+        params: List[object] = [profile]
+        if key_prefix:
+            query += ' AND rs.key LIKE ?'
+            params.append(f'{key_prefix}%')
+        query += ' ORDER BY rs.key ASC LIMIT ?'
+        params.append(int(max(1, limit)))
+
         with sqlite3.connect(str(self.db_path)) as conn:
             conn.row_factory = sqlite3.Row
-            row = conn.execute(
-                '''
-                SELECT timestamp
-                FROM settings_history
-                WHERE profile_id = ? AND key = ?
-                ORDER BY id DESC
-                LIMIT 1
-                ''',
-                (profile, key),
-            ).fetchone()
-            if not row:
-                return None
-            value = row['timestamp']
-            if value is None:
-                return None
-            return str(value)
+            rows = conn.execute(query, tuple(params)).fetchall()
+            return [dict(row) for row in rows]
 
     def delete_runtime_setting(
         self,
