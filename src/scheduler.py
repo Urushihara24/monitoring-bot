@@ -47,6 +47,8 @@ _ADD_KEYWORDS = (
     'will add',
     'not friend',
 )
+_TRUE_CHOICES = {'1', 'true', 'yes', 'y', 'да', 'ага'}
+_FALSE_CHOICES = {'0', 'false', 'no', 'n', 'нет', 'неа'}
 
 
 class Scheduler:
@@ -524,25 +526,127 @@ class Scheduler:
         return unique
 
     def _detect_friend_mode(self, payload: Any) -> str:
-        if isinstance(payload, dict):
-            options = payload.get('options')
-            if isinstance(options, list):
-                for option in options:
-                    if not isinstance(option, dict):
+        def _iter_option_dicts(node: Any):
+            if isinstance(node, dict):
+                options_value = node.get('options')
+                if isinstance(options_value, list):
+                    for option in options_value:
+                        if isinstance(option, dict):
+                            yield option
+                for key, nested in node.items():
+                    if key == 'options':
                         continue
-                    selected = (
-                        option.get('value')
-                        or option.get('selected')
-                        or option.get('answer')
-                        or option.get('selection')
-                    )
-                    selected_text = str(selected or '').strip().lower()
-                    if not selected_text:
+                    yield from _iter_option_dicts(nested)
+            elif isinstance(node, list):
+                for item in node:
+                    yield from _iter_option_dicts(item)
+
+        def _to_choice_text(value: Any) -> str:
+            if value is None:
+                return ''
+            if isinstance(value, bool):
+                return 'true' if value else 'false'
+            if isinstance(value, (int, float)):
+                if float(value).is_integer():
+                    return str(int(value))
+                return str(value)
+            if isinstance(value, dict):
+                for key in ('text', 'label', 'name', 'title', 'value'):
+                    if key in value:
+                        text = _to_choice_text(value.get(key))
+                        if text:
+                            return text
+                return ''
+            return self._sanitize_message(value).lower()
+
+        def _option_selected_text(option: dict[str, Any]) -> str:
+            selected_raw: Any = None
+            selected_found = False
+            selected_key = ''
+            for key in (
+                'value',
+                'selected',
+                'answer',
+                'selection',
+                'selected_id',
+                'variant_id',
+            ):
+                if key in option:
+                    selected_raw = option.get(key)
+                    selected_found = True
+                    selected_key = key
+                    break
+            variants = (
+                option.get('variants')
+                or option.get('values')
+                or option.get('options')
+            )
+            selected_text = _to_choice_text(selected_raw)
+
+            if isinstance(variants, list):
+                selected_num = None
+                selected_str = selected_text
+                try:
+                    selected_num = int(float(str(selected_raw)))
+                except Exception:
+                    selected_num = None
+                for item in variants:
+                    if not isinstance(item, dict):
                         continue
-                    if any(k in selected_text for k in _ALREADY_KEYWORDS):
-                        return _MODE_ALREADY
-                    if any(k in selected_text for k in _ADD_KEYWORDS):
-                        return _MODE_ADD
+                    item_id = item.get('id')
+                    matches = False
+                    if selected_num is not None:
+                        try:
+                            matches = int(float(item_id)) == selected_num
+                        except Exception:
+                            matches = False
+                    if not matches and selected_str:
+                        item_id_str = _to_choice_text(item_id)
+                        matches = bool(item_id_str and item_id_str == selected_str)
+                    if not matches:
+                        continue
+                    for key in ('text', 'label', 'name', 'title', 'value'):
+                        if key in item:
+                            mapped = _to_choice_text(item.get(key))
+                            if mapped:
+                                return mapped
+                if selected_key in ('selected_id', 'variant_id'):
+                    return selected_text
+
+            if selected_text:
+                return selected_text
+            if not selected_found:
+                return ''
+            return ''
+
+        def _is_friend_question(text: str) -> bool:
+            normalized = (text or '').lower()
+            if not normalized:
+                return False
+            ru = 'друз' in normalized
+            en = 'friend' in normalized
+            already = 'уже' in normalized or 'already' in normalized
+            return (ru or en) and already
+
+        for option in _iter_option_dicts(payload):
+            selected_text = _option_selected_text(option)
+            if not selected_text:
+                continue
+            if any(k in selected_text for k in _ALREADY_KEYWORDS):
+                return _MODE_ALREADY
+            if any(k in selected_text for k in _ADD_KEYWORDS):
+                return _MODE_ADD
+            prompt_text = self._sanitize_message(
+                option.get('name')
+                or option.get('title')
+                or option.get('label')
+                or option.get('question')
+            ).lower()
+            if _is_friend_question(prompt_text):
+                if selected_text in _TRUE_CHOICES:
+                    return _MODE_ALREADY
+                if selected_text in _FALSE_CHOICES:
+                    return _MODE_ADD
 
         all_text = ' '.join(self._iter_text_values(payload)).lower()
         has_already = any(k in all_text for k in _ALREADY_KEYWORDS)
