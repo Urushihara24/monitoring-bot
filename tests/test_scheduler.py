@@ -630,6 +630,55 @@ async def test_scheduler_digiseller_chat_autoreply_prefers_add_info_en_for_add_m
 
 
 @pytest.mark.asyncio
+async def test_scheduler_digiseller_chat_autoreply_uses_order_info_instruction_first(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    class OrderInfoInstructionApi(DummyChatApiClient):
+        def list_chats(self, **kwargs):
+            if kwargs.get('page') == 1:
+                return [{'id_i': 111, 'id_d': 5077639, 'lang': 'en-US'}]
+            return []
+
+        def get_order_info(self, _order_id, **_kwargs):
+            return {
+                'locale': 'en-US',
+                'options': [{'value': 'already friend'}],
+                'id_d': 5077639,
+                'info_en': 'Order instruction EN',
+            }
+
+        def get_product_info(self, product_id, timeout=10, lang=None):
+            self.product_info_calls.append((product_id, lang))
+            return {'info_en': 'Product instruction EN'}
+
+    bot = DummyTelegramBot()
+    api = OrderInfoInstructionApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    assert api.sent_messages == [(111, 'Order instruction EN')]
+    assert api.product_info_calls == []
+
+
+@pytest.mark.asyncio
 async def test_scheduler_digiseller_chat_autoreply_error_not_break_cycle(
     monkeypatch,
     tmp_path,
