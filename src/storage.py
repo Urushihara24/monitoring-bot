@@ -137,7 +137,17 @@ class Storage:
             self._ensure_profile_state(conn, 'ggsel')
             self._ensure_profile_state(conn, 'digiseller')
             self._normalize_runtime_price_settings(conn)
+            self._ensure_indexes(conn)
             conn.commit()
+
+    def _ensure_indexes(self, conn: sqlite3.Connection):
+        """Индексы для частых профильных запросов по истории настроек."""
+        conn.execute(
+            '''
+            CREATE INDEX IF NOT EXISTS idx_settings_history_profile_key_id
+            ON settings_history(profile_id, key, id)
+            '''
+        )
 
     def _table_columns(self, conn: sqlite3.Connection, table: str) -> set[str]:
         rows = conn.execute(f'PRAGMA table_info({table})').fetchall()
@@ -788,18 +798,25 @@ class Storage:
             SELECT
                 rs.key AS key,
                 rs.value AS value,
-                (
-                    SELECT sh.timestamp
-                    FROM settings_history sh
-                    WHERE sh.profile_id = rs.profile_id
-                      AND sh.key = rs.key
-                    ORDER BY sh.id DESC
-                    LIMIT 1
-                ) AS last_change
+                sh_latest.timestamp AS last_change
             FROM runtime_settings rs
+            LEFT JOIN (
+                SELECT
+                    latest.key AS key,
+                    sh.timestamp AS timestamp
+                FROM (
+                    SELECT key, MAX(id) AS max_id
+                    FROM settings_history
+                    WHERE profile_id = ?
+                    GROUP BY key
+                ) latest
+                JOIN settings_history sh
+                  ON sh.id = latest.max_id
+            ) sh_latest
+              ON sh_latest.key = rs.key
             WHERE rs.profile_id = ?
         '''
-        params: List[object] = [profile]
+        params: List[object] = [profile, profile]
         if key_prefix:
             query += ' AND rs.key LIKE ?'
             params.append(f'{key_prefix}%')
