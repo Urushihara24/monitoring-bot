@@ -14,12 +14,27 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from src.api_client import GGSELClient
+from src import chat_autoreply as chat_keys
 from src.config import config
 from src.digiseller_client import DigiSellerClient
 from src.storage import Storage
 
 DB_PATH = os.getenv('HEALTHCHECK_DB_PATH', 'data/state.db')
 storage = Storage(DB_PATH)
+
+
+def _parse_runtime_iso(value: str | None):
+    raw = (value or '').strip()
+    if not raw:
+        return None
+    try:
+        normalized = raw.replace('Z', '+00:00')
+        parsed = datetime.fromisoformat(normalized)
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone().replace(tzinfo=None)
+        return parsed
+    except Exception:
+        return None
 
 
 def check_profile_cycle(profile_id: str, max_age_seconds: int) -> bool:
@@ -76,8 +91,59 @@ def check_digiseller_api() -> bool:
     return ok
 
 
+def check_digiseller_chat_autoreply(
+    *,
+    max_age_seconds: int,
+    fail_on_error: bool,
+) -> bool:
+    if not config.DIGISELLER_ENABLED:
+        return True
+    if not bool(getattr(config, 'DIGISELLER_CHAT_AUTOREPLY_ENABLED', False)):
+        return True
+
+    last_run_raw = storage.get_runtime_setting(
+        chat_keys.KEY_LAST_RUN_AT,
+        profile_id='digiseller',
+    )
+    last_error = (
+        storage.get_runtime_setting(
+            chat_keys.KEY_LAST_ERROR,
+            profile_id='digiseller',
+        ) or ''
+    ).strip()
+    last_run = _parse_runtime_iso(last_run_raw)
+    if not last_run:
+        print('[digiseller] ⚠ chat_autoreply: нет last_run')
+    else:
+        age = int((datetime.now() - last_run).total_seconds())
+        if age > max_age_seconds:
+            print(
+                '[digiseller] ⚠ chat_autoreply last_run устарел: '
+                f'{age}s > {max_age_seconds}s'
+            )
+            return False
+        print(f'[digiseller] ✅ chat_autoreply heartbeat {age}s')
+    if fail_on_error and last_error:
+        print(f'[digiseller] ❌ chat_autoreply last_error: {last_error}')
+        return False
+    if last_error:
+        print(f'[digiseller] ⚠ chat_autoreply last_error: {last_error}')
+    return True
+
+
 def main() -> int:
     max_age_seconds = int(os.getenv('HEALTHCHECK_MAX_AGE_SECONDS', '300'))
+    chat_max_age_seconds = int(
+        os.getenv(
+            'HEALTHCHECK_CHAT_AUTOREPLY_MAX_AGE_SECONDS',
+            str(max_age_seconds * 2),
+        )
+    )
+    fail_on_chat_error = (
+        os.getenv('HEALTHCHECK_FAIL_ON_CHAT_AUTOREPLY_ERROR', 'false')
+        .strip()
+        .lower() in {'1', 'true', 'yes', 'on'}
+    )
     print(f'Healthcheck @ {datetime.now().isoformat()}')
     active_profiles = []
     if config.GGSEL_ENABLED:
@@ -98,6 +164,12 @@ def main() -> int:
         results.append(check_ggsel_api())
     if 'digiseller' in active_profiles:
         results.append(check_digiseller_api())
+        results.append(
+            check_digiseller_chat_autoreply(
+                max_age_seconds=chat_max_age_seconds,
+                fail_on_error=fail_on_chat_error,
+            )
+        )
 
     healthy = all(results)
     print('HEALTHY' if healthy else 'UNHEALTHY')
