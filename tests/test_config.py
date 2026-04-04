@@ -114,3 +114,34 @@ def test_config_parses_profile_api_secrets(monkeypatch):
 
     assert cfg.GGSEL_API_SECRET == 'gg-secret'
     assert cfg.DIGISELLER_API_SECRET == 'dg-secret'
+
+
+def test_config_ggsel_competitor_urls_fallback_to_common(monkeypatch):
+    monkeypatch.setenv(
+        'COMPETITOR_URLS',
+        'https://ggsel.net/catalog/product/a, https://ggsel.net/catalog/product/b',
+    )
+    monkeypatch.delenv('GGSEL_COMPETITOR_URLS', raising=False)
+
+    cfg_mod = _reload_config_module()
+    cfg = cfg_mod.Config()
+
+    assert cfg.GGSEL_COMPETITOR_URLS == [
+        'https://ggsel.net/catalog/product/a',
+        'https://ggsel.net/catalog/product/b',
+    ]
+
+
+def test_config_ggsel_competitor_urls_override_common(monkeypatch):
+    monkeypatch.setenv('COMPETITOR_URLS', 'https://global.example/item')
+    monkeypatch.setenv(
+        'GGSEL_COMPETITOR_URLS',
+        'https://ggsel.net/catalog/product/one',
+    )
+
+    cfg_mod = _reload_config_module()
+    cfg = cfg_mod.Config()
+
+    assert cfg.GGSEL_COMPETITOR_URLS == [
+        'https://ggsel.net/catalog/product/one',
+    ]

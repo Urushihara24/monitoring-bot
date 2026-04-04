@@ -83,7 +83,8 @@ cp .env.example .env
 - для включённого профиля: `*_API_KEY`/`*_ACCESS_TOKEN`, `*_SELLER_ID`, `*_PRODUCT_ID`
 - если `*_API_KEY` это JWT access token, задайте `*_API_SECRET` для `ApiLogin`
   (автообновление токена)
-- `COMPETITOR_URLS` (или профильный список для DigiSeller)
+- `GGSEL_COMPETITOR_URLS` и/или `DIGISELLER_COMPETITOR_URLS`
+  (для GGSEL есть fallback на `COMPETITOR_URLS` для обратной совместимости)
 - cookies конкурента: `GGSEL_COMPETITOR_COOKIES` / `DIGISELLER_COMPETITOR_COOKIES`
   (если не заданы, используется общий `COMPETITOR_COOKIES`)
 - при нестандартном запуске можно явно задать `ENV_FILE_PATH`

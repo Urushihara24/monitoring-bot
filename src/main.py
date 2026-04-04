@@ -90,11 +90,13 @@ def _build_profiles(logger: logging.Logger):
 
     if config.GGSEL_ENABLED:
         ggsel_urls = storage.get_competitor_urls(
-            config.COMPETITOR_URLS,
+            config.GGSEL_COMPETITOR_URLS,
             profile_id='ggsel',
         )
         if not ggsel_urls:
-            logger.warning('[GGSEL] Профиль включен, но нет COMPETITOR_URLS')
+            logger.warning(
+                '[GGSEL] Профиль включен, но нет GGSEL_COMPETITOR_URLS'
+            )
         if not config.GGSEL_PRODUCT_ID:
             logger.warning('[GGSEL] Профиль включен, но GGSEL_PRODUCT_ID пуст')
         elif not config.GGSEL_API_KEY and not config.GGSEL_ACCESS_TOKEN:

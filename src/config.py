@@ -76,6 +76,7 @@ class Config:
     GGSEL_LANG: str = os.getenv('GGSEL_LANG', 'ru-RU')
     GGSEL_REQUIRE_API_ON_START: bool = _env_bool('GGSEL_REQUIRE_API_ON_START', False)
     GGSEL_ENABLED: bool = _env_bool('GGSEL_ENABLED', True)
+    GGSEL_COMPETITOR_URLS: List[str] = None
     GGSEL_CHAT_AUTOREPLY_ENABLED: bool = _env_bool(
         'GGSEL_CHAT_AUTOREPLY_ENABLED',
         False,
@@ -364,7 +365,12 @@ class Config:
         if self.COMPETITOR_URLS is None:
             urls_str = os.getenv('COMPETITOR_URLS', '')
             self.COMPETITOR_URLS = [x.strip() for x in urls_str.split(',') if x.strip()]
-        
+
+        if self.GGSEL_COMPETITOR_URLS is None:
+            gg_urls_str = os.getenv('GGSEL_COMPETITOR_URLS', '')
+            gg_urls = [x.strip() for x in gg_urls_str.split(',') if x.strip()]
+            self.GGSEL_COMPETITOR_URLS = gg_urls or list(self.COMPETITOR_URLS)
+
         if self.DIGISELLER_COMPETITOR_URLS is None:
             d_urls_str = os.getenv('DIGISELLER_COMPETITOR_URLS', '')
             self.DIGISELLER_COMPETITOR_URLS = [

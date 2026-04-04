@@ -969,10 +969,7 @@ class TelegramBot:
                 logger.error('Ошибка проверки refresh capability: %s', e)
 
         perms_line = None
-        if profile_id == 'digiseller' and client and hasattr(
-            client,
-            'get_token_perms_status',
-        ):
+        if client and hasattr(client, 'get_token_perms_status'):
             try:
                 perms_ok, perms_desc = await asyncio.to_thread(
                     client.get_token_perms_status,

@@ -22,6 +22,11 @@ def _set_profile_config(monkeypatch):
     monkeypatch.setattr(main_module.config, 'GGSEL_LANG', 'ru-RU')
     monkeypatch.setattr(main_module.config, 'GGSEL_REQUIRE_API_ON_START', False)
     monkeypatch.setattr(main_module.config, 'COMPETITOR_URLS', ['https://gg.example'])
+    monkeypatch.setattr(
+        main_module.config,
+        'GGSEL_COMPETITOR_URLS',
+        ['https://gg.example'],
+    )
 
     monkeypatch.setattr(main_module.config, 'DIGISELLER_ENABLED', True)
     monkeypatch.setattr(main_module.config, 'DIGISELLER_API_KEY', 'dg_key')
@@ -132,3 +137,30 @@ def test_build_profiles_skips_ggsel_without_product_id(monkeypatch):
     profiles = _build_profiles(logging.getLogger('test-main'))
     ids = [profile['id'] for profile in profiles]
     assert ids == ['digiseller']
+
+
+def test_build_profiles_prefers_ggsel_profile_urls(monkeypatch):
+    import src.main as main_module
+
+    _set_profile_config(monkeypatch)
+    monkeypatch.setattr(
+        main_module.config,
+        'COMPETITOR_URLS',
+        ['https://global.example/item'],
+    )
+    monkeypatch.setattr(
+        main_module.config,
+        'GGSEL_COMPETITOR_URLS',
+        ['https://ggsel.example/item'],
+    )
+
+    monkeypatch.setattr(
+        main_module.storage,
+        'get_competitor_urls',
+        lambda default_urls, profile_id='ggsel': default_urls,
+    )
+
+    profiles = _build_profiles(logging.getLogger('test-main'))
+    by_id = {profile['id']: profile for profile in profiles}
+
+    assert by_id['ggsel']['competitor_urls'] == ['https://ggsel.example/item']
