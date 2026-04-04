@@ -107,8 +107,18 @@ def _extract_for_profile(
 
 
 def _ggsel_product_ids() -> list[int]:
-    product_id = int(config.GGSEL_PRODUCT_ID or 0)
-    return [product_id] if product_id > 0 else []
+    ids: list[int] = []
+    for value in config.GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS or []:
+        try:
+            parsed = int(float(value))
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0 and parsed not in ids:
+            ids.append(parsed)
+    default_pid = int(config.GGSEL_PRODUCT_ID or 0)
+    if default_pid > 0 and default_pid not in ids:
+        ids.append(default_pid)
+    return ids
 
 
 def _digiseller_product_ids() -> list[int]:

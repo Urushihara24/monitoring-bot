@@ -577,6 +577,115 @@ class Scheduler:
                 unique.append(item)
         return unique
 
+    def _iter_order_option_dicts(self, payload: Any):
+        if isinstance(payload, dict):
+            options_value = payload.get('options')
+            if isinstance(options_value, list):
+                for option in options_value:
+                    if isinstance(option, dict):
+                        yield option
+            for key, nested in payload.items():
+                if key == 'options':
+                    continue
+                yield from self._iter_order_option_dicts(nested)
+            return
+        if isinstance(payload, list):
+            for item in payload:
+                yield from self._iter_order_option_dicts(item)
+
+    def _choice_text_value(self, value: Any) -> str:
+        if value is None:
+            return ''
+        if isinstance(value, bool):
+            return 'true' if value else 'false'
+        if isinstance(value, (int, float)):
+            if float(value).is_integer():
+                return str(int(value))
+            return str(value)
+        if isinstance(value, dict):
+            for key in ('text', 'label', 'name', 'title', 'value'):
+                if key in value:
+                    text = self._choice_text_value(value.get(key))
+                    if text:
+                        return text
+            return ''
+        return self._sanitize_message(value).lower()
+
+    def _resolve_selected_option_variant(
+        self,
+        option: dict[str, Any],
+    ) -> Optional[dict[str, Any]]:
+        selected_raw: Any = None
+        for key in (
+            'value',
+            'selected',
+            'answer',
+            'selection',
+            'selected_id',
+            'variant_id',
+        ):
+            if key in option:
+                selected_raw = option.get(key)
+                break
+
+        variants = (
+            option.get('variants')
+            or option.get('values')
+            or option.get('options')
+        )
+        if not isinstance(variants, list):
+            return None
+
+        selected_num = None
+        selected_text = self._choice_text_value(selected_raw)
+        try:
+            selected_num = int(float(str(selected_raw)))
+        except Exception:
+            selected_num = None
+
+        for item in variants:
+            if not isinstance(item, dict):
+                continue
+            item_id = item.get('id')
+            matches = False
+            if selected_num is not None:
+                try:
+                    matches = int(float(item_id)) == selected_num
+                except Exception:
+                    matches = False
+            if not matches and selected_text:
+                item_id_str = self._choice_text_value(item_id)
+                matches = bool(item_id_str and item_id_str == selected_text)
+            if matches:
+                return item
+        return None
+
+    def _pick_selected_option_instruction(
+        self,
+        payload: Any,
+        *,
+        mode: str,
+        locale: str,
+    ) -> str:
+        for option in self._iter_order_option_dicts(payload):
+            variant = self._resolve_selected_option_variant(option)
+            if variant:
+                text = self._pick_instruction_text(
+                    variant,
+                    mode=mode,
+                    locale=locale,
+                )
+                if text:
+                    return text
+            text = self._pick_instruction_text(
+                option,
+                mode=mode,
+                locale=locale,
+            )
+            if text:
+                return text
+        return ''
+
     def _detect_friend_mode(self, payload: Any) -> str:
         def _iter_option_dicts(node: Any):
             if isinstance(node, dict):
@@ -1158,25 +1267,39 @@ class Scheduler:
                         locale=locale,
                         mode=mode,
                     )
-                    if template:
-                        message = template
-                    else:
+                    message = self._sanitize_message(template)
+                    if not message:
+                        message = self._pick_selected_option_instruction(
+                            {
+                                'order': order_info,
+                                'chat': chat,
+                            },
+                            mode=mode,
+                            locale=locale,
+                        )
+                    if not message:
                         message = self._pick_instruction_text(
                             order_info,
                             mode=mode,
                             locale=locale,
                         )
+                    if not message:
+                        info_lang = 'en-US' if locale == 'en' else 'ru-RU'
+                        cache_key = (int(product_id), info_lang)
+                        product_info = product_info_cache.get(cache_key)
+                        if product_info is None:
+                            product_info = self.api_client.get_product_info(
+                                product_id,
+                                timeout=10,
+                                lang=info_lang,
+                            ) or {}
+                            product_info_cache[cache_key] = product_info
+                        message = self._pick_selected_option_instruction(
+                            product_info,
+                            mode=mode,
+                            locale=locale,
+                        )
                         if not message:
-                            info_lang = 'en-US' if locale == 'en' else 'ru-RU'
-                            cache_key = (int(product_id), info_lang)
-                            product_info = product_info_cache.get(cache_key)
-                            if product_info is None:
-                                product_info = self.api_client.get_product_info(
-                                    product_id,
-                                    timeout=10,
-                                    lang=info_lang,
-                                ) or {}
-                                product_info_cache[cache_key] = product_info
                             message = self._pick_instruction_text(
                                 product_info,
                                 mode=mode,

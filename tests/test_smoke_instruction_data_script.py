@@ -33,6 +33,18 @@ def test_explicit_digiseller_profile_disabled_returns_nonzero():
     assert '[digiseller] disabled' in result.stdout
 
 
+def test_explicit_ggsel_profile_disabled_returns_nonzero():
+    result = _run_script(
+        ['--profile', 'ggsel'],
+        {
+            'DIGISELLER_ENABLED': 'false',
+            'GGSEL_ENABLED': 'false',
+        },
+    )
+    assert result.returncode == 1
+    assert '[ggsel] disabled' in result.stdout
+
+
 def test_all_profiles_disabled_still_returns_zero():
     result = _run_script(
         [],
