@@ -695,6 +695,12 @@ class Scheduler:
             value = str(row.get('value') or '')
             sent_at = self._parse_iso_datetime(value)
             if sent_at is None:
+                last_change_raw = storage.get_runtime_setting_last_change(
+                    key,
+                    profile_id=self.profile_id,
+                )
+                sent_at = self._parse_iso_datetime(last_change_raw)
+            if sent_at is None:
                 continue
             if sent_at >= threshold:
                 continue

@@ -776,6 +776,32 @@ class Storage:
             rows = conn.execute(query, tuple(params)).fetchall()
             return [dict(row) for row in rows]
 
+    def get_runtime_setting_last_change(
+        self,
+        key: str,
+        *,
+        profile_id: str = DEFAULT_PROFILE,
+    ) -> Optional[str]:
+        profile = self._normalize_profile(profile_id)
+        with sqlite3.connect(str(self.db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                '''
+                SELECT timestamp
+                FROM settings_history
+                WHERE profile_id = ? AND key = ?
+                ORDER BY id DESC
+                LIMIT 1
+                ''',
+                (profile, key),
+            ).fetchone()
+            if not row:
+                return None
+            value = row['timestamp']
+            if value is None:
+                return None
+            return str(value)
+
     def delete_runtime_setting(
         self,
         key: str,

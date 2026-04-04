@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import sqlite3
 
 import pytest
 
@@ -629,6 +630,76 @@ async def test_scheduler_digiseller_chat_autoreply_cleanup_old_sent_markers(
             'CHAT_AUTOREPLY_LAST_CLEANUP_AT',
             profile_id='digiseller',
         ) is not None
+    )
+
+
+@pytest.mark.asyncio
+async def test_scheduler_cleanup_removes_legacy_sent_markers_by_history_age(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    test_storage.set_runtime_setting(
+        'CHAT_AUTOREPLY_SENT:legacy',
+        '1',
+        profile_id='digiseller',
+    )
+    test_storage.set_runtime_setting(
+        'CHAT_AUTOREPLY_LAST_CLEANUP_AT',
+        (datetime.now() - timedelta(hours=48)).isoformat(),
+        profile_id='digiseller',
+    )
+
+    # Помечаем запись как "старую" через settings_history timestamp.
+    with sqlite3.connect(str(tmp_path / 'state.db')) as conn:
+        conn.execute(
+            '''
+            UPDATE settings_history
+            SET timestamp = ?
+            WHERE profile_id = ? AND key = ?
+            ''',
+            (
+                (datetime.now() - timedelta(days=90)).strftime(
+                    '%Y-%m-%d %H:%M:%S'
+                ),
+                'digiseller',
+                'CHAT_AUTOREPLY_SENT:legacy',
+            ),
+        )
+        conn.commit()
+
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
+    cfg.DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS = 30
+    cfg.DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS = 1
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    class NoChatsApi(DummyChatApiClient):
+        def list_chats(self, **kwargs):
+            return []
+
+    bot = DummyTelegramBot()
+    api = NoChatsApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    assert (
+        test_storage.get_runtime_setting(
+            'CHAT_AUTOREPLY_SENT:legacy',
+            profile_id='digiseller',
+        ) is None
     )
 
 
