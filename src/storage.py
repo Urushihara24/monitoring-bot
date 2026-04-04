@@ -29,6 +29,8 @@ RUNTIME_PRICE_KEYS = {
     'FIXED_PRICE',
     'STEP_UP_VALUE',
     'WEAK_PRICE_CEIL_LIMIT',
+    'WEAK_UNKNOWN_RANK_ABS_GAP',
+    'WEAK_UNKNOWN_RANK_REL_GAP',
     'IGNORE_DELTA',
     'COMPETITOR_CHANGE_DELTA',
     'MAX_DOWN_STEP',
@@ -946,6 +948,21 @@ class Storage:
             'WEAK_POSITION_THRESHOLD': self._get_int(
                 'WEAK_POSITION_THRESHOLD',
                 base_config.WEAK_POSITION_THRESHOLD,
+                profile,
+            ),
+            'WEAK_UNKNOWN_RANK_ENABLED': self._get_bool(
+                'WEAK_UNKNOWN_RANK_ENABLED',
+                base_config.WEAK_UNKNOWN_RANK_ENABLED,
+                profile,
+            ),
+            'WEAK_UNKNOWN_RANK_ABS_GAP': self._get_float(
+                'WEAK_UNKNOWN_RANK_ABS_GAP',
+                base_config.WEAK_UNKNOWN_RANK_ABS_GAP,
+                profile,
+            ),
+            'WEAK_UNKNOWN_RANK_REL_GAP': self._get_float(
+                'WEAK_UNKNOWN_RANK_REL_GAP',
+                base_config.WEAK_UNKNOWN_RANK_REL_GAP,
                 profile,
             ),
             'COOLDOWN_SECONDS': self._get_int(

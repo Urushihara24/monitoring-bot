@@ -16,6 +16,9 @@ def test_config_parses_digiseller_optional_runtime_fields(monkeypatch):
     monkeypatch.setenv('DIGISELLER_HARD_FLOOR_ENABLED', 'yes')
     monkeypatch.setenv('DIGISELLER_UPDATE_ONLY_ON_COMPETITOR_CHANGE', 'on')
     monkeypatch.setenv('DIGISELLER_FAST_REBOUND_BYPASS_COOLDOWN', '0')
+    monkeypatch.setenv('DIGISELLER_WEAK_UNKNOWN_RANK_ENABLED', 'true')
+    monkeypatch.setenv('DIGISELLER_WEAK_UNKNOWN_RANK_ABS_GAP', '0.04')
+    monkeypatch.setenv('DIGISELLER_WEAK_UNKNOWN_RANK_REL_GAP', '0.10')
 
     cfg_mod = _reload_config_module()
     cfg = cfg_mod.Config()
@@ -30,6 +33,9 @@ def test_config_parses_digiseller_optional_runtime_fields(monkeypatch):
     assert cfg.DIGISELLER_HARD_FLOOR_ENABLED is True
     assert cfg.DIGISELLER_UPDATE_ONLY_ON_COMPETITOR_CHANGE is True
     assert cfg.DIGISELLER_FAST_REBOUND_BYPASS_COOLDOWN is False
+    assert cfg.DIGISELLER_WEAK_UNKNOWN_RANK_ENABLED is True
+    assert cfg.DIGISELLER_WEAK_UNKNOWN_RANK_ABS_GAP == 0.04
+    assert cfg.DIGISELLER_WEAK_UNKNOWN_RANK_REL_GAP == 0.10
 
 
 def test_config_optional_bool_is_none_on_empty(monkeypatch):
@@ -70,6 +76,33 @@ def test_config_parses_digiseller_chat_autoreply_fields(monkeypatch):
     assert cfg.DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS == 45
     assert cfg.DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS == 12
     assert cfg.DIGISELLER_CHAT_TEMPLATE_RU_ALREADY == 'RU already'
+
+
+def test_config_parses_ggsel_chat_autoreply_fields(monkeypatch):
+    monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_ENABLED', '1')
+    monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS', '4697439, bad')
+    monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_PAGE_SIZE', '40')
+    monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_MAX_PAGES', '4')
+    monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_INTERVAL_SECONDS', '20')
+    monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES', '0')
+    monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_LOOKBACK_MESSAGES', '15')
+    monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_SENT_TTL_DAYS', '10')
+    monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS', '8')
+    monkeypatch.setenv('GGSEL_CHAT_TEMPLATE_EN_ADD', 'EN add')
+
+    cfg_mod = _reload_config_module()
+    cfg = cfg_mod.Config()
+
+    assert cfg.GGSEL_CHAT_AUTOREPLY_ENABLED is True
+    assert cfg.GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS == [4697439]
+    assert cfg.GGSEL_CHAT_AUTOREPLY_PAGE_SIZE == 40
+    assert cfg.GGSEL_CHAT_AUTOREPLY_MAX_PAGES == 4
+    assert cfg.GGSEL_CHAT_AUTOREPLY_INTERVAL_SECONDS == 20
+    assert cfg.GGSEL_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES is False
+    assert cfg.GGSEL_CHAT_AUTOREPLY_LOOKBACK_MESSAGES == 15
+    assert cfg.GGSEL_CHAT_AUTOREPLY_SENT_TTL_DAYS == 10
+    assert cfg.GGSEL_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS == 8
+    assert cfg.GGSEL_CHAT_TEMPLATE_EN_ADD == 'EN add'
 
 
 def test_config_parses_profile_api_secrets(monkeypatch):

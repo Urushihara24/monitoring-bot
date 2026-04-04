@@ -54,6 +54,13 @@ BTN_POSITION = '📍 Позиция'
 BTN_ADD_URL = '🔗 Добавить URL'
 BTN_REMOVE_URL = '🗑 Удалить URL'
 BTN_HISTORY = '🧾 История'
+BTN_CHAT_AUTOREPLY_ON = '💬 Инструкции: ВКЛ'
+BTN_CHAT_AUTOREPLY_OFF = '💬 Инструкции: ВЫКЛ'
+
+_CHAT_PROFILE_PREFIX = {
+    'ggsel': 'GGSEL',
+    'digiseller': 'DIGISELLER',
+}
 
 
 class TelegramBot:
@@ -153,7 +160,7 @@ class TelegramBot:
         self._set_pending_action(chat_id, action, profile_id)
         await update.message.reply_text(
             prompt,
-            reply_markup=self.get_settings_keyboard(),
+            reply_markup=self.get_settings_keyboard(profile_id),
         )
 
     def _get_pending_action(self, chat_id: int) -> Tuple[Optional[str], str]:
@@ -263,34 +270,54 @@ class TelegramBot:
         except Exception:
             return raw
 
-    def _digiseller_chat_meta(self) -> dict:
-        enabled = bool(getattr(config, 'DIGISELLER_CHAT_AUTOREPLY_ENABLED', False))
+    def _chat_profile_prefix(self, profile_id: str) -> Optional[str]:
+        return _CHAT_PROFILE_PREFIX.get((profile_id or '').strip().lower())
+
+    def _chat_autoreply_supported(self, profile_id: str) -> bool:
+        if self._chat_profile_prefix(profile_id) is None:
+            return False
+        client = self._api_client(profile_id)
+        if not client:
+            return False
+        required = (
+            'list_chats',
+            'send_chat_message',
+            'get_order_info',
+            'get_product_info',
+        )
+        return all(hasattr(client, name) for name in required)
+
+    def _chat_cfg(self, profile_id: str, suffix: str, default):
+        prefix = self._chat_profile_prefix(profile_id)
+        if not prefix:
+            return default
+        key = f'{prefix}_CHAT_AUTOREPLY_{suffix}'
+        return getattr(config, key, default)
+
+    def _chat_autoreply_enabled(self, profile_id: str) -> bool:
+        runtime_raw = storage.get_runtime_setting(
+            'CHAT_AUTOREPLY_ENABLED',
+            profile_id=profile_id,
+        )
+        if runtime_raw is not None:
+            normalized = str(runtime_raw).strip().lower()
+            return normalized in ('1', 'true', 'yes', 'on')
+        return bool(self._chat_cfg(profile_id, 'ENABLED', False))
+
+    def _chat_autoreply_meta(self, profile_id: str) -> Optional[dict]:
+        if not self._chat_autoreply_supported(profile_id):
+            return None
+        enabled = self._chat_autoreply_enabled(profile_id)
         dedupe = bool(
-            getattr(
-                config,
-                'DIGISELLER_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES',
-                True,
-            )
+            self._chat_cfg(profile_id, 'DEDUPE_BY_MESSAGES', True)
         )
         lookback = int(
-            getattr(
-                config,
-                'DIGISELLER_CHAT_AUTOREPLY_LOOKBACK_MESSAGES',
-                30,
-            )
+            self._chat_cfg(profile_id, 'LOOKBACK_MESSAGES', 30)
         )
         interval_seconds = int(
-            getattr(
-                config,
-                'DIGISELLER_CHAT_AUTOREPLY_INTERVAL_SECONDS',
-                30,
-            )
+            self._chat_cfg(profile_id, 'INTERVAL_SECONDS', 30)
         )
-        product_ids = getattr(
-            config,
-            'DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS',
-            [],
-        ) or []
+        product_ids = self._chat_cfg(profile_id, 'PRODUCT_IDS', []) or []
         normalized_products = []
         for value in product_ids:
             try:
@@ -305,11 +332,11 @@ class TelegramBot:
 
         raw_sent_count = storage.get_runtime_setting(
             chat_keys.KEY_SENT_COUNT,
-            profile_id='digiseller',
+            profile_id=profile_id,
         )
         raw_duplicate_count = storage.get_runtime_setting(
             chat_keys.KEY_DUPLICATE_COUNT,
-            profile_id='digiseller',
+            profile_id=profile_id,
         )
         sent_count = 0
         if raw_sent_count is not None:
@@ -326,19 +353,19 @@ class TelegramBot:
 
         last_run = storage.get_runtime_setting(
             chat_keys.KEY_LAST_RUN_AT,
-            profile_id='digiseller',
+            profile_id=profile_id,
         )
         last_sent = storage.get_runtime_setting(
             chat_keys.KEY_LAST_SENT_AT,
-            profile_id='digiseller',
+            profile_id=profile_id,
         )
         last_cleanup = storage.get_runtime_setting(
             chat_keys.KEY_LAST_CLEANUP_AT,
-            profile_id='digiseller',
+            profile_id=profile_id,
         )
         last_error = storage.get_runtime_setting(
             chat_keys.KEY_LAST_ERROR,
-            profile_id='digiseller',
+            profile_id=profile_id,
         )
 
         return {
@@ -374,20 +401,27 @@ class TelegramBot:
             resize_keyboard=True,
         )
 
-    def get_settings_keyboard(self):
-        return ReplyKeyboardMarkup(
-            [
-                [BTN_UP, BTN_DOWN],
-                [BTN_PRICE, BTN_STEP],
-                [BTN_MIN, BTN_MAX],
-                [BTN_INTERVAL, BTN_MODE],
-                [BTN_POSITION],
-                [BTN_ADD_URL, BTN_REMOVE_URL],
-                [BTN_HISTORY],
-                [BTN_BACK],
-            ],
-            resize_keyboard=True,
-        )
+    def get_settings_keyboard(self, profile_id: Optional[str] = None):
+        profile = profile_id or self.default_profile
+        rows = [
+            [BTN_UP, BTN_DOWN],
+            [BTN_PRICE, BTN_STEP],
+            [BTN_MIN, BTN_MAX],
+            [BTN_INTERVAL, BTN_MODE],
+            [BTN_POSITION],
+            [BTN_ADD_URL, BTN_REMOVE_URL],
+        ]
+        if self._chat_autoreply_supported(profile):
+            enabled = self._chat_autoreply_enabled(profile)
+            rows.append(
+                [
+                    BTN_CHAT_AUTOREPLY_ON
+                    if enabled else BTN_CHAT_AUTOREPLY_OFF
+                ]
+            )
+        rows.append([BTN_HISTORY])
+        rows.append([BTN_BACK])
+        return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
     def get_profile_keyboard(self):
         profile_rows = [[self._profile_button(pid)] for pid in self.available_profiles]
@@ -602,6 +636,9 @@ class TelegramBot:
         if text == BTN_SETTINGS:
             await self.send_settings(chat_id, update)
             return
+        if text in (BTN_CHAT_AUTOREPLY_ON, BTN_CHAT_AUTOREPLY_OFF):
+            await self.toggle_chat_autoreply(chat_id, user_id, update)
+            return
         # Выбор профиля
         for pid in self.available_profiles:
             if text == self._profile_button(pid):
@@ -794,8 +831,8 @@ class TelegramBot:
         )
 
         chat_block = ''
-        if profile_id == 'digiseller':
-            chat_meta = self._digiseller_chat_meta()
+        chat_meta = self._chat_autoreply_meta(profile_id)
+        if chat_meta:
             chat_block = (
                 '\n'
                 f'💬 Авто-инструкции: '
@@ -845,8 +882,8 @@ class TelegramBot:
             else 'ВЫКЛ (нет URL)'
         )
         chat_block = ''
-        if profile_id == 'digiseller':
-            chat_meta = self._digiseller_chat_meta()
+        chat_meta = self._chat_autoreply_meta(profile_id)
+        if chat_meta:
             chat_block = (
                 '\n'
                 f'💬 Авто-инструкции: '
@@ -884,7 +921,7 @@ class TelegramBot:
 """
         await update.message.reply_text(
             text,
-            reply_markup=self.get_settings_keyboard(),
+            reply_markup=self.get_settings_keyboard(profile_id),
         )
 
     async def send_diagnostics(
@@ -990,8 +1027,8 @@ class TelegramBot:
             lines.append(chat_perms_line)
         if refresh_line:
             lines.append(refresh_line)
-        if profile_id == 'digiseller':
-            chat_meta = self._digiseller_chat_meta()
+        chat_meta = self._chat_autoreply_meta(profile_id)
+        if chat_meta:
             lines.append(
                 'Chat autoreply: '
                 f'{"ON" if chat_meta["enabled"] else "OFF"} '
@@ -1094,6 +1131,36 @@ class TelegramBot:
             reply_markup=self.get_main_keyboard(profile_id),
         )
 
+    async def toggle_chat_autoreply(
+        self,
+        chat_id: int,
+        user_id: int,
+        update: Update,
+    ):
+        if not update.message:
+            return
+        profile_id = self._active_profile(chat_id)
+        if not self._chat_autoreply_supported(profile_id):
+            await update.message.reply_text(
+                '❌ Для этого профиля авто-инструкции недоступны',
+                reply_markup=self.get_settings_keyboard(profile_id),
+            )
+            return
+
+        new_value = not self._chat_autoreply_enabled(profile_id)
+        storage.set_runtime_setting(
+            'CHAT_AUTOREPLY_ENABLED',
+            'true' if new_value else 'false',
+            user_id=user_id,
+            source='telegram',
+            profile_id=profile_id,
+        )
+        await update.message.reply_text(
+            f'💬 Авто-инструкции: {"ВКЛ" if new_value else "ВЫКЛ"}',
+            reply_markup=self.get_settings_keyboard(profile_id),
+        )
+        await self.send_settings(chat_id, update)
+
     async def toggle_mode(self, chat_id: int, user_id: int, update: Update):
         if not update.message:
             return
@@ -1109,7 +1176,7 @@ class TelegramBot:
         )
         await update.message.reply_text(
             f'✅ Режим: {new_mode}',
-            reply_markup=self.get_settings_keyboard(),
+            reply_markup=self.get_settings_keyboard(profile_id),
         )
         await self.send_settings(chat_id, update)
 
@@ -1128,7 +1195,7 @@ class TelegramBot:
         )
         await update.message.reply_text(
             f'✅ Позиция: {"Вкл" if new_value else "Выкл"}',
-            reply_markup=self.get_settings_keyboard(),
+            reply_markup=self.get_settings_keyboard(profile_id),
         )
         await self.send_settings(chat_id, update)
 
@@ -1143,14 +1210,14 @@ class TelegramBot:
         if not urls:
             await update.message.reply_text(
                 'Список пуст',
-                reply_markup=self.get_settings_keyboard(),
+                reply_markup=self.get_settings_keyboard(profile_id),
             )
             return
         self._set_pending_action(chat_id, 'REMOVE_URL', profile_id)
         lines = ['Удали номер URL:'] + [f'{i}. {u}' for i, u in enumerate(urls, 1)]
         await update.message.reply_text(
             '\n'.join(lines),
-            reply_markup=self.get_settings_keyboard(),
+            reply_markup=self.get_settings_keyboard(profile_id),
         )
 
     async def show_settings_history(self, chat_id: int, update: Update):
@@ -1161,7 +1228,7 @@ class TelegramBot:
         if not rows:
             await update.message.reply_text(
                 'История пуста',
-                reply_markup=self.get_settings_keyboard(),
+                reply_markup=self.get_settings_keyboard(profile_id),
             )
             return
         lines = [f'История ({self._profile_name(profile_id)}):'] + [
@@ -1173,7 +1240,7 @@ class TelegramBot:
         ]
         await update.message.reply_text(
             '\n'.join(lines),
-            reply_markup=self.get_settings_keyboard(),
+            reply_markup=self.get_settings_keyboard(profile_id),
         )
 
     async def handle_pending_action(
@@ -1207,13 +1274,13 @@ class TelegramBot:
             except ValueError:
                 await update.message.reply_text(
                     '❌ Введи число',
-                    reply_markup=self.get_settings_keyboard(),
+                    reply_markup=self.get_settings_keyboard(profile_id),
                 )
                 return
             if value <= 0:
                 await update.message.reply_text(
                     '❌ Значение должно быть > 0',
-                    reply_markup=self.get_settings_keyboard(),
+                    reply_markup=self.get_settings_keyboard(profile_id),
                 )
                 return
             value = round(value, 4)
@@ -1227,7 +1294,7 @@ class TelegramBot:
             self.pending_actions.pop(chat_id, None)
             await update.message.reply_text(
                 f'✅ {action} = {value:.4f}',
-                reply_markup=self.get_settings_keyboard(),
+                reply_markup=self.get_settings_keyboard(profile_id),
             )
             await self.send_settings(chat_id, update)
             return
@@ -1238,7 +1305,7 @@ class TelegramBot:
             except ValueError:
                 await update.message.reply_text(
                     '❌ Введи целое число секунд',
-                    reply_markup=self.get_settings_keyboard(),
+                    reply_markup=self.get_settings_keyboard(profile_id),
                 )
                 return
             if value < runtime.FAST_CHECK_INTERVAL_MIN or (
@@ -1250,7 +1317,7 @@ class TelegramBot:
                         f'{runtime.FAST_CHECK_INTERVAL_MIN}..'
                         f'{runtime.FAST_CHECK_INTERVAL_MAX} секунд'
                     ),
-                    reply_markup=self.get_settings_keyboard(),
+                    reply_markup=self.get_settings_keyboard(profile_id),
                 )
                 return
             storage.set_runtime_setting(
@@ -1263,7 +1330,7 @@ class TelegramBot:
             self.pending_actions.pop(chat_id, None)
             await update.message.reply_text(
                 f'✅ CHECK_INTERVAL = {value}s',
-                reply_markup=self.get_settings_keyboard(),
+                reply_markup=self.get_settings_keyboard(profile_id),
             )
             await self.send_settings(chat_id, update)
             return
@@ -1273,7 +1340,7 @@ class TelegramBot:
             if not candidate_urls:
                 await update.message.reply_text(
                     '❌ Нужен валидный URL (http/https)',
-                    reply_markup=self.get_settings_keyboard(),
+                    reply_markup=self.get_settings_keyboard(profile_id),
                 )
                 return
             candidate_url = candidate_urls[0]
@@ -1288,7 +1355,7 @@ class TelegramBot:
             if normalized_after == normalized_before:
                 await update.message.reply_text(
                     'ℹ️ URL уже есть в списке. Отправь другой URL или нажми Назад.',
-                    reply_markup=self.get_settings_keyboard(),
+                    reply_markup=self.get_settings_keyboard(profile_id),
                 )
                 return
             storage.set_competitor_urls(
@@ -1300,7 +1367,7 @@ class TelegramBot:
             self.pending_actions.pop(chat_id, None)
             await update.message.reply_text(
                 f'✅ URL добавлен: {normalized_after[-1]}',
-                reply_markup=self.get_settings_keyboard(),
+                reply_markup=self.get_settings_keyboard(profile_id),
             )
             await self.send_settings(chat_id, update)
             return
@@ -1311,7 +1378,7 @@ class TelegramBot:
             except ValueError:
                 await update.message.reply_text(
                     '❌ Введи номер',
-                    reply_markup=self.get_settings_keyboard(),
+                    reply_markup=self.get_settings_keyboard(profile_id),
                 )
                 return
             urls = storage.get_competitor_urls(
@@ -1329,13 +1396,13 @@ class TelegramBot:
                 self.pending_actions.pop(chat_id, None)
                 await update.message.reply_text(
                     f'✅ Удалён: {removed}',
-                    reply_markup=self.get_settings_keyboard(),
+                    reply_markup=self.get_settings_keyboard(profile_id),
                 )
                 await self.send_settings(chat_id, update)
                 return
             await update.message.reply_text(
                 '❌ Неверный номер URL',
-                reply_markup=self.get_settings_keyboard(),
+                reply_markup=self.get_settings_keyboard(profile_id),
             )
             return
 
@@ -1347,7 +1414,7 @@ class TelegramBot:
         self.pending_actions.pop(chat_id, None)
         await update.message.reply_text(
             '⚠️ Незавершённый ввод сброшен: неизвестное действие.',
-            reply_markup=self.get_settings_keyboard(),
+            reply_markup=self.get_settings_keyboard(profile_id),
         )
 
     # ================================

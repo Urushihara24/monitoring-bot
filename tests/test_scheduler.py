@@ -314,6 +314,127 @@ async def test_scheduler_stores_applied_price_when_api_rounds(monkeypatch, tmp_p
     assert bot.updates[0]['new_price'] == 0.25
 
 
+@pytest.mark.asyncio
+async def test_scheduler_unknown_rank_gap_forces_weak_mode(monkeypatch, tmp_path):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    test_storage.update_state(last_price=0.31, auto_mode=True)
+
+    cfg = Config()
+    cfg.GGSEL_PRODUCT_ID = 123
+    cfg.COMPETITOR_URLS = [
+        'https://example.com/a',
+        'https://example.com/b',
+    ]
+    cfg.POSITION_FILTER_ENABLED = True
+    cfg.WEAK_UNKNOWN_RANK_ENABLED = True
+    cfg.WEAK_UNKNOWN_RANK_ABS_GAP = 0.03
+    cfg.WEAK_UNKNOWN_RANK_REL_GAP = 0.08
+    cfg.NOTIFY_SKIP = False
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    def fake_parse(url, timeout=10, cookies=None):
+        price = 0.26 if url.endswith('/a') else 0.34
+        return ParseResult(
+            success=True,
+            price=price,
+            error=None,
+            offers=[],
+            rank=None,
+            method='stealth_requests',
+            status_code=200,
+            url=url,
+        )
+
+    monkeypatch.setattr(scheduler_mod.rsc_parser, 'parse_url', fake_parse)
+    captured = {}
+
+    def fake_calculate_price(**kwargs):
+        captured['force_weak_mode'] = kwargs.get('force_weak_mode')
+        return PriceDecision(
+            action='skip',
+            price=kwargs.get('current_price'),
+            reason='test_skip',
+            old_price=kwargs.get('current_price'),
+            competitor_price=min(kwargs.get('competitor_prices') or [0.26]),
+        )
+
+    monkeypatch.setattr(scheduler_mod, 'calculate_price', fake_calculate_price)
+
+    scheduler = scheduler_mod.Scheduler(
+        api_client=DummyApiClient(current_price=0.31),
+        telegram_bot=DummyTelegramBot(),
+        product_id=cfg.GGSEL_PRODUCT_ID,
+    )
+
+    await scheduler.run_cycle()
+
+    assert captured['force_weak_mode'] is True
+
+
+@pytest.mark.asyncio
+async def test_scheduler_unknown_rank_small_gap_keeps_normal_mode(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    test_storage.update_state(last_price=0.31, auto_mode=True)
+
+    cfg = Config()
+    cfg.GGSEL_PRODUCT_ID = 123
+    cfg.COMPETITOR_URLS = [
+        'https://example.com/a',
+        'https://example.com/b',
+    ]
+    cfg.POSITION_FILTER_ENABLED = True
+    cfg.WEAK_UNKNOWN_RANK_ENABLED = True
+    cfg.WEAK_UNKNOWN_RANK_ABS_GAP = 0.03
+    cfg.WEAK_UNKNOWN_RANK_REL_GAP = 0.08
+    cfg.NOTIFY_SKIP = False
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    def fake_parse(url, timeout=10, cookies=None):
+        price = 0.31 if url.endswith('/a') else 0.32
+        return ParseResult(
+            success=True,
+            price=price,
+            error=None,
+            offers=[],
+            rank=None,
+            method='stealth_requests',
+            status_code=200,
+            url=url,
+        )
+
+    monkeypatch.setattr(scheduler_mod.rsc_parser, 'parse_url', fake_parse)
+    captured = {}
+
+    def fake_calculate_price(**kwargs):
+        captured['force_weak_mode'] = kwargs.get('force_weak_mode')
+        return PriceDecision(
+            action='skip',
+            price=kwargs.get('current_price'),
+            reason='test_skip',
+            old_price=kwargs.get('current_price'),
+            competitor_price=min(kwargs.get('competitor_prices') or [0.31]),
+        )
+
+    monkeypatch.setattr(scheduler_mod, 'calculate_price', fake_calculate_price)
+
+    scheduler = scheduler_mod.Scheduler(
+        api_client=DummyApiClient(current_price=0.31),
+        telegram_bot=DummyTelegramBot(),
+        product_id=cfg.GGSEL_PRODUCT_ID,
+    )
+
+    await scheduler.run_cycle()
+
+    assert captured['force_weak_mode'] is False
+
+
 class DummyChatApiClient:
     def __init__(self):
         self.sent_messages = []
@@ -379,6 +500,43 @@ async def test_scheduler_digiseller_chat_autoreply_sent_once(monkeypatch, tmp_pa
         test_storage.get_runtime_setting(
             'CHAT_AUTOREPLY_SENT:111',
             profile_id='digiseller',
+        ) is not None
+    )
+    assert len(bot.notifications) == 1
+
+
+@pytest.mark.asyncio
+async def test_scheduler_ggsel_chat_autoreply_sent_once(monkeypatch, tmp_path):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.GGSEL_CHAT_AUTOREPLY_ENABLED = True
+    cfg.GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
+    cfg.GGSEL_CHAT_AUTOREPLY_PAGE_SIZE = 50
+    cfg.GGSEL_CHAT_AUTOREPLY_MAX_PAGES = 2
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    bot = DummyTelegramBot()
+    api = DummyChatApiClient()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='ggsel',
+        profile_name='GGSEL',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+    await scheduler.run_cycle()
+
+    assert api.sent_messages == [(111, 'Инструкция RU')]
+    assert (
+        test_storage.get_runtime_setting(
+            'CHAT_AUTOREPLY_SENT:111',
+            profile_id='ggsel',
         ) is not None
     )
     assert len(bot.notifications) == 1

@@ -76,6 +76,49 @@ class Config:
     GGSEL_LANG: str = os.getenv('GGSEL_LANG', 'ru-RU')
     GGSEL_REQUIRE_API_ON_START: bool = _env_bool('GGSEL_REQUIRE_API_ON_START', False)
     GGSEL_ENABLED: bool = _env_bool('GGSEL_ENABLED', True)
+    GGSEL_CHAT_AUTOREPLY_ENABLED: bool = _env_bool(
+        'GGSEL_CHAT_AUTOREPLY_ENABLED',
+        False,
+    )
+    GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS: List[int] = None
+    GGSEL_CHAT_AUTOREPLY_PAGE_SIZE: int = int(
+        os.getenv('GGSEL_CHAT_AUTOREPLY_PAGE_SIZE', '50')
+    )
+    GGSEL_CHAT_AUTOREPLY_MAX_PAGES: int = int(
+        os.getenv('GGSEL_CHAT_AUTOREPLY_MAX_PAGES', '2')
+    )
+    GGSEL_CHAT_AUTOREPLY_INTERVAL_SECONDS: int = int(
+        os.getenv('GGSEL_CHAT_AUTOREPLY_INTERVAL_SECONDS', '30')
+    )
+    GGSEL_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES: bool = _env_bool(
+        'GGSEL_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES',
+        True,
+    )
+    GGSEL_CHAT_AUTOREPLY_LOOKBACK_MESSAGES: int = int(
+        os.getenv('GGSEL_CHAT_AUTOREPLY_LOOKBACK_MESSAGES', '30')
+    )
+    GGSEL_CHAT_AUTOREPLY_SENT_TTL_DAYS: int = int(
+        os.getenv('GGSEL_CHAT_AUTOREPLY_SENT_TTL_DAYS', '30')
+    )
+    GGSEL_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS: int = int(
+        os.getenv('GGSEL_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS', '24')
+    )
+    GGSEL_CHAT_TEMPLATE_RU_ALREADY: str = os.getenv(
+        'GGSEL_CHAT_TEMPLATE_RU_ALREADY',
+        '',
+    )
+    GGSEL_CHAT_TEMPLATE_RU_ADD: str = os.getenv(
+        'GGSEL_CHAT_TEMPLATE_RU_ADD',
+        '',
+    )
+    GGSEL_CHAT_TEMPLATE_EN_ALREADY: str = os.getenv(
+        'GGSEL_CHAT_TEMPLATE_EN_ALREADY',
+        '',
+    )
+    GGSEL_CHAT_TEMPLATE_EN_ADD: str = os.getenv(
+        'GGSEL_CHAT_TEMPLATE_EN_ADD',
+        '',
+    )
 
     # DigiSeller API (второй профиль)
     DIGISELLER_API_KEY: str = os.getenv('DIGISELLER_API_KEY', '')
@@ -168,6 +211,15 @@ class Config:
     DIGISELLER_WEAK_POSITION_THRESHOLD: Optional[int] = _env_optional_int(
         'DIGISELLER_WEAK_POSITION_THRESHOLD'
     )
+    DIGISELLER_WEAK_UNKNOWN_RANK_ENABLED: Optional[bool] = _env_optional_bool(
+        'DIGISELLER_WEAK_UNKNOWN_RANK_ENABLED'
+    )
+    DIGISELLER_WEAK_UNKNOWN_RANK_ABS_GAP: Optional[float] = _env_optional_float(
+        'DIGISELLER_WEAK_UNKNOWN_RANK_ABS_GAP'
+    )
+    DIGISELLER_WEAK_UNKNOWN_RANK_REL_GAP: Optional[float] = _env_optional_float(
+        'DIGISELLER_WEAK_UNKNOWN_RANK_REL_GAP'
+    )
     DIGISELLER_CHECK_INTERVAL: Optional[int] = _env_optional_int(
         'DIGISELLER_CHECK_INTERVAL'
     )
@@ -250,6 +302,18 @@ class Config:
     # Фильтр по позиции в выдаче категории
     POSITION_FILTER_ENABLED: bool = _env_bool('POSITION_FILTER_ENABLED', False)
     WEAK_POSITION_THRESHOLD: int = int(os.getenv('WEAK_POSITION_THRESHOLD', '20'))
+    # Эвристика для случая rank=N/A: если min цена заметно ниже следующей,
+    # считаем такого конкурента слабым по позиции (например, низкая ставка).
+    WEAK_UNKNOWN_RANK_ENABLED: bool = _env_bool(
+        'WEAK_UNKNOWN_RANK_ENABLED',
+        True,
+    )
+    WEAK_UNKNOWN_RANK_ABS_GAP: float = float(
+        os.getenv('WEAK_UNKNOWN_RANK_ABS_GAP', '0.03')
+    )
+    WEAK_UNKNOWN_RANK_REL_GAP: float = float(
+        os.getenv('WEAK_UNKNOWN_RANK_REL_GAP', '0.08')
+    )
     
     # Cooldown (секунды)
     COOLDOWN_SECONDS: int = int(os.getenv('COOLDOWN_SECONDS', '30'))
@@ -306,6 +370,21 @@ class Config:
             self.DIGISELLER_COMPETITOR_URLS = [
                 x.strip() for x in d_urls_str.split(',') if x.strip()
             ]
+
+        if self.GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS is None:
+            raw_ids = os.getenv('GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS', '')
+            parsed_ids = []
+            for chunk in raw_ids.split(','):
+                normalized = chunk.strip()
+                if not normalized:
+                    continue
+                try:
+                    value = int(float(normalized))
+                except ValueError:
+                    continue
+                if value > 0:
+                    parsed_ids.append(value)
+            self.GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS = parsed_ids
 
         if self.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS is None:
             raw_ids = os.getenv('DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS', '')

@@ -8,6 +8,8 @@ from src.telegram_bot import (
     BTN_AUTO_OFF,
     BTN_AUTO_ON,
     BTN_BACK,
+    BTN_CHAT_AUTOREPLY_OFF,
+    BTN_CHAT_AUTOREPLY_ON,
     BTN_DOWN,
     BTN_HISTORY,
     BTN_INTERVAL,
@@ -72,6 +74,20 @@ def make_runtime(competitor_urls=None):
     )
 
 
+class ChatCapableClient:
+    def list_chats(self, **_kwargs):
+        return []
+
+    def send_chat_message(self, _order_id, _message, timeout=10):
+        return True
+
+    def get_order_info(self, _order_id, **_kwargs):
+        return {}
+
+    def get_product_info(self, _product_id, timeout=10, lang=None):
+        return {}
+
+
 def keyboard_texts(markup) -> list[str]:
     texts = []
     for row in markup.keyboard:
@@ -88,6 +104,44 @@ def test_settings_keyboard_is_not_overloaded():
     assert BTN_HISTORY in texts
     assert BTN_ADD_URL in texts
     assert BTN_REMOVE_URL in texts
+
+
+def test_settings_keyboard_shows_chat_toggle_for_supported_profile(monkeypatch):
+    bot = TelegramBot(
+        api_clients={'ggsel': ChatCapableClient()},
+        profile_products={'ggsel': 1},
+        profile_default_urls={'ggsel': ['https://example.com']},
+        profile_labels={'ggsel': 'GGSEL'},
+    )
+    bot.admin_ids = {1}
+
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'get_runtime_setting',
+        lambda key, profile_id='ggsel': (
+            'true'
+            if (
+                key == 'CHAT_AUTOREPLY_ENABLED'
+                and profile_id == 'ggsel'
+            ) else None
+        ),
+    )
+    texts = keyboard_texts(bot.get_settings_keyboard('ggsel'))
+    assert BTN_CHAT_AUTOREPLY_ON in texts
+
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'get_runtime_setting',
+        lambda key, profile_id='ggsel': (
+            'false'
+            if (
+                key == 'CHAT_AUTOREPLY_ENABLED'
+                and profile_id == 'ggsel'
+            ) else None
+        ),
+    )
+    texts = keyboard_texts(bot.get_settings_keyboard('ggsel'))
+    assert BTN_CHAT_AUTOREPLY_OFF in texts
 
 
 def test_main_keyboard_is_not_overloaded():
@@ -110,6 +164,7 @@ async def test_main_buttons_route_to_handlers():
     bot.send_status = AsyncMock()
     bot.handle_price_change = AsyncMock()
     bot.toggle_auto = AsyncMock()
+    bot.toggle_chat_autoreply = AsyncMock()
     bot.send_settings = AsyncMock()
 
     status = make_update(BTN_STATUS)
@@ -131,6 +186,10 @@ async def test_main_buttons_route_to_handlers():
     settings = make_update(BTN_SETTINGS)
     await bot.handle_message(settings, None)
     bot.send_settings.assert_awaited_once_with(100, settings)
+
+    chat_toggle = make_update(BTN_CHAT_AUTOREPLY_ON)
+    await bot.handle_message(chat_toggle, None)
+    bot.toggle_chat_autoreply.assert_awaited_once_with(100, 1, chat_toggle)
 
 
 @pytest.mark.asyncio
@@ -223,6 +282,64 @@ async def test_toggle_auto_updates_only_active_profile(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_toggle_chat_autoreply_updates_runtime_setting(monkeypatch):
+    bot = TelegramBot(
+        api_clients={'ggsel': ChatCapableClient()},
+        profile_products={'ggsel': 1},
+        profile_default_urls={'ggsel': []},
+        profile_labels={'ggsel': 'GGSEL'},
+    )
+    bot.admin_ids = {1}
+    bot.chat_profile[100] = 'ggsel'
+    bot.send_settings = AsyncMock()
+
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'get_runtime_setting',
+        lambda key, profile_id='ggsel': None,
+    )
+    monkeypatch.setattr(
+        telegram_module.config,
+        'GGSEL_CHAT_AUTOREPLY_ENABLED',
+        False,
+    )
+    captured = {}
+
+    def fake_set_runtime_setting(
+        key,
+        value,
+        user_id=None,
+        source='system',
+        profile_id='ggsel',
+    ):
+        captured['key'] = key
+        captured['value'] = value
+        captured['user_id'] = user_id
+        captured['source'] = source
+        captured['profile_id'] = profile_id
+
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_runtime_setting',
+        fake_set_runtime_setting,
+    )
+    update = make_update(BTN_CHAT_AUTOREPLY_OFF)
+
+    await bot.toggle_chat_autoreply(100, 1, update)
+
+    assert captured == {
+        'key': 'CHAT_AUTOREPLY_ENABLED',
+        'value': 'true',
+        'user_id': 1,
+        'source': 'telegram',
+        'profile_id': 'ggsel',
+    }
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert args[0] == '💬 Авто-инструкции: ВКЛ'
+
+
+@pytest.mark.asyncio
 async def test_remove_and_history_buttons_call_handlers():
     bot = make_bot()
     bot._state = lambda _profile: {'auto_mode': True}
@@ -312,7 +429,7 @@ async def test_status_shows_last_target_price():
 @pytest.mark.asyncio
 async def test_status_shows_digiseller_chat_autoreply_block(monkeypatch):
     bot = TelegramBot(
-        api_clients={'digiseller': object()},
+        api_clients={'digiseller': ChatCapableClient()},
         profile_products={'digiseller': 5077639},
         profile_default_urls={'digiseller': ['https://example.com']},
         profile_labels={'digiseller': 'DIGISELLER'},
@@ -378,6 +495,72 @@ async def test_status_shows_digiseller_chat_autoreply_block(monkeypatch):
     assert '🧷 Дубликаты: 3' in args[0]
     assert '🕓 Последняя отправка:' in args[0]
     assert '10:01:00Z' not in args[0]
+
+
+@pytest.mark.asyncio
+async def test_status_shows_ggsel_chat_autoreply_block(monkeypatch):
+    bot = TelegramBot(
+        api_clients={'ggsel': ChatCapableClient()},
+        profile_products={'ggsel': 4697439},
+        profile_default_urls={'ggsel': ['https://example.com']},
+        profile_labels={'ggsel': 'GGSEL'},
+    )
+    bot.admin_ids = {1}
+    bot.chat_profile[100] = 'ggsel'
+    bot._state = lambda _profile: {
+        'last_target_price': 0.2649,
+        'last_price': 0.26,
+        'last_competitor_min': 0.27,
+        'last_update': None,
+        'last_competitor_rank': None,
+        'last_competitor_parse_at': None,
+        'last_competitor_url': 'https://example.com/item-1',
+        'last_competitor_method': 'api4_goods',
+        'auto_mode': True,
+        'update_count': 1,
+        'skip_count': 2,
+    }
+    bot._runtime = lambda _profile: SimpleNamespace(
+        MODE='STEP_UP',
+        CHECK_INTERVAL=60,
+        COMPETITOR_URLS=['https://example.com/item-1'],
+    )
+
+    monkeypatch.setattr(
+        telegram_module.config,
+        'GGSEL_CHAT_AUTOREPLY_ENABLED',
+        True,
+    )
+    monkeypatch.setattr(
+        telegram_module.config,
+        'GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS',
+        [4697439],
+    )
+
+    def fake_runtime_setting(key, profile_id='ggsel'):
+        if profile_id != 'ggsel':
+            return None
+        mapping = {
+            'CHAT_AUTOREPLY_SENT_COUNT': '4',
+            'CHAT_AUTOREPLY_DUPLICATE_COUNT': '1',
+            'CHAT_AUTOREPLY_LAST_SENT_AT': '2026-04-04T11:00:00',
+        }
+        return mapping.get(key)
+
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'get_runtime_setting',
+        fake_runtime_setting,
+    )
+
+    update = make_update(BTN_STATUS)
+    await bot.send_status(100, update)
+
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert '💬 Авто-инструкции: ВКЛ' in args[0]
+    assert '📦 Товары: 4697439' in args[0]
+    assert '📨 Отправлено: 4' in args[0]
 
 
 @pytest.mark.asyncio
@@ -788,6 +971,18 @@ async def test_diagnostics_includes_digiseller_token_perms_line():
 
         def get_product(self, _product_id):
             return SimpleNamespace(price=0.3333)
+
+        def list_chats(self, **_kwargs):
+            return []
+
+        def send_chat_message(self, _order_id, _message, timeout=10):
+            return True
+
+        def get_order_info(self, _order_id, **_kwargs):
+            return {}
+
+        def get_product_info(self, _product_id, timeout=10, lang=None):
+            return {}
 
         def get_token_perms_status(self):
             return True, 'products.read, products.write'

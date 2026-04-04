@@ -49,6 +49,10 @@ _ADD_KEYWORDS = (
 )
 _TRUE_CHOICES = {'1', 'true', 'yes', 'y', 'да', 'ага'}
 _FALSE_CHOICES = {'0', 'false', 'no', 'n', 'нет', 'неа'}
+_CHAT_PROFILE_PREFIX = {
+    'ggsel': 'GGSEL',
+    'digiseller': 'DIGISELLER',
+}
 
 
 class Scheduler:
@@ -456,10 +460,52 @@ class Scheduler:
 
         return result
 
-    def _chat_autoreply_enabled(self) -> bool:
-        if self.profile_id != 'digiseller':
+    def _chat_profile_prefix(self) -> Optional[str]:
+        return _CHAT_PROFILE_PREFIX.get(self.profile_id)
+
+    def _chat_autoreply_supported(self) -> bool:
+        if self._chat_profile_prefix() is None:
             return False
-        return bool(getattr(config, 'DIGISELLER_CHAT_AUTOREPLY_ENABLED', False))
+        return (
+            hasattr(self.api_client, 'list_chats')
+            and hasattr(self.api_client, 'send_chat_message')
+            and hasattr(self.api_client, 'get_order_info')
+            and hasattr(self.api_client, 'get_product_info')
+        )
+
+    def _chat_config_key(self, suffix: str) -> Optional[str]:
+        prefix = self._chat_profile_prefix()
+        if prefix is None:
+            return None
+        return f'{prefix}_CHAT_AUTOREPLY_{suffix}'
+
+    def _chat_cfg(self, suffix: str, default):
+        key = self._chat_config_key(suffix)
+        if not key:
+            return default
+        return getattr(config, key, default)
+
+    def _chat_autoreply_default_enabled(self) -> bool:
+        key = self._chat_config_key('ENABLED')
+        if not key:
+            return False
+        return bool(getattr(config, key, False))
+
+    def _chat_autoreply_enabled(self) -> bool:
+        if self._chat_profile_prefix() is None:
+            return False
+        runtime_raw = storage.get_runtime_setting(
+            'CHAT_AUTOREPLY_ENABLED',
+            profile_id=self.profile_id,
+        )
+        if runtime_raw is not None:
+            return str(runtime_raw).strip().lower() in (
+                '1',
+                'true',
+                'yes',
+                'on',
+            )
+        return self._chat_autoreply_default_enabled()
 
     def _iter_text_values(self, payload: Any):
         queue = [payload]
@@ -679,7 +725,10 @@ class Scheduler:
     def _resolve_chat_template(self, locale: str, mode: str) -> str:
         locale_tag = 'EN' if locale == 'en' else 'RU'
         mode_tag = 'ALREADY' if mode == _MODE_ALREADY else 'ADD'
-        key = f'DIGISELLER_CHAT_TEMPLATE_{locale_tag}_{mode_tag}'
+        prefix = self._chat_profile_prefix()
+        if not prefix:
+            return ''
+        key = f'{prefix}_CHAT_TEMPLATE_{locale_tag}_{mode_tag}'
         return self._sanitize_message(getattr(config, key, ''))
 
     def _pick_instruction_text(
@@ -785,11 +834,7 @@ class Scheduler:
 
     def _chat_autoreply_product_ids(self) -> list[int]:
         ids = []
-        for value in getattr(
-            config,
-            'DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS',
-            [],
-        ):
+        for value in self._chat_cfg('PRODUCT_IDS', []):
             try:
                 normalized = int(float(value))
             except (TypeError, ValueError):
@@ -841,9 +886,8 @@ class Scheduler:
         every_hours = max(
             1,
             int(
-                getattr(
-                    config,
-                    'DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS',
+                self._chat_cfg(
+                    'CLEANUP_EVERY_HOURS',
                     24,
                 )
             ),
@@ -851,9 +895,8 @@ class Scheduler:
         ttl_days = max(
             1,
             int(
-                getattr(
-                    config,
-                    'DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS',
+                self._chat_cfg(
+                    'SENT_TTL_DAYS',
                     30,
                 )
             ),
@@ -907,9 +950,8 @@ class Scheduler:
         interval_seconds = max(
             1,
             int(
-                getattr(
-                    config,
-                    'DIGISELLER_CHAT_AUTOREPLY_INTERVAL_SECONDS',
+                self._chat_cfg(
+                    'INTERVAL_SECONDS',
                     30,
                 )
             ),
@@ -927,9 +969,8 @@ class Scheduler:
 
     def _is_message_already_sent(self, order_id: int, message: str) -> bool:
         if not bool(
-            getattr(
-                config,
-                'DIGISELLER_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES',
+            self._chat_cfg(
+                'DEDUPE_BY_MESSAGES',
                 True,
             )
         ):
@@ -941,9 +982,8 @@ class Scheduler:
             min(
                 200,
                 int(
-                    getattr(
-                        config,
-                        'DIGISELLER_CHAT_AUTOREPLY_LOOKBACK_MESSAGES',
+                    self._chat_cfg(
+                        'LOOKBACK_MESSAGES',
                         30,
                     )
                 ),
@@ -975,15 +1015,10 @@ class Scheduler:
                 return True
         return False
 
-    async def _run_digiseller_chat_autoreply(self):
+    async def _run_chat_autoreply(self):
         if not self._chat_autoreply_enabled():
             return
-        if not (
-            hasattr(self.api_client, 'list_chats')
-            and hasattr(self.api_client, 'send_chat_message')
-            and hasattr(self.api_client, 'get_order_info')
-            and hasattr(self.api_client, 'get_product_info')
-        ):
+        if not self._chat_autoreply_supported():
             return
         if not self._should_run_chat_autoreply_now():
             return
@@ -1023,9 +1058,8 @@ class Scheduler:
                 min(
                     100,
                     int(
-                        getattr(
-                            config,
-                            'DIGISELLER_CHAT_AUTOREPLY_PAGE_SIZE',
+                        self._chat_cfg(
+                            'PAGE_SIZE',
                             50,
                         )
                     ),
@@ -1036,9 +1070,8 @@ class Scheduler:
                 min(
                     10,
                     int(
-                        getattr(
-                            config,
-                            'DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES',
+                        self._chat_cfg(
+                            'MAX_PAGES',
                             2,
                         )
                     ),
@@ -1228,6 +1261,50 @@ class Scheduler:
                 exc_info=True,
             )
 
+    def _should_force_weak_mode_by_unknown_rank(
+        self,
+        competitors: list[tuple[str, ParseResult]],
+        runtime,
+    ) -> bool:
+        if not getattr(runtime, 'WEAK_UNKNOWN_RANK_ENABLED', True):
+            return False
+        prices = sorted(
+            float(item[1].price)
+            for item in competitors
+            if item[1].price is not None
+        )
+        if len(prices) < 2:
+            return False
+        min_price = prices[0]
+        second_price = prices[1]
+        if second_price <= 0:
+            return False
+        abs_gap = second_price - min_price
+        rel_gap = abs_gap / second_price
+        abs_threshold = max(
+            0.0,
+            float(getattr(runtime, 'WEAK_UNKNOWN_RANK_ABS_GAP', 0.03)),
+        )
+        rel_threshold = max(
+            0.0,
+            float(getattr(runtime, 'WEAK_UNKNOWN_RANK_REL_GAP', 0.08)),
+        )
+        force = abs_gap >= abs_threshold and rel_gap >= rel_threshold
+        if force:
+            logger.info(
+                '[%s] Weak-mode по unknown-rank эвристике: '
+                'min=%.4f second=%.4f abs_gap=%.4f rel_gap=%.4f '
+                '(abs_th=%.4f rel_th=%.4f)',
+                self.profile_name,
+                min_price,
+                second_price,
+                abs_gap,
+                rel_gap,
+                abs_threshold,
+                rel_threshold,
+            )
+        return force
+
     async def run_cycle(self):
         logger.info('[%s] 🔄 Запуск цикла pricing...', self.profile_name)
         try:
@@ -1243,7 +1320,7 @@ class Scheduler:
             runtime = self._runtime()
             state = self._state()
 
-            await self._run_digiseller_chat_autoreply()
+            await self._run_chat_autoreply()
 
             is_valid, errors = validate_runtime_config(runtime)
             if not is_valid:
@@ -1358,16 +1435,28 @@ class Scheduler:
             considered = valid_competitors
             force_weak_mode = False
             if runtime.POSITION_FILTER_ENABLED:
-                strong = [
+                ranked = [
                     item for item in valid_competitors
-                    if item[1].rank is None
-                    or item[1].rank <= runtime.WEAK_POSITION_THRESHOLD
+                    if item[1].rank is not None
                 ]
-                if strong:
-                    considered = strong
+                if ranked:
+                    strong = [
+                        item for item in ranked
+                        if item[1].rank <= runtime.WEAK_POSITION_THRESHOLD
+                    ]
+                    if strong:
+                        considered = strong
+                    else:
+                        considered = valid_competitors
+                        force_weak_mode = True
                 else:
                     considered = valid_competitors
-                    force_weak_mode = True
+                    force_weak_mode = (
+                        self._should_force_weak_mode_by_unknown_rank(
+                            valid_competitors,
+                            runtime,
+                        )
+                    )
 
             selected_url, selected = min(considered, key=lambda item: item[1].price)
             min_price = selected.price

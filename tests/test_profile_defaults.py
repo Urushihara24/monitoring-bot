@@ -55,6 +55,9 @@ def test_build_profile_runtime_defaults_for_digiseller():
 def test_build_profile_runtime_defaults_formats_bool_and_extended_keys():
     cfg = SimpleNamespace(
         DIGISELLER_POSITION_FILTER_ENABLED=True,
+        DIGISELLER_WEAK_UNKNOWN_RANK_ENABLED=False,
+        DIGISELLER_WEAK_UNKNOWN_RANK_ABS_GAP=0.05,
+        DIGISELLER_WEAK_UNKNOWN_RANK_REL_GAP=0.11,
         DIGISELLER_UPDATE_ONLY_ON_COMPETITOR_CHANGE=False,
         DIGISELLER_NOTIFY_COMPETITOR_CHANGE=True,
         DIGISELLER_FAST_CHECK_INTERVAL_MIN=20,
@@ -65,6 +68,9 @@ def test_build_profile_runtime_defaults_formats_bool_and_extended_keys():
     defaults = build_profile_runtime_defaults(cfg, 'digiseller')
 
     assert defaults['POSITION_FILTER_ENABLED'] == 'true'
+    assert defaults['WEAK_UNKNOWN_RANK_ENABLED'] == 'false'
+    assert defaults['WEAK_UNKNOWN_RANK_ABS_GAP'] == '0.05'
+    assert defaults['WEAK_UNKNOWN_RANK_REL_GAP'] == '0.11'
     assert defaults['UPDATE_ONLY_ON_COMPETITOR_CHANGE'] == 'false'
     assert defaults['NOTIFY_COMPETITOR_CHANGE'] == 'true'
     assert defaults['FAST_CHECK_INTERVAL_MIN'] == '20'
