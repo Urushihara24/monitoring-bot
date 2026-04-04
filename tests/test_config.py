@@ -70,3 +70,14 @@ def test_config_parses_digiseller_chat_autoreply_fields(monkeypatch):
     assert cfg.DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS == 45
     assert cfg.DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS == 12
     assert cfg.DIGISELLER_CHAT_TEMPLATE_RU_ALREADY == 'RU already'
+
+
+def test_config_parses_profile_api_secrets(monkeypatch):
+    monkeypatch.setenv('GGSEL_API_SECRET', 'gg-secret')
+    monkeypatch.setenv('DIGISELLER_API_SECRET', 'dg-secret')
+
+    cfg_mod = _reload_config_module()
+    cfg = cfg_mod.Config()
+
+    assert cfg.GGSEL_API_SECRET == 'gg-secret'
+    assert cfg.DIGISELLER_API_SECRET == 'dg-secret'
