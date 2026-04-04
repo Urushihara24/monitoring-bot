@@ -244,6 +244,20 @@ class TelegramBot:
 
     def _digiseller_chat_meta(self) -> dict:
         enabled = bool(getattr(config, 'DIGISELLER_CHAT_AUTOREPLY_ENABLED', False))
+        dedupe = bool(
+            getattr(
+                config,
+                'DIGISELLER_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES',
+                True,
+            )
+        )
+        lookback = int(
+            getattr(
+                config,
+                'DIGISELLER_CHAT_AUTOREPLY_LOOKBACK_MESSAGES',
+                30,
+            )
+        )
         product_ids = getattr(
             config,
             'DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS',
@@ -265,12 +279,22 @@ class TelegramBot:
             'CHAT_AUTOREPLY_SENT_COUNT',
             profile_id='digiseller',
         )
+        raw_duplicate_count = storage.get_runtime_setting(
+            'CHAT_AUTOREPLY_DUPLICATE_COUNT',
+            profile_id='digiseller',
+        )
         sent_count = 0
         if raw_sent_count is not None:
             try:
                 sent_count = int(float(raw_sent_count))
             except (TypeError, ValueError):
                 sent_count = 0
+        duplicate_count = 0
+        if raw_duplicate_count is not None:
+            try:
+                duplicate_count = int(float(raw_duplicate_count))
+            except (TypeError, ValueError):
+                duplicate_count = 0
 
         last_run = storage.get_runtime_setting(
             'CHAT_AUTOREPLY_LAST_RUN_AT',
@@ -287,8 +311,11 @@ class TelegramBot:
 
         return {
             'enabled': enabled,
+            'dedupe': dedupe,
+            'lookback': lookback,
             'products': products_text,
             'sent_count': sent_count,
+            'duplicate_count': duplicate_count,
             'last_run': self._fmt_iso_datetime(last_run),
             'last_sent': self._fmt_iso_datetime(last_sent),
             'last_error': (last_error or '').strip() or 'N/A',
@@ -721,6 +748,7 @@ class TelegramBot:
                 f'{"ВКЛ" if chat_meta["enabled"] else "ВЫКЛ"}\n'
                 f'📦 Товары: {chat_meta["products"]}\n'
                 f'📨 Отправлено: {chat_meta["sent_count"]}\n'
+                f'🧷 Дубликаты: {chat_meta["duplicate_count"]}\n'
                 f'🕓 Последняя отправка: {chat_meta["last_sent"]}'
             )
 
@@ -771,6 +799,9 @@ class TelegramBot:
                 f'{"ВКЛ" if chat_meta["enabled"] else "ВЫКЛ"}\n'
                 f'📦 Товары инструкций: {chat_meta["products"]}\n'
                 f'📨 Отправлено всего: {chat_meta["sent_count"]}\n'
+                f'🧷 Дубликатов пропущено: {chat_meta["duplicate_count"]}\n'
+                f'🔎 Dedupe: {"ON" if chat_meta["dedupe"] else "OFF"} '
+                f'(lookback={chat_meta["lookback"]})\n'
                 f'🕓 Последний запуск: {chat_meta["last_run"]}'
             )
 
@@ -878,6 +909,12 @@ class TelegramBot:
                 'Chat autoreply: '
                 f'{"ON" if chat_meta["enabled"] else "OFF"} '
                 f'(sent={chat_meta["sent_count"]})'
+            )
+            lines.append(
+                'Chat dedupe: '
+                f'{"ON" if chat_meta["dedupe"] else "OFF"} '
+                f'(duplicates={chat_meta["duplicate_count"]}, '
+                f'lookback={chat_meta["lookback"]})'
             )
             lines.append(f'Chat last run: {chat_meta["last_run"]}')
             lines.append(f'Chat last sent: {chat_meta["last_sent"]}')
