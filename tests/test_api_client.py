@@ -311,6 +311,20 @@ def test_list_chats_returns_items(monkeypatch):
     assert chats[0]['id_i'] == 101
 
 
+def test_list_chats_returns_chats_key(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(
+        client,
+        '_authorized_request',
+        lambda *a, **k: FakeResponse(
+            200,
+            {'chats': [{'id_i': 201}]},
+        ),
+    )
+    chats = client.list_chats(page=1)
+    assert chats == [{'id_i': 201}]
+
+
 def test_list_messages_returns_list(monkeypatch):
     client = make_client()
     monkeypatch.setattr(
@@ -324,6 +338,34 @@ def test_list_messages_returns_list(monkeypatch):
     messages = client.list_messages(1001)
     assert len(messages) == 1
     assert messages[0]['message'] == 'hi'
+
+
+def test_list_messages_returns_messages_key(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(
+        client,
+        '_authorized_request',
+        lambda *a, **k: FakeResponse(
+            200,
+            {'messages': [{'id': 2, 'message': 'hello'}]},
+        ),
+    )
+    messages = client.list_messages(1001)
+    assert messages == [{'id': 2, 'message': 'hello'}]
+
+
+def test_list_messages_returns_nested_content_items(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(
+        client,
+        '_authorized_request',
+        lambda *a, **k: FakeResponse(
+            200,
+            {'content': {'items': [{'id': 3, 'message': 'nested'}]}},
+        ),
+    )
+    messages = client.list_messages(1001)
+    assert messages == [{'id': 3, 'message': 'nested'}]
 
 
 def test_send_chat_message_200_non_json(monkeypatch):

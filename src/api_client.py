@@ -731,10 +731,10 @@ class GGSELClient:
             payload = response.json()
         except Exception:
             return []
-        if not isinstance(payload, dict):
-            return []
-        items = payload.get("items")
-        return items if isinstance(items, list) else []
+        return self._extract_list_payload(
+            payload,
+            keys=("items", "chats", "messages", "data", "results"),
+        )
 
     def list_messages(
         self,
@@ -775,10 +775,35 @@ class GGSELClient:
             payload = response.json()
         except Exception:
             return []
+        return self._extract_list_payload(
+            payload,
+            keys=("items", "messages", "data", "results", "chats"),
+        )
+
+    def _extract_list_payload(
+        self,
+        payload: Any,
+        *,
+        keys: tuple[str, ...],
+    ) -> list[dict[str, Any]]:
+        """Извлекает список объектов из типовых API-ответов."""
         if isinstance(payload, list):
-            return payload
-        if isinstance(payload, dict) and isinstance(payload.get("items"), list):
-            return payload["items"]
+            return [item for item in payload if isinstance(item, dict)]
+        if not isinstance(payload, dict):
+            return []
+        for key in keys:
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+            if isinstance(value, dict):
+                nested = self._extract_list_payload(value, keys=keys)
+                if nested:
+                    return nested
+        content = payload.get("content")
+        if isinstance(content, dict):
+            nested = self._extract_list_payload(content, keys=keys)
+            if nested:
+                return nested
         return []
 
     def send_chat_message(
