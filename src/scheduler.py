@@ -564,22 +564,77 @@ class Scheduler:
         self,
         product_info: dict[str, Any],
         mode: str,
+        locale: str = 'ru',
     ) -> str:
+        lang_tag = 'en' if locale == 'en' else 'ru'
         if mode == _MODE_ADD:
-            keys = (
-                'add_info',
-                'instruction_add',
-                'instruction_extra',
-                'instruction',
-                'info',
-            )
+            if lang_tag == 'en':
+                keys = (
+                    'add_info_en',
+                    'instruction_add_en',
+                    'instruction_extra_en',
+                    'add_info',
+                    'instruction_add',
+                    'instruction_extra',
+                    'instruction_en',
+                    'instruction',
+                    'info_en',
+                    'info',
+                    'add_info_ru',
+                    'instruction_add_ru',
+                    'instruction_extra_ru',
+                    'instruction_ru',
+                    'info_ru',
+                )
+            else:
+                keys = (
+                    'add_info_ru',
+                    'instruction_add_ru',
+                    'instruction_extra_ru',
+                    'add_info',
+                    'instruction_add',
+                    'instruction_extra',
+                    'instruction_ru',
+                    'instruction',
+                    'info_ru',
+                    'info',
+                    'add_info_en',
+                    'instruction_add_en',
+                    'instruction_extra_en',
+                    'instruction_en',
+                    'info_en',
+                )
         else:
-            keys = (
-                'info',
-                'instruction',
-                'instruction_main',
-                'add_info',
-            )
+            if lang_tag == 'en':
+                keys = (
+                    'info_en',
+                    'instruction_en',
+                    'instruction_main_en',
+                    'info',
+                    'instruction',
+                    'instruction_main',
+                    'add_info_en',
+                    'add_info',
+                    'info_ru',
+                    'instruction_ru',
+                    'instruction_main_ru',
+                    'add_info_ru',
+                )
+            else:
+                keys = (
+                    'info_ru',
+                    'instruction_ru',
+                    'instruction_main_ru',
+                    'info',
+                    'instruction',
+                    'instruction_main',
+                    'add_info_ru',
+                    'add_info',
+                    'info_en',
+                    'instruction_en',
+                    'instruction_main_en',
+                    'add_info_en',
+                )
         for key in keys:
             if key not in product_info:
                 continue
@@ -945,6 +1000,7 @@ class Scheduler:
                         message = self._pick_instruction_text(
                             product_info,
                             mode=mode,
+                            locale=locale,
                         )
 
                     if not message:
