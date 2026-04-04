@@ -543,6 +543,56 @@ def test_refresh_access_token_accepts_retval_camel(monkeypatch):
     assert client.access_token == 'issued-token-2'
 
 
+def test_refresh_access_token_jwt_key_without_secret_skips_apilogin(monkeypatch):
+    client = GGSELClient(
+        api_key='a.b.c',
+        seller_id=8175,
+        base_url='https://seller.ggsel.com/api_sellers/api',
+        lang='ru-RU',
+    )
+
+    def fail_request(*args, **kwargs):  # pragma: no cover
+        raise AssertionError('request should not be called without sign secret')
+
+    monkeypatch.setattr(client, '_request_with_retry', fail_request)
+
+    ok = client._refresh_access_token()
+    assert ok is False
+
+
+def test_refresh_access_token_uses_explicit_api_secret(monkeypatch):
+    client = GGSELClient(
+        api_key='a.b.c',
+        api_secret='secret-xyz',
+        seller_id=8175,
+        base_url='https://seller.ggsel.com/api_sellers/api',
+        lang='ru-RU',
+    )
+    captured: dict[str, Any] = {}
+
+    def fake_request(method, url, **kwargs):
+        captured['method'] = method
+        captured['url'] = url
+        captured.update(kwargs)
+        return FakeResponse(
+            200,
+            {
+                'retval': 0,
+                'token': 'issued-token-with-secret',
+                'valid_thru': '2030-01-01T00:00:00Z',
+            },
+        )
+
+    monkeypatch.setattr(client, '_request_with_retry', fake_request)
+
+    ok = client._refresh_access_token()
+    assert ok is True
+    assert client.access_token == 'issued-token-with-secret'
+    assert captured['method'] == 'POST'
+    assert captured['url'].endswith('/apilogin')
+    assert len(captured['json']['sign']) == 64
+
+
 def test_authorized_request_retries_once_after_401(monkeypatch):
     client = GGSELClient(
         api_key='secret-abc',
