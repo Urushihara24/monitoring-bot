@@ -813,6 +813,8 @@ async def test_diagnostics_includes_digiseller_token_perms_line():
     args, _kwargs = update.message.reply_text.await_args
     assert 'Профиль: DIGISELLER' in args[0]
     assert 'Token perms: OK (products.read, products.write)' in args[0]
+    assert 'Chat autoreply:' in args[0]
+    assert 'Chat dedupe:' in args[0]
 
 
 @pytest.mark.asyncio
