@@ -50,6 +50,7 @@ data/*.bak
 # IDE
 .idea/
 .vscode/
+.qwen/
 *.swp
 *.swo
 *~
