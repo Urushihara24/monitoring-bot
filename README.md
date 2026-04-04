@@ -132,6 +132,15 @@ cp .env.example .env
 - `DIGISELLER_COMPETITOR_URLS` (если нужен авто-режим мониторинга)
 - `DIGISELLER_REQUIRE_API_ON_START=true` (чтобы процесс не стартовал с битым API)
 
+Опционально для авто-инструкций в переписке заказа (DigiSeller):
+- `DIGISELLER_CHAT_AUTOREPLY_ENABLED=true`
+- `DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS=5077639,5104800`
+- `DIGISELLER_CHAT_TEMPLATE_RU_ALREADY`, `DIGISELLER_CHAT_TEMPLATE_RU_ADD`
+- `DIGISELLER_CHAT_TEMPLATE_EN_ALREADY`, `DIGISELLER_CHAT_TEMPLATE_EN_ADD`
+
+Если шаблоны не заданы, бот берёт текст из полей товара (`info`/`add_info`)
+на нужном языке (`ru-RU`/`en-US`) и отправляет его в чат заказа один раз.
+
 Быстрая проверка только DigiSeller:
 
 ```bash

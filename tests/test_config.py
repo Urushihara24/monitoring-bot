@@ -37,3 +37,26 @@ def test_config_optional_bool_is_none_on_empty(monkeypatch):
     cfg_mod = _reload_config_module()
     cfg = cfg_mod.Config()
     assert cfg.DIGISELLER_NOTIFY_PARSER_ISSUES is None
+
+
+def test_config_parses_digiseller_chat_autoreply_fields(monkeypatch):
+    monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_ENABLED', '1')
+    monkeypatch.setenv(
+        'DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS',
+        '5077639, 5104800, bad',
+    )
+    monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_PAGE_SIZE', '30')
+    monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES', '3')
+    monkeypatch.setenv(
+        'DIGISELLER_CHAT_TEMPLATE_RU_ALREADY',
+        'RU already',
+    )
+
+    cfg_mod = _reload_config_module()
+    cfg = cfg_mod.Config()
+
+    assert cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED is True
+    assert cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS == [5077639, 5104800]
+    assert cfg.DIGISELLER_CHAT_AUTOREPLY_PAGE_SIZE == 30
+    assert cfg.DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES == 3
+    assert cfg.DIGISELLER_CHAT_TEMPLATE_RU_ALREADY == 'RU already'
