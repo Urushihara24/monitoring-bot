@@ -318,8 +318,10 @@ class DummyChatApiClient:
         self.sent_messages = []
         self.product_info_calls = []
         self.message_queries = []
+        self.list_chats_calls = 0
 
     def list_chats(self, **kwargs):
+        self.list_chats_calls += 1
         if kwargs.get('page') == 1:
             return [{'id_i': 111, 'id_d': 5077639}]
         return []
@@ -628,3 +630,36 @@ async def test_scheduler_digiseller_chat_autoreply_cleanup_old_sent_markers(
             profile_id='digiseller',
         ) is not None
     )
+
+
+@pytest.mark.asyncio
+async def test_scheduler_digiseller_chat_autoreply_respects_interval(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
+    cfg.DIGISELLER_CHAT_AUTOREPLY_INTERVAL_SECONDS = 3600
+    cfg.DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES = 1
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    bot = DummyTelegramBot()
+    api = DummyChatApiClient()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+    await scheduler.run_cycle()
+
+    assert api.list_chats_calls == 1

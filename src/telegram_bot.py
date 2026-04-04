@@ -258,6 +258,13 @@ class TelegramBot:
                 30,
             )
         )
+        interval_seconds = int(
+            getattr(
+                config,
+                'DIGISELLER_CHAT_AUTOREPLY_INTERVAL_SECONDS',
+                30,
+            )
+        )
         product_ids = getattr(
             config,
             'DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS',
@@ -317,6 +324,7 @@ class TelegramBot:
             'enabled': enabled,
             'dedupe': dedupe,
             'lookback': lookback,
+            'interval_seconds': interval_seconds,
             'products': products_text,
             'sent_count': sent_count,
             'duplicate_count': duplicate_count,
@@ -807,6 +815,7 @@ class TelegramBot:
                 f'🧷 Дубликатов пропущено: {chat_meta["duplicate_count"]}\n'
                 f'🔎 Dedupe: {"ON" if chat_meta["dedupe"] else "OFF"} '
                 f'(lookback={chat_meta["lookback"]})\n'
+                f'⏱️ Интервал чатов: {chat_meta["interval_seconds"]}s\n'
                 f'🧹 Последняя очистка: {chat_meta["last_cleanup"]}\n'
                 f'🕓 Последний запуск: {chat_meta["last_run"]}'
             )
@@ -921,6 +930,9 @@ class TelegramBot:
                 f'{"ON" if chat_meta["dedupe"] else "OFF"} '
                 f'(duplicates={chat_meta["duplicate_count"]}, '
                 f'lookback={chat_meta["lookback"]})'
+            )
+            lines.append(
+                f'Chat interval: {chat_meta["interval_seconds"]}s'
             )
             lines.append(f'Chat last run: {chat_meta["last_run"]}')
             lines.append(f'Chat last sent: {chat_meta["last_sent"]}')
