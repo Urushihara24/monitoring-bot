@@ -34,6 +34,51 @@ def test_runtime_setting_isolation(tmp_path):
     )
 
 
+def test_runtime_settings_list_and_delete_by_prefix(tmp_path):
+    db = tmp_path / 'state.db'
+    storage = Storage(db_path=str(db))
+
+    storage.set_runtime_setting(
+        'CHAT_AUTOREPLY_SENT:1',
+        '2026-04-01T10:00:00',
+        profile_id='digiseller',
+    )
+    storage.set_runtime_setting(
+        'CHAT_AUTOREPLY_SENT:2',
+        '2026-04-02T10:00:00',
+        profile_id='digiseller',
+    )
+    storage.set_runtime_setting(
+        'OTHER_KEY',
+        'value',
+        profile_id='digiseller',
+    )
+
+    rows = storage.list_runtime_settings(
+        profile_id='digiseller',
+        key_prefix='CHAT_AUTOREPLY_SENT:',
+    )
+    keys = [row['key'] for row in rows]
+    assert keys == ['CHAT_AUTOREPLY_SENT:1', 'CHAT_AUTOREPLY_SENT:2']
+
+    deleted = storage.delete_runtime_setting(
+        'CHAT_AUTOREPLY_SENT:1',
+        profile_id='digiseller',
+        source='test_cleanup',
+    )
+    assert deleted is True
+    assert (
+        storage.get_runtime_setting(
+            'CHAT_AUTOREPLY_SENT:1',
+            profile_id='digiseller',
+        ) is None
+    )
+    assert (
+        storage.get_runtime_setting('OTHER_KEY', profile_id='digiseller')
+        == 'value'
+    )
+
+
 def test_competitor_urls_profile_specific(tmp_path):
     db = tmp_path / 'state.db'
     storage = Storage(db_path=str(db))

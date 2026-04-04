@@ -752,6 +752,74 @@ class Storage:
             )
             conn.commit()
 
+    def list_runtime_settings(
+        self,
+        *,
+        profile_id: str = DEFAULT_PROFILE,
+        key_prefix: Optional[str] = None,
+        limit: int = 10000,
+    ) -> List[dict]:
+        profile = self._normalize_profile(profile_id)
+        query = '''
+            SELECT key, value
+            FROM runtime_settings
+            WHERE profile_id = ?
+        '''
+        params: List[object] = [profile]
+        if key_prefix:
+            query += ' AND key LIKE ?'
+            params.append(f'{key_prefix}%')
+        query += ' ORDER BY key ASC LIMIT ?'
+        params.append(int(max(1, limit)))
+        with sqlite3.connect(str(self.db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(query, tuple(params)).fetchall()
+            return [dict(row) for row in rows]
+
+    def delete_runtime_setting(
+        self,
+        key: str,
+        *,
+        user_id: Optional[int] = None,
+        source: str = 'system',
+        profile_id: str = DEFAULT_PROFILE,
+    ) -> bool:
+        profile = self._normalize_profile(profile_id)
+        old_value = self.get_runtime_setting(key, profile_id=profile)
+        if old_value is None:
+            return False
+        with sqlite3.connect(str(self.db_path)) as conn:
+            conn.execute(
+                '''
+                DELETE FROM runtime_settings
+                WHERE profile_id = ? AND key = ?
+                ''',
+                (profile, key),
+            )
+            conn.execute(
+                '''
+                INSERT INTO settings_history (
+                    profile_id,
+                    key,
+                    old_value,
+                    new_value,
+                    user_id,
+                    source
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    profile,
+                    key,
+                    old_value,
+                    None,
+                    user_id,
+                    source,
+                ),
+            )
+            conn.commit()
+        return True
+
     def get_competitor_urls(
         self,
         default_urls: list,

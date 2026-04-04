@@ -49,6 +49,8 @@ def test_config_parses_digiseller_chat_autoreply_fields(monkeypatch):
     monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES', '3')
     monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES', '0')
     monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_LOOKBACK_MESSAGES', '77')
+    monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS', '45')
+    monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS', '12')
     monkeypatch.setenv(
         'DIGISELLER_CHAT_TEMPLATE_RU_ALREADY',
         'RU already',
@@ -63,4 +65,6 @@ def test_config_parses_digiseller_chat_autoreply_fields(monkeypatch):
     assert cfg.DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES == 3
     assert cfg.DIGISELLER_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES is False
     assert cfg.DIGISELLER_CHAT_AUTOREPLY_LOOKBACK_MESSAGES == 77
+    assert cfg.DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS == 45
+    assert cfg.DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS == 12
     assert cfg.DIGISELLER_CHAT_TEMPLATE_RU_ALREADY == 'RU already'
