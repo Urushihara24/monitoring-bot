@@ -310,6 +310,73 @@ async def test_status_shows_last_target_price():
 
 
 @pytest.mark.asyncio
+async def test_status_shows_digiseller_chat_autoreply_block(monkeypatch):
+    bot = TelegramBot(
+        api_clients={'digiseller': object()},
+        profile_products={'digiseller': 5077639},
+        profile_default_urls={'digiseller': ['https://example.com']},
+        profile_labels={'digiseller': 'DIGISELLER'},
+    )
+    bot.admin_ids = {1}
+    bot.chat_profile[100] = 'digiseller'
+    bot._state = lambda _profile: {
+        'last_target_price': 0.2649,
+        'last_price': 0.26,
+        'last_competitor_min': 0.27,
+        'last_update': None,
+        'last_competitor_rank': None,
+        'last_competitor_parse_at': None,
+        'last_competitor_url': 'https://example.com/item-1',
+        'last_competitor_method': 'api4_goods',
+        'auto_mode': True,
+        'update_count': 1,
+        'skip_count': 2,
+    }
+    bot._runtime = lambda _profile: SimpleNamespace(
+        MODE='STEP_UP',
+        CHECK_INTERVAL=60,
+        COMPETITOR_URLS=['https://example.com/item-1'],
+    )
+
+    monkeypatch.setattr(
+        telegram_module.config,
+        'DIGISELLER_CHAT_AUTOREPLY_ENABLED',
+        True,
+    )
+    monkeypatch.setattr(
+        telegram_module.config,
+        'DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS',
+        [5077639, 5104800],
+    )
+
+    def fake_runtime_setting(key, profile_id='ggsel'):
+        if profile_id != 'digiseller':
+            return None
+        mapping = {
+            'CHAT_AUTOREPLY_SENT_COUNT': '7',
+            'CHAT_AUTOREPLY_LAST_RUN_AT': '2026-04-04T10:00:00',
+            'CHAT_AUTOREPLY_LAST_SENT_AT': '2026-04-04T10:01:00',
+            'CHAT_AUTOREPLY_LAST_ERROR': '',
+        }
+        return mapping.get(key)
+
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'get_runtime_setting',
+        fake_runtime_setting,
+    )
+
+    update = make_update(BTN_STATUS)
+    await bot.send_status(100, update)
+
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert '💬 Авто-инструкции: ВКЛ' in args[0]
+    assert '📦 Товары: 5077639, 5104800' in args[0]
+    assert '📨 Отправлено: 7' in args[0]
+
+
+@pytest.mark.asyncio
 async def test_status_shows_live_api_price_over_state():
     class ApiClient:
         def get_my_price(self, product_id):

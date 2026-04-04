@@ -11,7 +11,7 @@ import logging
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from dotenv import dotenv_values
 
@@ -623,6 +623,30 @@ class Scheduler:
             ids.append(self.product_id)
         return ids
 
+    def _chat_meta_get(self, key: str) -> Optional[str]:
+        return storage.get_runtime_setting(
+            key,
+            profile_id=self.profile_id,
+        )
+
+    def _chat_meta_set(self, key: str, value: str):
+        storage.set_runtime_setting(
+            key,
+            value,
+            source='chat_autoreply',
+            profile_id=self.profile_id,
+        )
+
+    def _chat_meta_inc(self, key: str, delta: int = 1):
+        raw = self._chat_meta_get(key)
+        current = 0
+        if raw is not None:
+            try:
+                current = int(float(raw))
+            except (TypeError, ValueError):
+                current = 0
+        self._chat_meta_set(key, str(max(0, current + int(delta))))
+
     async def _run_digiseller_chat_autoreply(self):
         if not self._chat_autoreply_enabled():
             return
@@ -634,102 +658,163 @@ class Scheduler:
         ):
             return
 
-        target_products = self._chat_autoreply_product_ids()
-        page_size = max(
-            1,
-            min(
-                100,
-                int(getattr(config, 'DIGISELLER_CHAT_AUTOREPLY_PAGE_SIZE', 50)),
-            ),
+        started_at = datetime.now()
+        self._chat_meta_set(
+            'CHAT_AUTOREPLY_LAST_RUN_AT',
+            started_at.isoformat(),
         )
-        max_pages = max(
-            1,
-            min(
-                10,
-                int(getattr(config, 'DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES', 2)),
-            ),
-        )
-        sent_count = 0
-        processed_orders: set[int] = set()
-        for page in range(1, max_pages + 1):
-            chats = self.api_client.list_chats(
-                filter_new=1,
-                page_size=page_size,
-                page=page,
-                timeout=10,
+        try:
+            target_products = self._chat_autoreply_product_ids()
+            page_size = max(
+                1,
+                min(
+                    100,
+                    int(
+                        getattr(
+                            config,
+                            'DIGISELLER_CHAT_AUTOREPLY_PAGE_SIZE',
+                            50,
+                        )
+                    ),
+                ),
             )
-            if not chats:
-                break
-
-            for chat in chats:
-                if not isinstance(chat, dict):
-                    continue
-                order_id = self._extract_numeric_field(
-                    chat,
-                    (
-                        'id_i',
-                        'invoice_id',
-                        'order_id',
-                        'purchase_id',
+            max_pages = max(
+                1,
+                min(
+                    10,
+                    int(
+                        getattr(
+                            config,
+                            'DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES',
+                            2,
+                        )
                     ),
-                )
-                if order_id <= 0:
-                    continue
-                if order_id in processed_orders:
-                    continue
-                processed_orders.add(order_id)
-                if self._is_autoreply_sent(order_id):
-                    continue
-
-                chat_product = self._extract_numeric_field(
-                    chat,
-                    (
-                        'id_d',
-                        'id_goods',
-                        'product_id',
-                        'content_id',
-                    ),
-                )
-                order_info = self.api_client.get_order_info(
-                    order_id,
-                    locale='ru',
+                ),
+            )
+            sent_count = 0
+            processed_orders: set[int] = set()
+            product_info_cache: Dict[tuple[int, str], dict[str, Any]] = {}
+            for page in range(1, max_pages + 1):
+                chats = self.api_client.list_chats(
+                    filter_new=1,
+                    page_size=page_size,
+                    page=page,
                     timeout=10,
-                ) or {}
-                order_product = self._extract_numeric_field(
-                    order_info,
-                    (
-                        'id_d',
-                        'id_goods',
-                        'product_id',
-                        'content_id',
-                    ),
                 )
-                product_id = order_product or chat_product or self.product_id
-                if target_products and product_id not in target_products:
-                    continue
+                if not chats:
+                    break
 
-                locale = (
-                    self._extract_locale(order_info)
-                    or self._extract_locale(chat)
-                    or 'ru'
-                )
-                mode = self._detect_friend_mode(order_info) or _MODE_ALREADY
+                for chat in chats:
+                    if not isinstance(chat, dict):
+                        continue
+                    order_id = self._extract_numeric_field(
+                        chat,
+                        (
+                            'id_i',
+                            'invoice_id',
+                            'order_id',
+                            'purchase_id',
+                        ),
+                    )
+                    if order_id <= 0:
+                        continue
+                    if order_id in processed_orders:
+                        continue
+                    processed_orders.add(order_id)
+                    if self._is_autoreply_sent(order_id):
+                        continue
 
-                template = self._resolve_chat_template(locale=locale, mode=mode)
-                if template:
-                    message = template
-                else:
-                    info_lang = 'en-US' if locale == 'en' else 'ru-RU'
-                    product_info = self.api_client.get_product_info(
-                        product_id,
+                    chat_product = self._extract_numeric_field(
+                        chat,
+                        (
+                            'id_d',
+                            'id_goods',
+                            'product_id',
+                            'content_id',
+                        ),
+                    )
+                    order_info = self.api_client.get_order_info(
+                        order_id,
+                        locale='ru',
                         timeout=10,
-                        lang=info_lang,
                     ) or {}
-                    message = self._pick_instruction_text(product_info, mode=mode)
+                    order_product = self._extract_numeric_field(
+                        order_info,
+                        (
+                            'id_d',
+                            'id_goods',
+                            'product_id',
+                            'content_id',
+                        ),
+                    )
+                    product_id = order_product or chat_product or self.product_id
+                    if target_products and product_id not in target_products:
+                        continue
 
-                if not message:
-                    logger.warning(
-                        '[%s] Нет текста инструкции для order_id=%s '
+                    locale = (
+                        self._extract_locale(order_info)
+                        or self._extract_locale(chat)
+                        or 'ru'
+                    )
+                    mode = self._detect_friend_mode(
+                        {
+                            'order': order_info,
+                            'chat': chat,
+                        }
+                    ) or _MODE_ALREADY
+
+                    template = self._resolve_chat_template(
+                        locale=locale,
+                        mode=mode,
+                    )
+                    if template:
+                        message = template
+                    else:
+                        info_lang = 'en-US' if locale == 'en' else 'ru-RU'
+                        cache_key = (int(product_id), info_lang)
+                        product_info = product_info_cache.get(cache_key)
+                        if product_info is None:
+                            product_info = self.api_client.get_product_info(
+                                product_id,
+                                timeout=10,
+                                lang=info_lang,
+                            ) or {}
+                            product_info_cache[cache_key] = product_info
+                        message = self._pick_instruction_text(
+                            product_info,
+                            mode=mode,
+                        )
+
+                    if not message:
+                        logger.warning(
+                            '[%s] Нет текста инструкции для order_id=%s '
+                            '(product_id=%s, locale=%s, mode=%s)',
+                            self.profile_name,
+                            order_id,
+                            product_id,
+                            locale,
+                            mode,
+                        )
+                        continue
+
+                    sent = self.api_client.send_chat_message(
+                        order_id,
+                        message,
+                        timeout=10,
+                    )
+                    if not sent:
+                        logger.warning(
+                            '[%s] Не удалось отправить инструкцию в чат '
+                            'order_id=%s',
+                            self.profile_name,
+                            order_id,
+                        )
+                        continue
+
+                    self._mark_autoreply_sent(order_id)
+                    sent_count += 1
+                    logger.info(
+                        '[%s] Инструкция отправлена: order_id=%s '
                         '(product_id=%s, locale=%s, mode=%s)',
                         self.profile_name,
                         order_id,
@@ -737,41 +822,31 @@ class Scheduler:
                         locale,
                         mode,
                     )
-                    continue
 
-                sent = self.api_client.send_chat_message(
-                    order_id,
-                    message,
-                    timeout=10,
+            if sent_count > 0:
+                self._chat_meta_set(
+                    'CHAT_AUTOREPLY_LAST_SENT_AT',
+                    datetime.now().isoformat(),
                 )
-                if not sent:
-                    logger.warning(
-                        '[%s] Не удалось отправить инструкцию в чат '
-                        'order_id=%s',
-                        self.profile_name,
-                        order_id,
+                self._chat_meta_inc(
+                    'CHAT_AUTOREPLY_SENT_COUNT',
+                    delta=sent_count,
+                )
+                await self.telegram_bot.notify(
+                    (
+                        f'💬 *Инструкции отправлены*\n\n'
+                        f'Профиль: `{self.profile_name}`\n'
+                        f'Отправлено: `{sent_count}`'
                     )
-                    continue
-
-                self._mark_autoreply_sent(order_id)
-                sent_count += 1
-                logger.info(
-                    '[%s] Инструкция отправлена: order_id=%s '
-                    '(product_id=%s, locale=%s, mode=%s)',
-                    self.profile_name,
-                    order_id,
-                    product_id,
-                    locale,
-                    mode,
                 )
-
-        if sent_count > 0:
-            await self.telegram_bot.notify(
-                (
-                    f'💬 *Инструкции отправлены*\n\n'
-                    f'Профиль: `{self.profile_name}`\n'
-                    f'Отправлено: `{sent_count}`'
-                )
+            self._chat_meta_set('CHAT_AUTOREPLY_LAST_ERROR', '')
+        except Exception as e:
+            self._chat_meta_set('CHAT_AUTOREPLY_LAST_ERROR', str(e))
+            logger.error(
+                '[%s] Ошибка авто-отправки инструкций: %s',
+                self.profile_name,
+                e,
+                exc_info=True,
             )
 
     async def run_cycle(self):
