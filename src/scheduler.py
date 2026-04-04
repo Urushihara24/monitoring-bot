@@ -718,6 +718,24 @@ class Scheduler:
                 ttl_days,
             )
 
+    def _should_run_chat_autoreply_now(self) -> bool:
+        interval_seconds = max(
+            1,
+            int(
+                getattr(
+                    config,
+                    'DIGISELLER_CHAT_AUTOREPLY_INTERVAL_SECONDS',
+                    30,
+                )
+            ),
+        )
+        last_run = self._parse_iso_datetime(
+            self._chat_meta_get('CHAT_AUTOREPLY_LAST_RUN_AT')
+        )
+        if not last_run:
+            return True
+        return (datetime.now() - last_run).total_seconds() >= interval_seconds
+
     def _normalize_compare_text(self, raw: Any) -> str:
         text = self._sanitize_message(raw).lower()
         return re.sub(r'\s+', ' ', text).strip()
@@ -781,6 +799,8 @@ class Scheduler:
             and hasattr(self.api_client, 'get_order_info')
             and hasattr(self.api_client, 'get_product_info')
         ):
+            return
+        if not self._should_run_chat_autoreply_now():
             return
 
         started_at = datetime.now()
