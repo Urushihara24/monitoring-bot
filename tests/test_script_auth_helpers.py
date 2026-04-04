@@ -20,6 +20,7 @@ def test_check_apilogin_success_with_token(monkeypatch):
     module = _load_module('check_apilogin_test_mod_success', 'scripts/check_apilogin.py')
 
     monkeypatch.setattr(module.config, 'GGSEL_API_KEY', 'secret-key')
+    monkeypatch.setattr(module.config, 'GGSEL_API_SECRET', '')
     monkeypatch.setattr(module.config, 'GGSEL_SELLER_ID', 8175)
     monkeypatch.setattr(
         module.config,
@@ -49,6 +50,7 @@ def test_check_apilogin_returns_error_on_non_json(monkeypatch):
     module = _load_module('check_apilogin_test_mod_non_json', 'scripts/check_apilogin.py')
 
     monkeypatch.setattr(module.config, 'GGSEL_API_KEY', 'secret-key')
+    monkeypatch.setattr(module.config, 'GGSEL_API_SECRET', '')
     monkeypatch.setattr(module.config, 'GGSEL_SELLER_ID', 8175)
     monkeypatch.setattr(
         module.config,
@@ -77,6 +79,7 @@ def test_check_apilogin_returns_error_on_nonzero_retval(monkeypatch):
     )
 
     monkeypatch.setattr(module.config, 'GGSEL_API_KEY', 'secret-key')
+    monkeypatch.setattr(module.config, 'GGSEL_API_SECRET', '')
     monkeypatch.setattr(module.config, 'GGSEL_SELLER_ID', 8175)
     monkeypatch.setattr(
         module.config,
@@ -102,10 +105,33 @@ def test_check_apilogin_returns_error_on_nonzero_retval(monkeypatch):
     assert module.main() == 1
 
 
+def test_check_apilogin_returns_2_for_jwt_without_secret(monkeypatch):
+    module = _load_module(
+        'check_apilogin_test_mod_jwt_without_secret',
+        'scripts/check_apilogin.py',
+    )
+
+    monkeypatch.setattr(module.config, 'GGSEL_API_KEY', 'a.b.c')
+    monkeypatch.setattr(module.config, 'GGSEL_API_SECRET', '')
+    monkeypatch.setattr(module.config, 'GGSEL_SELLER_ID', 8175)
+
+    called = {'post': False}
+
+    def fake_post(*args, **kwargs):
+        called['post'] = True
+        raise AssertionError('requests.post should not be called')
+
+    monkeypatch.setattr(module.requests, 'post', fake_post)
+
+    assert module.main() == 2
+    assert called['post'] is False
+
+
 def test_issue_access_token_success(monkeypatch):
     module = _load_module('issue_access_token_test_mod_success', 'scripts/issue_access_token.py')
 
     monkeypatch.setattr(module.config, 'GGSEL_API_KEY', 'secret-key')
+    monkeypatch.setattr(module.config, 'GGSEL_API_SECRET', '')
     monkeypatch.setattr(module.config, 'GGSEL_SELLER_ID', 8175)
     monkeypatch.setattr(
         module.config,
@@ -138,6 +164,7 @@ def test_issue_access_token_returns_1_when_refresh_fails(monkeypatch):
     )
 
     monkeypatch.setattr(module.config, 'GGSEL_API_KEY', 'secret-key')
+    monkeypatch.setattr(module.config, 'GGSEL_API_SECRET', '')
     monkeypatch.setattr(module.config, 'GGSEL_SELLER_ID', 8175)
     monkeypatch.setattr(
         module.config,
@@ -163,10 +190,24 @@ def test_issue_access_token_returns_1_when_refresh_fails(monkeypatch):
     assert module.main() == 1
 
 
+def test_issue_access_token_returns_2_for_jwt_without_secret(monkeypatch):
+    module = _load_module(
+        'issue_access_token_test_mod_jwt_without_secret',
+        'scripts/issue_access_token.py',
+    )
+
+    monkeypatch.setattr(module.config, 'GGSEL_API_KEY', 'a.b.c')
+    monkeypatch.setattr(module.config, 'GGSEL_API_SECRET', '')
+    monkeypatch.setattr(module.config, 'GGSEL_SELLER_ID', 8175)
+
+    assert module.main() == 2
+
+
 def test_issue_access_token_returns_2_when_missing_env(monkeypatch):
     module = _load_module('issue_access_token_test_mod_missing', 'scripts/issue_access_token.py')
 
     monkeypatch.setattr(module.config, 'GGSEL_API_KEY', '')
+    monkeypatch.setattr(module.config, 'GGSEL_API_SECRET', '')
     monkeypatch.setattr(module.config, 'GGSEL_SELLER_ID', 0)
 
     assert module.main() == 2

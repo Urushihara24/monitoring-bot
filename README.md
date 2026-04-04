@@ -78,6 +78,8 @@ cp .env.example .env
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_ADMIN_IDS`
 - для включённого профиля: `*_API_KEY`/`*_ACCESS_TOKEN`, `*_SELLER_ID`, `*_PRODUCT_ID`
+- если `*_API_KEY` это JWT access token, задайте `*_API_SECRET` для `ApiLogin`
+  (автообновление токена)
 - `COMPETITOR_URLS` (или профильный список для DigiSeller)
 - cookies конкурента: `GGSEL_COMPETITOR_COOKIES` / `DIGISELLER_COMPETITOR_COOKIES`
   (если не заданы, используется общий `COMPETITOR_COOKIES`)
@@ -123,12 +125,31 @@ cp .env.example .env
 Минимальный набор переменных:
 - `DIGISELLER_ENABLED=true`
 - `DIGISELLER_API_KEY` (или `DIGISELLER_ACCESS_TOKEN`)
+- `DIGISELLER_API_SECRET` (если `DIGISELLER_API_KEY` хранится как JWT)
 - `DIGISELLER_SELLER_ID`
 - `DIGISELLER_PRODUCT_ID`
 
 Рекомендуемо сразу указать:
 - `DIGISELLER_COMPETITOR_URLS` (если нужен авто-режим мониторинга)
 - `DIGISELLER_REQUIRE_API_ON_START=true` (чтобы процесс не стартовал с битым API)
+
+Опционально для авто-инструкций в переписке заказа (DigiSeller):
+- `DIGISELLER_CHAT_AUTOREPLY_ENABLED=true`
+- `DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS=5077639,5104800`
+- `DIGISELLER_CHAT_AUTOREPLY_INTERVAL_SECONDS=30`
+- `DIGISELLER_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES=true`
+- `DIGISELLER_CHAT_AUTOREPLY_LOOKBACK_MESSAGES=30`
+- `DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS=30`
+- `DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS=24`
+- `DIGISELLER_CHAT_TEMPLATE_RU_ALREADY`, `DIGISELLER_CHAT_TEMPLATE_RU_ADD`
+- `DIGISELLER_CHAT_TEMPLATE_EN_ALREADY`, `DIGISELLER_CHAT_TEMPLATE_EN_ADD`
+
+Если шаблоны не заданы, бот берёт текст из полей товара:
+- для RU: `info_ru`/`instruction_ru`/`add_info_ru` с fallback на `info`/`instruction`/`add_info`
+- для EN: `info_en`/`instruction_en`/`add_info_en` с fallback на `info`/`instruction`/`add_info`
+
+Для режима `добавит` приоритет у `add_info*`, иначе у `info*`.
+Инструкция в чат заказа отправляется один раз (с dedupe по сообщениям).
 
 Быстрая проверка только DigiSeller:
 
@@ -188,13 +209,17 @@ docker compose logs -f
 
 ## Полезные скрипты
 
-Проверка GGSEL apilogin:
+Проверка GGSEL `apilogin` (использует `GGSEL_API_SECRET` или fallback на
+`GGSEL_API_KEY`):
 
 ```bash
 python3 scripts/check_apilogin.py
 ```
 
-Выпуск access token через API key:
+Если `GGSEL_API_KEY` у вас JWT access token, обязательно задайте
+`GGSEL_API_SECRET`, иначе `apilogin` недоступен.
+
+Выпуск access token через `apilogin`:
 
 ```bash
 python3 scripts/issue_access_token.py

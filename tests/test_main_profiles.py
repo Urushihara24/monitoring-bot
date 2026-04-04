@@ -10,6 +10,7 @@ def _set_profile_config(monkeypatch):
 
     monkeypatch.setattr(main_module.config, 'GGSEL_ENABLED', True)
     monkeypatch.setattr(main_module.config, 'GGSEL_API_KEY', 'gg_key')
+    monkeypatch.setattr(main_module.config, 'GGSEL_API_SECRET', '')
     monkeypatch.setattr(main_module.config, 'GGSEL_ACCESS_TOKEN', '')
     monkeypatch.setattr(main_module.config, 'GGSEL_SELLER_ID', 100)
     monkeypatch.setattr(main_module.config, 'GGSEL_PRODUCT_ID', 1111)
@@ -24,6 +25,7 @@ def _set_profile_config(monkeypatch):
 
     monkeypatch.setattr(main_module.config, 'DIGISELLER_ENABLED', True)
     monkeypatch.setattr(main_module.config, 'DIGISELLER_API_KEY', 'dg_key')
+    monkeypatch.setattr(main_module.config, 'DIGISELLER_API_SECRET', '')
     monkeypatch.setattr(main_module.config, 'DIGISELLER_ACCESS_TOKEN', '')
     monkeypatch.setattr(main_module.config, 'DIGISELLER_SELLER_ID', 200)
     monkeypatch.setattr(main_module.config, 'DIGISELLER_PRODUCT_ID', 2222)

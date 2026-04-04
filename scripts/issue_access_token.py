@@ -14,19 +14,32 @@ from src.api_client import GGSELClient
 from src.config import config
 
 
+def _is_probably_jwt(value: str) -> bool:
+    parts = (value or '').split('.')
+    return len(parts) == 3 and all(parts)
+
+
 def main() -> int:
     missing = []
-    if not config.GGSEL_API_KEY:
-        missing.append('GGSEL_API_KEY')
+    sign_secret = config.GGSEL_API_SECRET or config.GGSEL_API_KEY
+    if not sign_secret:
+        missing.append('GGSEL_API_SECRET (or GGSEL_API_KEY)')
     if not config.GGSEL_SELLER_ID:
         missing.append('GGSEL_SELLER_ID')
 
     if missing:
         print('issue-token: missing env vars: ' + ', '.join(missing))
         return 2
+    if not config.GGSEL_API_SECRET and _is_probably_jwt(config.GGSEL_API_KEY):
+        print(
+            'issue-token: GGSEL_API_KEY выглядит как JWT access token; '
+            'для выпуска нового токена задайте GGSEL_API_SECRET'
+        )
+        return 2
 
     client = GGSELClient(
         api_key=config.GGSEL_API_KEY,
+        api_secret=config.GGSEL_API_SECRET,
         seller_id=config.GGSEL_SELLER_ID,
         base_url=config.GGSEL_BASE_URL,
         lang=config.GGSEL_LANG,

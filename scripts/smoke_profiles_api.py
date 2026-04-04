@@ -30,6 +30,12 @@ def _print_result(profile: str, result: SmokeResult) -> bool:
     if result.token_perms_ok is not None or result.token_perms_desc is not None:
         print(f'[{profile}] token_perms_ok={result.token_perms_ok}')
         print(f'[{profile}] token_perms_desc={result.token_perms_desc}')
+    if (
+        result.token_refresh_ok is not None
+        or result.token_refresh_desc is not None
+    ):
+        print(f'[{profile}] token_refresh_ok={result.token_refresh_ok}')
+        print(f'[{profile}] token_refresh_desc={result.token_refresh_desc}')
     if result.error:
         print(f'[{profile}] error={result.error}')
     if not result.api_access:
@@ -49,6 +55,7 @@ def check_ggsel(args) -> bool:
         return True
     client = GGSELClient(
         api_key=config.GGSEL_API_KEY,
+        api_secret=config.GGSEL_API_SECRET,
         seller_id=config.GGSEL_SELLER_ID,
         base_url=config.GGSEL_BASE_URL,
         lang=config.GGSEL_LANG,
@@ -70,6 +77,7 @@ def check_digiseller(args) -> bool:
         return True
     client = DigiSellerClient(
         api_key=config.DIGISELLER_API_KEY,
+        api_secret=config.DIGISELLER_API_SECRET,
         seller_id=config.DIGISELLER_SELLER_ID,
         base_url=config.DIGISELLER_BASE_URL,
         lang=config.DIGISELLER_LANG,

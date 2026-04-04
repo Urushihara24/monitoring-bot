@@ -25,6 +25,7 @@ from telegram.ext import (
     filters,
 )
 
+from . import chat_autoreply as chat_keys
 from .config import config
 from .profile_smoke import run_profile_smoke
 from .storage import DEFAULT_PROFILE, storage
@@ -232,6 +233,111 @@ class TelegramBot:
         except Exception:
             return str(value)
 
+    def _fmt_iso_datetime(self, value: Optional[str]) -> str:
+        raw = (value or '').strip()
+        if not raw:
+            return 'Никогда'
+        try:
+            normalized = raw.replace('Z', '+00:00')
+            dt = datetime.fromisoformat(normalized)
+            if dt.tzinfo is not None:
+                dt = dt.astimezone().replace(tzinfo=None)
+            return dt.strftime('%Y-%m-%d %H:%M:%S')
+        except Exception:
+            return raw
+
+    def _digiseller_chat_meta(self) -> dict:
+        enabled = bool(getattr(config, 'DIGISELLER_CHAT_AUTOREPLY_ENABLED', False))
+        dedupe = bool(
+            getattr(
+                config,
+                'DIGISELLER_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES',
+                True,
+            )
+        )
+        lookback = int(
+            getattr(
+                config,
+                'DIGISELLER_CHAT_AUTOREPLY_LOOKBACK_MESSAGES',
+                30,
+            )
+        )
+        interval_seconds = int(
+            getattr(
+                config,
+                'DIGISELLER_CHAT_AUTOREPLY_INTERVAL_SECONDS',
+                30,
+            )
+        )
+        product_ids = getattr(
+            config,
+            'DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS',
+            [],
+        ) or []
+        normalized_products = []
+        for value in product_ids:
+            try:
+                product_id = int(float(value))
+            except (TypeError, ValueError):
+                continue
+            if product_id > 0:
+                normalized_products.append(str(product_id))
+        products_text = ', '.join(normalized_products)
+        if not products_text:
+            products_text = 'по активному товару'
+
+        raw_sent_count = storage.get_runtime_setting(
+            chat_keys.KEY_SENT_COUNT,
+            profile_id='digiseller',
+        )
+        raw_duplicate_count = storage.get_runtime_setting(
+            chat_keys.KEY_DUPLICATE_COUNT,
+            profile_id='digiseller',
+        )
+        sent_count = 0
+        if raw_sent_count is not None:
+            try:
+                sent_count = int(float(raw_sent_count))
+            except (TypeError, ValueError):
+                sent_count = 0
+        duplicate_count = 0
+        if raw_duplicate_count is not None:
+            try:
+                duplicate_count = int(float(raw_duplicate_count))
+            except (TypeError, ValueError):
+                duplicate_count = 0
+
+        last_run = storage.get_runtime_setting(
+            chat_keys.KEY_LAST_RUN_AT,
+            profile_id='digiseller',
+        )
+        last_sent = storage.get_runtime_setting(
+            chat_keys.KEY_LAST_SENT_AT,
+            profile_id='digiseller',
+        )
+        last_cleanup = storage.get_runtime_setting(
+            chat_keys.KEY_LAST_CLEANUP_AT,
+            profile_id='digiseller',
+        )
+        last_error = storage.get_runtime_setting(
+            chat_keys.KEY_LAST_ERROR,
+            profile_id='digiseller',
+        )
+
+        return {
+            'enabled': enabled,
+            'dedupe': dedupe,
+            'lookback': lookback,
+            'interval_seconds': interval_seconds,
+            'products': products_text,
+            'sent_count': sent_count,
+            'duplicate_count': duplicate_count,
+            'last_run': self._fmt_iso_datetime(last_run),
+            'last_sent': self._fmt_iso_datetime(last_sent),
+            'last_cleanup': self._fmt_iso_datetime(last_cleanup),
+            'last_error': (last_error or '').strip() or 'N/A',
+        }
+
     # ================================
     # Keyboards
     # ================================
@@ -421,6 +527,14 @@ class TelegramBot:
                 'Token perms: '
                 f'{"OK" if token_perms_ok else "FAIL"} '
                 f'({token_perms_desc or "N/A"})'
+            )
+        token_refresh_ok = getattr(result, 'token_refresh_ok', None)
+        token_refresh_desc = getattr(result, 'token_refresh_desc', None)
+        if token_refresh_ok is not None or token_refresh_desc:
+            lines.append(
+                'Token refresh: '
+                f'{"OK" if token_refresh_ok else "FAIL"} '
+                f'({token_refresh_desc or "N/A"})'
             )
         if result.error:
             lines.append(f'Error: {result.error}')
@@ -650,6 +764,19 @@ class TelegramBot:
             if competitor_price is not None else 'N/A'
         )
 
+        chat_block = ''
+        if profile_id == 'digiseller':
+            chat_meta = self._digiseller_chat_meta()
+            chat_block = (
+                '\n'
+                f'💬 Авто-инструкции: '
+                f'{"ВКЛ" if chat_meta["enabled"] else "ВЫКЛ"}\n'
+                f'📦 Товары: {chat_meta["products"]}\n'
+                f'📨 Отправлено: {chat_meta["sent_count"]}\n'
+                f'🧷 Дубликаты: {chat_meta["duplicate_count"]}\n'
+                f'🕓 Последняя отправка: {chat_meta["last_sent"]}'
+            )
+
         text = f"""📊 Статус
 
 🧩 Профиль: {profile_name}
@@ -661,6 +788,7 @@ class TelegramBot:
 🧪 Метод парсинга: {parse_method}
 🕓 Последний парс: {parse_at_str}
 📡 Мониторинг: {monitor_mode}
+{chat_block}
 
 🔔 Авто: {'ВКЛ' if state.get('auto_mode', True) else 'ВЫКЛ'}
 🎯 Режим: {runtime.MODE}
@@ -687,6 +815,22 @@ class TelegramBot:
             if monitor_enabled
             else 'ВЫКЛ (нет URL)'
         )
+        chat_block = ''
+        if profile_id == 'digiseller':
+            chat_meta = self._digiseller_chat_meta()
+            chat_block = (
+                '\n'
+                f'💬 Авто-инструкции: '
+                f'{"ВКЛ" if chat_meta["enabled"] else "ВЫКЛ"}\n'
+                f'📦 Товары инструкций: {chat_meta["products"]}\n'
+                f'📨 Отправлено всего: {chat_meta["sent_count"]}\n'
+                f'🧷 Дубликатов пропущено: {chat_meta["duplicate_count"]}\n'
+                f'🔎 Dedupe: {"ON" if chat_meta["dedupe"] else "OFF"} '
+                f'(lookback={chat_meta["lookback"]})\n'
+                f'⏱️ Интервал чатов: {chat_meta["interval_seconds"]}s\n'
+                f'🧹 Последняя очистка: {chat_meta["last_cleanup"]}\n'
+                f'🕓 Последний запуск: {chat_meta["last_run"]}'
+            )
 
         text = f"""⚙️ Настройки
 
@@ -707,6 +851,7 @@ class TelegramBot:
 📍 Позиция: {'Вкл' if runtime.POSITION_FILTER_ENABLED else 'Выкл'}
 📡 Мониторинг: {monitor_mode}
 🔗 Конкурентов: {len(runtime.COMPETITOR_URLS)}
+{chat_block}
 """
         await update.message.reply_text(
             text,
@@ -733,6 +878,7 @@ class TelegramBot:
         api_ok = False
         product_price = None
         product_ok = False
+        refresh_line = None
         client = self._api_client(profile_id)
         product_id = self._product_id(profile_id)
         if client:
@@ -744,6 +890,17 @@ class TelegramBot:
                     product_price = product.price if product else None
             except Exception as e:
                 logger.error('Ошибка API в диагностике: %s', e)
+            try:
+                if hasattr(client, 'can_refresh_access_token'):
+                    can_refresh = await asyncio.to_thread(
+                        client.can_refresh_access_token,
+                    )
+                    refresh_line = (
+                        'Token refresh: '
+                        f'{"OK" if can_refresh else "FAIL"}'
+                    )
+            except Exception as e:
+                logger.error('Ошибка проверки refresh capability: %s', e)
 
         perms_line = None
         if profile_id == 'digiseller' and client and hasattr(
@@ -785,6 +942,29 @@ class TelegramBot:
         ]
         if perms_line:
             lines.append(perms_line)
+        if refresh_line:
+            lines.append(refresh_line)
+        if profile_id == 'digiseller':
+            chat_meta = self._digiseller_chat_meta()
+            lines.append(
+                'Chat autoreply: '
+                f'{"ON" if chat_meta["enabled"] else "OFF"} '
+                f'(sent={chat_meta["sent_count"]})'
+            )
+            lines.append(
+                'Chat dedupe: '
+                f'{"ON" if chat_meta["dedupe"] else "OFF"} '
+                f'(duplicates={chat_meta["duplicate_count"]}, '
+                f'lookback={chat_meta["lookback"]})'
+            )
+            lines.append(
+                f'Chat interval: {chat_meta["interval_seconds"]}s'
+            )
+            lines.append(f'Chat last run: {chat_meta["last_run"]}')
+            lines.append(f'Chat last sent: {chat_meta["last_sent"]}')
+            lines.append(f'Chat last cleanup: {chat_meta["last_cleanup"]}')
+            if chat_meta['last_error'] != 'N/A':
+                lines.append(f'Chat last error: {chat_meta["last_error"]}')
         if errors:
             lines.append('Errors: ' + '; '.join(errors[:3]))
         await update.message.reply_text(

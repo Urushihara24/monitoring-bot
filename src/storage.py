@@ -137,7 +137,17 @@ class Storage:
             self._ensure_profile_state(conn, 'ggsel')
             self._ensure_profile_state(conn, 'digiseller')
             self._normalize_runtime_price_settings(conn)
+            self._ensure_indexes(conn)
             conn.commit()
+
+    def _ensure_indexes(self, conn: sqlite3.Connection):
+        """Индексы для частых профильных запросов по истории настроек."""
+        conn.execute(
+            '''
+            CREATE INDEX IF NOT EXISTS idx_settings_history_profile_key_id
+            ON settings_history(profile_id, key, id)
+            '''
+        )
 
     def _table_columns(self, conn: sqlite3.Connection, table: str) -> set[str]:
         rows = conn.execute(f'PRAGMA table_info({table})').fetchall()
@@ -751,6 +761,116 @@ class Storage:
                 ),
             )
             conn.commit()
+
+    def list_runtime_settings(
+        self,
+        *,
+        profile_id: str = DEFAULT_PROFILE,
+        key_prefix: Optional[str] = None,
+        limit: int = 10000,
+    ) -> List[dict]:
+        profile = self._normalize_profile(profile_id)
+        query = '''
+            SELECT key, value
+            FROM runtime_settings
+            WHERE profile_id = ?
+        '''
+        params: List[object] = [profile]
+        if key_prefix:
+            query += ' AND key LIKE ?'
+            params.append(f'{key_prefix}%')
+        query += ' ORDER BY key ASC LIMIT ?'
+        params.append(int(max(1, limit)))
+        with sqlite3.connect(str(self.db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(query, tuple(params)).fetchall()
+            return [dict(row) for row in rows]
+
+    def list_runtime_settings_with_last_change(
+        self,
+        *,
+        profile_id: str = DEFAULT_PROFILE,
+        key_prefix: Optional[str] = None,
+        limit: int = 10000,
+    ) -> List[dict]:
+        profile = self._normalize_profile(profile_id)
+        query = '''
+            SELECT
+                rs.key AS key,
+                rs.value AS value,
+                sh_latest.timestamp AS last_change
+            FROM runtime_settings rs
+            LEFT JOIN (
+                SELECT
+                    latest.key AS key,
+                    sh.timestamp AS timestamp
+                FROM (
+                    SELECT key, MAX(id) AS max_id
+                    FROM settings_history
+                    WHERE profile_id = ?
+                    GROUP BY key
+                ) latest
+                JOIN settings_history sh
+                  ON sh.id = latest.max_id
+            ) sh_latest
+              ON sh_latest.key = rs.key
+            WHERE rs.profile_id = ?
+        '''
+        params: List[object] = [profile, profile]
+        if key_prefix:
+            query += ' AND rs.key LIKE ?'
+            params.append(f'{key_prefix}%')
+        query += ' ORDER BY rs.key ASC LIMIT ?'
+        params.append(int(max(1, limit)))
+
+        with sqlite3.connect(str(self.db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(query, tuple(params)).fetchall()
+            return [dict(row) for row in rows]
+
+    def delete_runtime_setting(
+        self,
+        key: str,
+        *,
+        user_id: Optional[int] = None,
+        source: str = 'system',
+        profile_id: str = DEFAULT_PROFILE,
+    ) -> bool:
+        profile = self._normalize_profile(profile_id)
+        old_value = self.get_runtime_setting(key, profile_id=profile)
+        if old_value is None:
+            return False
+        with sqlite3.connect(str(self.db_path)) as conn:
+            conn.execute(
+                '''
+                DELETE FROM runtime_settings
+                WHERE profile_id = ? AND key = ?
+                ''',
+                (profile, key),
+            )
+            conn.execute(
+                '''
+                INSERT INTO settings_history (
+                    profile_id,
+                    key,
+                    old_value,
+                    new_value,
+                    user_id,
+                    source
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    profile,
+                    key,
+                    old_value,
+                    None,
+                    user_id,
+                    source,
+                ),
+            )
+            conn.commit()
+        return True
 
     def get_competitor_urls(
         self,

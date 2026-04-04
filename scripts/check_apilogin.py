@@ -31,22 +31,35 @@ def _response_retval(data: dict) -> int | None:
     return None
 
 
+def _is_probably_jwt(value: str) -> bool:
+    parts = (value or '').split('.')
+    return len(parts) == 3 and all(parts)
+
+
 def main() -> int:
     missing = []
-    if not config.GGSEL_API_KEY:
-        missing.append('GGSEL_API_KEY')
+    sign_secret = config.GGSEL_API_SECRET or config.GGSEL_API_KEY
+    if not sign_secret:
+        missing.append('GGSEL_API_SECRET (or GGSEL_API_KEY)')
     if not config.GGSEL_SELLER_ID:
         missing.append('GGSEL_SELLER_ID')
 
     if missing:
         print('apilogin-check: missing env vars: ' + ', '.join(missing))
         return 2
+    if not config.GGSEL_API_SECRET and _is_probably_jwt(config.GGSEL_API_KEY):
+        print(
+            'apilogin-check: GGSEL_API_KEY выглядит как JWT access token; '
+            'для /apilogin задайте GGSEL_API_SECRET'
+        )
+        return 2
 
     print(f'apilogin-check: seller_id={config.GGSEL_SELLER_ID}')
     print(f'apilogin-check: api_key_len={len(config.GGSEL_API_KEY)}')
+    print(f'apilogin-check: sign_secret_len={len(sign_secret)}')
 
     ts = str(int(time.time()))
-    sign = hashlib.sha256((config.GGSEL_API_KEY + ts).encode('utf-8')).hexdigest()
+    sign = hashlib.sha256((sign_secret + ts).encode('utf-8')).hexdigest()
 
     url = f'{config.GGSEL_BASE_URL}/apilogin'
     payload = {

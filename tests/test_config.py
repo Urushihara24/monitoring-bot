@@ -37,3 +37,47 @@ def test_config_optional_bool_is_none_on_empty(monkeypatch):
     cfg_mod = _reload_config_module()
     cfg = cfg_mod.Config()
     assert cfg.DIGISELLER_NOTIFY_PARSER_ISSUES is None
+
+
+def test_config_parses_digiseller_chat_autoreply_fields(monkeypatch):
+    monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_ENABLED', '1')
+    monkeypatch.setenv(
+        'DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS',
+        '5077639, 5104800, bad',
+    )
+    monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_PAGE_SIZE', '30')
+    monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES', '3')
+    monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_INTERVAL_SECONDS', '25')
+    monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES', '0')
+    monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_LOOKBACK_MESSAGES', '77')
+    monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS', '45')
+    monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS', '12')
+    monkeypatch.setenv(
+        'DIGISELLER_CHAT_TEMPLATE_RU_ALREADY',
+        'RU already',
+    )
+
+    cfg_mod = _reload_config_module()
+    cfg = cfg_mod.Config()
+
+    assert cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED is True
+    assert cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS == [5077639, 5104800]
+    assert cfg.DIGISELLER_CHAT_AUTOREPLY_PAGE_SIZE == 30
+    assert cfg.DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES == 3
+    assert cfg.DIGISELLER_CHAT_AUTOREPLY_INTERVAL_SECONDS == 25
+    assert cfg.DIGISELLER_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES is False
+    assert cfg.DIGISELLER_CHAT_AUTOREPLY_LOOKBACK_MESSAGES == 77
+    assert cfg.DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS == 45
+    assert cfg.DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS == 12
+    assert cfg.DIGISELLER_CHAT_TEMPLATE_RU_ALREADY == 'RU already'
+
+
+def test_config_parses_profile_api_secrets(monkeypatch):
+    monkeypatch.setenv('GGSEL_API_SECRET', 'gg-secret')
+    monkeypatch.setenv('DIGISELLER_API_SECRET', 'dg-secret')
+
+    cfg_mod = _reload_config_module()
+    cfg = cfg_mod.Config()
+
+    assert cfg.GGSEL_API_SECRET == 'gg-secret'
+    assert cfg.DIGISELLER_API_SECRET == 'dg-secret'
