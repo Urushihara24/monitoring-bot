@@ -9,7 +9,7 @@ import asyncio
 import html
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
@@ -646,6 +646,78 @@ class Scheduler:
                 current = 0
         self._chat_meta_set(key, str(max(0, current + int(delta))))
 
+    def _parse_iso_datetime(self, value: Optional[str]) -> Optional[datetime]:
+        raw = (value or '').strip()
+        if not raw:
+            return None
+        try:
+            return datetime.fromisoformat(raw)
+        except Exception:
+            return None
+
+    def _cleanup_autoreply_marks_if_due(self):
+        every_hours = max(
+            1,
+            int(
+                getattr(
+                    config,
+                    'DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS',
+                    24,
+                )
+            ),
+        )
+        ttl_days = max(
+            1,
+            int(
+                getattr(
+                    config,
+                    'DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS',
+                    30,
+                )
+            ),
+        )
+        now = datetime.now()
+        last_cleanup = self._parse_iso_datetime(
+            self._chat_meta_get('CHAT_AUTOREPLY_LAST_CLEANUP_AT')
+        )
+        if last_cleanup and (now - last_cleanup) < timedelta(hours=every_hours):
+            return
+
+        rows = storage.list_runtime_settings(
+            profile_id=self.profile_id,
+            key_prefix='CHAT_AUTOREPLY_SENT:',
+            limit=20000,
+        )
+        threshold = now - timedelta(days=ttl_days)
+        deleted = 0
+        for row in rows:
+            key = str(row.get('key') or '')
+            value = str(row.get('value') or '')
+            sent_at = self._parse_iso_datetime(value)
+            if sent_at is None:
+                continue
+            if sent_at >= threshold:
+                continue
+            removed = storage.delete_runtime_setting(
+                key,
+                source='chat_autoreply_gc',
+                profile_id=self.profile_id,
+            )
+            if removed:
+                deleted += 1
+
+        self._chat_meta_set(
+            'CHAT_AUTOREPLY_LAST_CLEANUP_AT',
+            now.isoformat(),
+        )
+        if deleted > 0:
+            logger.info(
+                '[%s] Очистка autoreply-markers: удалено %s (ttl_days=%s)',
+                self.profile_name,
+                deleted,
+                ttl_days,
+            )
+
     def _normalize_compare_text(self, raw: Any) -> str:
         text = self._sanitize_message(raw).lower()
         return re.sub(r'\s+', ' ', text).strip()
@@ -717,6 +789,7 @@ class Scheduler:
             started_at.isoformat(),
         )
         try:
+            self._cleanup_autoreply_marks_if_due()
             target_products = self._chat_autoreply_product_ids()
             page_size = max(
                 1,

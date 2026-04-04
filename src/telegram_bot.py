@@ -304,6 +304,10 @@ class TelegramBot:
             'CHAT_AUTOREPLY_LAST_SENT_AT',
             profile_id='digiseller',
         )
+        last_cleanup = storage.get_runtime_setting(
+            'CHAT_AUTOREPLY_LAST_CLEANUP_AT',
+            profile_id='digiseller',
+        )
         last_error = storage.get_runtime_setting(
             'CHAT_AUTOREPLY_LAST_ERROR',
             profile_id='digiseller',
@@ -318,6 +322,7 @@ class TelegramBot:
             'duplicate_count': duplicate_count,
             'last_run': self._fmt_iso_datetime(last_run),
             'last_sent': self._fmt_iso_datetime(last_sent),
+            'last_cleanup': self._fmt_iso_datetime(last_cleanup),
             'last_error': (last_error or '').strip() or 'N/A',
         }
 
@@ -802,6 +807,7 @@ class TelegramBot:
                 f'🧷 Дубликатов пропущено: {chat_meta["duplicate_count"]}\n'
                 f'🔎 Dedupe: {"ON" if chat_meta["dedupe"] else "OFF"} '
                 f'(lookback={chat_meta["lookback"]})\n'
+                f'🧹 Последняя очистка: {chat_meta["last_cleanup"]}\n'
                 f'🕓 Последний запуск: {chat_meta["last_run"]}'
             )
 
@@ -918,6 +924,7 @@ class TelegramBot:
             )
             lines.append(f'Chat last run: {chat_meta["last_run"]}')
             lines.append(f'Chat last sent: {chat_meta["last_sent"]}')
+            lines.append(f'Chat last cleanup: {chat_meta["last_cleanup"]}')
             if chat_meta['last_error'] != 'N/A':
                 lines.append(f'Chat last error: {chat_meta["last_error"]}')
         if errors:
