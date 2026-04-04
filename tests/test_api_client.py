@@ -543,6 +543,37 @@ def test_refresh_access_token_accepts_retval_camel(monkeypatch):
     assert client.access_token == 'issued-token-2'
 
 
+def test_can_refresh_access_token_uses_plain_api_key():
+    client = GGSELClient(
+        api_key='secret-abc',
+        seller_id=8175,
+        base_url='https://seller.ggsel.com/api_sellers/api',
+        lang='ru-RU',
+    )
+    assert client.can_refresh_access_token() is True
+
+
+def test_can_refresh_access_token_false_for_jwt_without_secret():
+    client = GGSELClient(
+        api_key='a.b.c',
+        seller_id=8175,
+        base_url='https://seller.ggsel.com/api_sellers/api',
+        lang='ru-RU',
+    )
+    assert client.can_refresh_access_token() is False
+
+
+def test_can_refresh_access_token_true_for_jwt_with_secret():
+    client = GGSELClient(
+        api_key='a.b.c',
+        api_secret='secret-xyz',
+        seller_id=8175,
+        base_url='https://seller.ggsel.com/api_sellers/api',
+        lang='ru-RU',
+    )
+    assert client.can_refresh_access_token() is True
+
+
 def test_refresh_access_token_jwt_key_without_secret_skips_apilogin(monkeypatch):
     client = GGSELClient(
         api_key='a.b.c',
