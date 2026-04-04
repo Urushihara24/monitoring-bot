@@ -233,6 +233,12 @@ Smoke API активных профилей:
 python3 scripts/smoke_profiles_api.py
 ```
 
+Read-only smoke (без write probe):
+
+```bash
+python3 scripts/smoke_profiles_api.py --profile all --read-only --verify-read
+```
+
 Проверить только DigiSeller:
 
 ```bash

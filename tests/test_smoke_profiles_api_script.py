@@ -44,3 +44,15 @@ def test_all_profiles_disabled_still_returns_zero():
     assert result.returncode == 0
     assert '[ggsel] skipped (disabled)' in result.stdout
     assert '[digiseller] skipped (disabled)' in result.stdout
+
+
+def test_mutate_with_read_only_returns_nonzero():
+    result = _run_script(
+        ['--mutate', '--read-only'],
+        {
+            'DIGISELLER_ENABLED': 'false',
+            'GGSEL_ENABLED': 'false',
+        },
+    )
+    assert result.returncode == 1
+    assert 'invalid args' in result.stdout

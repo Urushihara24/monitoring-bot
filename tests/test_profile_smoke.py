@@ -102,6 +102,28 @@ def test_smoke_write_probe_failure():
     assert result.error == 'write_probe_failed'
 
 
+def test_smoke_read_only_skips_write_probe():
+    client = FakeClient(update_results=[False])
+
+    result = run_profile_smoke(
+        client,
+        123,
+        mutate=False,
+        verify_read=True,
+        write_probe=False,
+    )
+
+    assert result.error is None
+    assert result.api_access is True
+    assert result.product_read_ok is True
+    assert result.write_probe_ok is True
+    assert result.mutated is False
+    assert result.current_price == 0.2649
+    assert result.probe_price == 0.2649
+    assert result.verify_price == 0.2649
+    assert client.update_calls == []
+
+
 def test_smoke_collects_token_perms_result():
     client = FakeClient(perms_result=(True, 'products.read, products.write'))
 

@@ -42,12 +42,14 @@ def run_profile_smoke(
     mutate: bool = False,
     delta: float = 0.0001,
     verify_read: bool = False,
+    write_probe: bool = True,
 ) -> SmokeResult:
     """
     Запускает smoke-проверку для API клиента профиля.
 
     mutate=False: write probe выполняется текущей ценой (без изменения).
     mutate=True: выполняется небольшое изменение цены и rollback.
+    write_probe=False: проверка write полностью пропускается (read-only).
     """
     try:
         token_perms_ok: Optional[bool] = None
@@ -146,6 +148,31 @@ def run_profile_smoke(
                 token_refresh_desc=token_refresh_desc,
             )
         current_price = _round4(current_price)
+
+        if not write_probe:
+            verify_price = None
+            if verify_read:
+                verify_value = client.get_my_price(int(product_id))
+                verify_price = (
+                    _round4(verify_value)
+                    if verify_value is not None
+                    else None
+                )
+            return SmokeResult(
+                api_access=True,
+                product_read_ok=True,
+                current_price=current_price,
+                write_probe_ok=True,
+                rollback_ok=None,
+                mutated=False,
+                probe_price=current_price,
+                verify_price=verify_price,
+                token_perms_ok=token_perms_ok,
+                token_perms_desc=token_perms_desc,
+                error=None,
+                token_refresh_ok=token_refresh_ok,
+                token_refresh_desc=token_refresh_desc,
+            )
 
         probe_price = current_price
         mutated = bool(mutate)

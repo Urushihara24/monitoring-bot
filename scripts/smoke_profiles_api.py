@@ -67,6 +67,7 @@ def check_ggsel(args) -> bool:
         mutate=args.mutate,
         delta=args.delta,
         verify_read=args.verify_read,
+        write_probe=not args.read_only,
     )
     return _print_result('ggsel', result)
 
@@ -90,6 +91,7 @@ def check_digiseller(args) -> bool:
         mutate=args.mutate,
         delta=args.delta,
         verify_read=args.verify_read,
+        write_probe=not args.read_only,
     )
     return _print_result('digiseller', result)
 
@@ -123,11 +125,19 @@ def parse_args() -> argparse.Namespace:
         action='store_true',
         help='после write probe дополнительно перечитать текущую цену',
     )
+    parser.add_argument(
+        '--read-only',
+        action='store_true',
+        help='проверять только чтение (без write probe)',
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    if args.mutate and args.read_only:
+        print('invalid args: --mutate нельзя использовать вместе с --read-only')
+        return 1
     if args.profile == 'ggsel' and not config.GGSEL_ENABLED:
         print('[ggsel] disabled: set GGSEL_ENABLED=true to run this profile')
         return 1
