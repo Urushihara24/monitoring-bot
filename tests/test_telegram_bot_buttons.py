@@ -310,6 +310,77 @@ async def test_status_shows_last_target_price():
 
 
 @pytest.mark.asyncio
+async def test_status_shows_digiseller_chat_autoreply_block(monkeypatch):
+    bot = TelegramBot(
+        api_clients={'digiseller': object()},
+        profile_products={'digiseller': 5077639},
+        profile_default_urls={'digiseller': ['https://example.com']},
+        profile_labels={'digiseller': 'DIGISELLER'},
+    )
+    bot.admin_ids = {1}
+    bot.chat_profile[100] = 'digiseller'
+    bot._state = lambda _profile: {
+        'last_target_price': 0.2649,
+        'last_price': 0.26,
+        'last_competitor_min': 0.27,
+        'last_update': None,
+        'last_competitor_rank': None,
+        'last_competitor_parse_at': None,
+        'last_competitor_url': 'https://example.com/item-1',
+        'last_competitor_method': 'api4_goods',
+        'auto_mode': True,
+        'update_count': 1,
+        'skip_count': 2,
+    }
+    bot._runtime = lambda _profile: SimpleNamespace(
+        MODE='STEP_UP',
+        CHECK_INTERVAL=60,
+        COMPETITOR_URLS=['https://example.com/item-1'],
+    )
+
+    monkeypatch.setattr(
+        telegram_module.config,
+        'DIGISELLER_CHAT_AUTOREPLY_ENABLED',
+        True,
+    )
+    monkeypatch.setattr(
+        telegram_module.config,
+        'DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS',
+        [5077639, 5104800],
+    )
+
+    def fake_runtime_setting(key, profile_id='ggsel'):
+        if profile_id != 'digiseller':
+            return None
+        mapping = {
+            'CHAT_AUTOREPLY_SENT_COUNT': '7',
+            'CHAT_AUTOREPLY_DUPLICATE_COUNT': '3',
+            'CHAT_AUTOREPLY_LAST_RUN_AT': '2026-04-04T10:00:00',
+            'CHAT_AUTOREPLY_LAST_SENT_AT': '2026-04-04T10:01:00Z',
+            'CHAT_AUTOREPLY_LAST_ERROR': '',
+        }
+        return mapping.get(key)
+
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'get_runtime_setting',
+        fake_runtime_setting,
+    )
+
+    update = make_update(BTN_STATUS)
+    await bot.send_status(100, update)
+
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert '💬 Авто-инструкции: ВКЛ' in args[0]
+    assert '📦 Товары: 5077639, 5104800' in args[0]
+    assert '📨 Отправлено: 7' in args[0]
+    assert '🧷 Дубликаты: 3' in args[0]
+    assert '🕓 Последняя отправка:' in args[0]
+    assert '10:01:00Z' not in args[0]
+
+
+@pytest.mark.asyncio
 async def test_status_shows_live_api_price_over_state():
     class ApiClient:
         def get_my_price(self, product_id):
@@ -721,6 +792,9 @@ async def test_diagnostics_includes_digiseller_token_perms_line():
         def get_token_perms_status(self):
             return True, 'products.read, products.write'
 
+        def can_refresh_access_token(self):
+            return True
+
     bot = TelegramBot(
         api_clients={'digiseller': DigiClient()},
         profile_products={'digiseller': 11},
@@ -744,6 +818,9 @@ async def test_diagnostics_includes_digiseller_token_perms_line():
     args, _kwargs = update.message.reply_text.await_args
     assert 'Профиль: DIGISELLER' in args[0]
     assert 'Token perms: OK (products.read, products.write)' in args[0]
+    assert 'Token refresh: OK' in args[0]
+    assert 'Chat autoreply:' in args[0]
+    assert 'Chat dedupe:' in args[0]
 
 
 @pytest.mark.asyncio
@@ -754,6 +831,9 @@ async def test_diagnostics_for_ggsel_has_no_token_perms_line():
 
         def get_product(self, _product_id):
             return SimpleNamespace(price=0.2649)
+
+        def can_refresh_access_token(self):
+            return False
 
     bot = TelegramBot(
         api_clients={'ggsel': GGClient()},
@@ -777,6 +857,7 @@ async def test_diagnostics_for_ggsel_has_no_token_perms_line():
     args, _kwargs = update.message.reply_text.await_args
     assert 'Профиль: GGSEL' in args[0]
     assert 'Token perms:' not in args[0]
+    assert 'Token refresh: FAIL' in args[0]
 
 
 @pytest.mark.asyncio
@@ -861,6 +942,8 @@ async def test_cmd_smoke_includes_token_perms_when_present(monkeypatch):
             verify_price=0.22,
             token_perms_ok=True,
             token_perms_desc='products.read, products.write',
+            token_refresh_ok=False,
+            token_refresh_desc='api_secret_missing',
             error=None,
         ),
     )
@@ -870,6 +953,7 @@ async def test_cmd_smoke_includes_token_perms_when_present(monkeypatch):
     assert update.message.reply_text.await_count == 2
     second_args, _second_kwargs = update.message.reply_text.await_args_list[1]
     assert 'Token perms: OK (products.read, products.write)' in second_args[0]
+    assert 'Token refresh: FAIL (api_secret_missing)' in second_args[0]
 
 
 @pytest.mark.asyncio

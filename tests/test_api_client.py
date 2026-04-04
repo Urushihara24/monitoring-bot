@@ -10,11 +10,21 @@ from src.api_client import GGSELClient
 
 
 class FakeResponse:
-    def __init__(self, status_code: int = 200, json_data: Optional[dict] = None, json_exc: Optional[Exception] = None, ok: Optional[bool] = None):
+    def __init__(
+        self,
+        status_code: int = 200,
+        json_data: Optional[dict] = None,
+        json_exc: Optional[Exception] = None,
+        ok: Optional[bool] = None,
+        text: str = '',
+        headers: Optional[dict] = None,
+    ):
         self.status_code = status_code
         self._json_data = json_data if json_data is not None else {}
         self._json_exc = json_exc
         self.ok = (status_code < 400) if ok is None else ok
+        self.text = text
+        self.headers = headers or {}
 
     def json(self):
         if self._json_exc:
@@ -260,6 +270,132 @@ def test_update_price_sync_fallback_fail(monkeypatch):
     assert client.update_price(1, 0.3) is False
 
 
+def test_update_price_accepts_plain_text_task_id(monkeypatch):
+    client = make_client()
+    plain_task = 'd4041285-6db4-4a00-96ee-9f923fe62e2b'
+    monkeypatch.setattr(
+        client,
+        '_request_with_retry',
+        lambda *a, **k: FakeResponse(
+            200,
+            json_exc=ValueError('not json'),
+            text=plain_task,
+        ),
+    )
+    monkeypatch.setattr(
+        client,
+        'get_update_task_status',
+        lambda task_id, timeout=10: {
+            'TaskId': task_id,
+            'Status': 2,
+            'SuccessCount': 1,
+            'ErrorCount': 0,
+            'TotalCount': 1,
+        },
+    )
+    assert client.update_price(1, 0.3) is True
+
+
+def test_list_chats_returns_items(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(
+        client,
+        '_authorized_request',
+        lambda *a, **k: FakeResponse(
+            200,
+            {'items': [{'id_i': 101}, {'id_i': 102}]},
+        ),
+    )
+    chats = client.list_chats(filter_new=1, page_size=20, page=1)
+    assert len(chats) == 2
+    assert chats[0]['id_i'] == 101
+
+
+def test_list_chats_returns_chats_key(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(
+        client,
+        '_authorized_request',
+        lambda *a, **k: FakeResponse(
+            200,
+            {'chats': [{'id_i': 201}]},
+        ),
+    )
+    chats = client.list_chats(page=1)
+    assert chats == [{'id_i': 201}]
+
+
+def test_list_messages_returns_list(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(
+        client,
+        '_authorized_request',
+        lambda *a, **k: FakeResponse(
+            200,
+            [{'id': 1, 'message': 'hi'}],
+        ),
+    )
+    messages = client.list_messages(1001)
+    assert len(messages) == 1
+    assert messages[0]['message'] == 'hi'
+
+
+def test_list_messages_returns_messages_key(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(
+        client,
+        '_authorized_request',
+        lambda *a, **k: FakeResponse(
+            200,
+            {'messages': [{'id': 2, 'message': 'hello'}]},
+        ),
+    )
+    messages = client.list_messages(1001)
+    assert messages == [{'id': 2, 'message': 'hello'}]
+
+
+def test_list_messages_returns_nested_content_items(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(
+        client,
+        '_authorized_request',
+        lambda *a, **k: FakeResponse(
+            200,
+            {'content': {'items': [{'id': 3, 'message': 'nested'}]}},
+        ),
+    )
+    messages = client.list_messages(1001)
+    assert messages == [{'id': 3, 'message': 'nested'}]
+
+
+def test_send_chat_message_200_non_json(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(
+        client,
+        '_authorized_request',
+        lambda *a, **k: FakeResponse(
+            200,
+            json_exc=ValueError('not json'),
+            text='OK',
+        ),
+    )
+    assert client.send_chat_message(1001, 'hello') is True
+
+
+def test_get_order_info_returns_content(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(
+        client,
+        '_authorized_request',
+        lambda *a, **k: FakeResponse(
+            200,
+            {'retval': 0, 'content': {'content_id': 123, 'options': []}},
+        ),
+    )
+    info = client.get_order_info(123)
+    assert info == {'content_id': 123, 'options': []}
+
+
 def test_check_api_access_none_false(monkeypatch):
     client = make_client()
     monkeypatch.setattr(client, '_request_with_retry', lambda *a, **k: None)
@@ -405,6 +541,37 @@ def test_refresh_access_token_accepts_retval_camel(monkeypatch):
     ok = client._refresh_access_token()
     assert ok is True
     assert client.access_token == 'issued-token-2'
+
+
+def test_can_refresh_access_token_uses_plain_api_key():
+    client = GGSELClient(
+        api_key='secret-abc',
+        seller_id=8175,
+        base_url='https://seller.ggsel.com/api_sellers/api',
+        lang='ru-RU',
+    )
+    assert client.can_refresh_access_token() is True
+
+
+def test_can_refresh_access_token_false_for_jwt_without_secret():
+    client = GGSELClient(
+        api_key='a.b.c',
+        seller_id=8175,
+        base_url='https://seller.ggsel.com/api_sellers/api',
+        lang='ru-RU',
+    )
+    assert client.can_refresh_access_token() is False
+
+
+def test_can_refresh_access_token_true_for_jwt_with_secret():
+    client = GGSELClient(
+        api_key='a.b.c',
+        api_secret='secret-xyz',
+        seller_id=8175,
+        base_url='https://seller.ggsel.com/api_sellers/api',
+        lang='ru-RU',
+    )
+    assert client.can_refresh_access_token() is True
 
 
 def test_refresh_access_token_jwt_key_without_secret_skips_apilogin(monkeypatch):

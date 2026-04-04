@@ -167,6 +167,7 @@ class DigiSellerClient(GGSELClient):
         self,
         product_id: int,
         timeout: int = 10,
+        lang: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Получение информации о товаре:
@@ -176,7 +177,7 @@ class DigiSellerClient(GGSELClient):
         response = self._authorized_request(
             'GET',
             url,
-            params={'seller_id': self.seller_id, 'lang': self.lang},
+            params={'seller_id': self.seller_id, 'lang': lang or self.lang},
             timeout=timeout,
         )
         if response is None:
@@ -358,10 +359,6 @@ class DigiSellerClient(GGSELClient):
         """
         logger.info('Проверка доступа к DigiSeller API...')
         perms_ok, perms_desc = self.get_token_perms_status(timeout=8)
-        if not perms_ok and perms_desc in {'http_401', 'http_403'}:
-            logger.error('DigiSeller API: доступ запрещён (%s)', perms_desc)
-            return False
-
         if not perms_ok:
             logger.warning(
                 'DigiSeller token/perms недоступен (%s), '

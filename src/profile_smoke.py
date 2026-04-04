@@ -31,6 +31,8 @@ class SmokeResult:
     token_perms_ok: Optional[bool]
     token_perms_desc: Optional[str]
     error: Optional[str]
+    token_refresh_ok: Optional[bool] = None
+    token_refresh_desc: Optional[str] = None
 
 
 def run_profile_smoke(
@@ -50,6 +52,8 @@ def run_profile_smoke(
     try:
         token_perms_ok: Optional[bool] = None
         token_perms_desc: Optional[str] = None
+        token_refresh_ok: Optional[bool] = None
+        token_refresh_desc: Optional[str] = None
 
         if not client:
             return SmokeResult(
@@ -64,6 +68,8 @@ def run_profile_smoke(
                 token_perms_ok=token_perms_ok,
                 token_perms_desc=token_perms_desc,
                 error='api_client_missing',
+                token_refresh_ok=token_refresh_ok,
+                token_refresh_desc=token_refresh_desc,
             )
 
         if not int(product_id or 0):
@@ -79,7 +85,21 @@ def run_profile_smoke(
                 token_perms_ok=token_perms_ok,
                 token_perms_desc=token_perms_desc,
                 error='product_id_missing',
+                token_refresh_ok=token_refresh_ok,
+                token_refresh_desc=token_refresh_desc,
             )
+
+        if hasattr(client, 'can_refresh_access_token'):
+            try:
+                token_refresh_ok = bool(client.can_refresh_access_token())
+                token_refresh_desc = (
+                    'available'
+                    if token_refresh_ok
+                    else 'api_secret_missing'
+                )
+            except Exception as exc:
+                token_refresh_ok = False
+                token_refresh_desc = f'exception:{exc}'
 
         if hasattr(client, 'get_token_perms_status'):
             try:
@@ -104,6 +124,8 @@ def run_profile_smoke(
                 token_perms_ok=token_perms_ok,
                 token_perms_desc=token_perms_desc,
                 error='api_access_failed',
+                token_refresh_ok=token_refresh_ok,
+                token_refresh_desc=token_refresh_desc,
             )
 
         current_price = client.get_my_price(int(product_id))
@@ -120,6 +142,8 @@ def run_profile_smoke(
                 token_perms_ok=token_perms_ok,
                 token_perms_desc=token_perms_desc,
                 error='price_read_failed',
+                token_refresh_ok=token_refresh_ok,
+                token_refresh_desc=token_refresh_desc,
             )
         current_price = _round4(current_price)
 
@@ -147,6 +171,8 @@ def run_profile_smoke(
                 token_perms_ok=token_perms_ok,
                 token_perms_desc=token_perms_desc,
                 error='write_probe_failed',
+                token_refresh_ok=token_refresh_ok,
+                token_refresh_desc=token_refresh_desc,
             )
 
         rollback_ok: Optional[bool] = None
@@ -176,6 +202,8 @@ def run_profile_smoke(
             token_perms_ok=token_perms_ok,
             token_perms_desc=token_perms_desc,
             error=None,
+            token_refresh_ok=token_refresh_ok,
+            token_refresh_desc=token_refresh_desc,
         )
     except Exception as exc:
         return SmokeResult(
@@ -190,4 +218,6 @@ def run_profile_smoke(
             token_perms_ok=None,
             token_perms_desc=None,
             error=f'exception:{exc}',
+            token_refresh_ok=None,
+            token_refresh_desc=None,
         )
