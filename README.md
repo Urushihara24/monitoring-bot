@@ -80,6 +80,8 @@ cp .env.example .env
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_ADMIN_IDS`
 - для включённого профиля: `*_API_KEY`/`*_ACCESS_TOKEN`, `*_SELLER_ID`, `*_PRODUCT_ID`
+- если `*_API_KEY` это JWT access token, задайте `*_API_SECRET` для `ApiLogin`
+  (автообновление токена)
 - `COMPETITOR_URLS` (или профильный список для DigiSeller)
 - cookies конкурента: `GGSEL_COMPETITOR_COOKIES` / `DIGISELLER_COMPETITOR_COOKIES`
   (если не заданы, используется общий `COMPETITOR_COOKIES`)
@@ -125,6 +127,7 @@ cp .env.example .env
 Минимальный набор переменных:
 - `DIGISELLER_ENABLED=true`
 - `DIGISELLER_API_KEY` (или `DIGISELLER_ACCESS_TOKEN`)
+- `DIGISELLER_API_SECRET` (если `DIGISELLER_API_KEY` хранится как JWT)
 - `DIGISELLER_SELLER_ID`
 - `DIGISELLER_PRODUCT_ID`
 
@@ -190,13 +193,17 @@ docker compose logs -f
 
 ## Полезные скрипты
 
-Проверка GGSEL apilogin:
+Проверка GGSEL `apilogin` (использует `GGSEL_API_SECRET` или fallback на
+`GGSEL_API_KEY`):
 
 ```bash
 python3 scripts/check_apilogin.py
 ```
 
-Выпуск access token через API key:
+Если `GGSEL_API_KEY` у вас JWT access token, обязательно задайте
+`GGSEL_API_SECRET`, иначе `apilogin` недоступен.
+
+Выпуск access token через `apilogin`:
 
 ```bash
 python3 scripts/issue_access_token.py
