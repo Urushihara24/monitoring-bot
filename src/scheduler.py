@@ -996,21 +996,27 @@ class Scheduler:
                     if template:
                         message = template
                     else:
-                        info_lang = 'en-US' if locale == 'en' else 'ru-RU'
-                        cache_key = (int(product_id), info_lang)
-                        product_info = product_info_cache.get(cache_key)
-                        if product_info is None:
-                            product_info = self.api_client.get_product_info(
-                                product_id,
-                                timeout=10,
-                                lang=info_lang,
-                            ) or {}
-                            product_info_cache[cache_key] = product_info
                         message = self._pick_instruction_text(
-                            product_info,
+                            order_info,
                             mode=mode,
                             locale=locale,
                         )
+                        if not message:
+                            info_lang = 'en-US' if locale == 'en' else 'ru-RU'
+                            cache_key = (int(product_id), info_lang)
+                            product_info = product_info_cache.get(cache_key)
+                            if product_info is None:
+                                product_info = self.api_client.get_product_info(
+                                    product_id,
+                                    timeout=10,
+                                    lang=info_lang,
+                                ) or {}
+                                product_info_cache[cache_key] = product_info
+                            message = self._pick_instruction_text(
+                                product_info,
+                                mode=mode,
+                                locale=locale,
+                            )
 
                     if not message:
                         logger.warning(
