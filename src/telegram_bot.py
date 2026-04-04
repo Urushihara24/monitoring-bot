@@ -139,6 +139,23 @@ class TelegramBot:
         """Сохраняет pending-действие с привязкой к активному профилю."""
         self.pending_actions[chat_id] = (action, profile_id)
 
+    async def _prompt_pending_action(
+        self,
+        *,
+        chat_id: int,
+        profile_id: str,
+        action: str,
+        prompt: str,
+        update: Update,
+    ):
+        if not update.message:
+            return
+        self._set_pending_action(chat_id, action, profile_id)
+        await update.message.reply_text(
+            prompt,
+            reply_markup=self.get_settings_keyboard(),
+        )
+
     def _get_pending_action(self, chat_id: int) -> Tuple[Optional[str], str]:
         """
         Возвращает (action, profile_id) для pending-действия.
@@ -604,43 +621,53 @@ class TelegramBot:
 
         # Настройки
         if text == BTN_PRICE:
-            self._set_pending_action(chat_id, 'DESIRED_PRICE', profile_id)
-            await update.message.reply_text(
-                'Введи желаемую цену (например 0.35):',
-                reply_markup=self.get_settings_keyboard(),
+            await self._prompt_pending_action(
+                chat_id=chat_id,
+                profile_id=profile_id,
+                action='DESIRED_PRICE',
+                prompt='Введи желаемую цену (например 0.35):',
+                update=update,
             )
             return
         if text == BTN_STEP:
-            self._set_pending_action(chat_id, 'UNDERCUT_VALUE', profile_id)
-            await update.message.reply_text(
-                'Введи шаг снижения (например 0.0051):',
-                reply_markup=self.get_settings_keyboard(),
+            await self._prompt_pending_action(
+                chat_id=chat_id,
+                profile_id=profile_id,
+                action='UNDERCUT_VALUE',
+                prompt='Введи шаг снижения (например 0.0051):',
+                update=update,
             )
             return
         if text == BTN_MIN:
-            self._set_pending_action(chat_id, 'MIN_PRICE', profile_id)
-            await update.message.reply_text(
-                'Введи минимальную цену:',
-                reply_markup=self.get_settings_keyboard(),
+            await self._prompt_pending_action(
+                chat_id=chat_id,
+                profile_id=profile_id,
+                action='MIN_PRICE',
+                prompt='Введи минимальную цену:',
+                update=update,
             )
             return
         if text == BTN_MAX:
-            self._set_pending_action(chat_id, 'MAX_PRICE', profile_id)
-            await update.message.reply_text(
-                'Введи максимальную цену:',
-                reply_markup=self.get_settings_keyboard(),
+            await self._prompt_pending_action(
+                chat_id=chat_id,
+                profile_id=profile_id,
+                action='MAX_PRICE',
+                prompt='Введи максимальную цену:',
+                update=update,
             )
             return
         if text == BTN_INTERVAL:
-            self._set_pending_action(chat_id, 'CHECK_INTERVAL', profile_id)
             runtime = self._runtime(profile_id)
-            await update.message.reply_text(
-                (
+            await self._prompt_pending_action(
+                chat_id=chat_id,
+                profile_id=profile_id,
+                action='CHECK_INTERVAL',
+                prompt=(
                     'Введи интервал проверки в секундах '
                     f'({runtime.FAST_CHECK_INTERVAL_MIN}..'
                     f'{runtime.FAST_CHECK_INTERVAL_MAX}):'
                 ),
-                reply_markup=self.get_settings_keyboard(),
+                update=update,
             )
             return
         if text == BTN_MODE:
@@ -650,10 +677,12 @@ class TelegramBot:
             await self.toggle_position_filter(chat_id, user_id, update)
             return
         if text == BTN_ADD_URL:
-            self._set_pending_action(chat_id, 'ADD_URL', profile_id)
-            await update.message.reply_text(
-                'Отправь URL конкурента:',
-                reply_markup=self.get_settings_keyboard(),
+            await self._prompt_pending_action(
+                chat_id=chat_id,
+                profile_id=profile_id,
+                action='ADD_URL',
+                prompt='Отправь URL конкурента:',
+                update=update,
             )
             return
         if text == BTN_REMOVE_URL:
@@ -1309,6 +1338,17 @@ class TelegramBot:
                 reply_markup=self.get_settings_keyboard(),
             )
             return
+
+        logger.warning(
+            'Неизвестное pending действие: %s (profile=%s)',
+            action,
+            profile_id,
+        )
+        self.pending_actions.pop(chat_id, None)
+        await update.message.reply_text(
+            '⚠️ Незавершённый ввод сброшен: неизвестное действие.',
+            reply_markup=self.get_settings_keyboard(),
+        )
 
     # ================================
     # Notifications

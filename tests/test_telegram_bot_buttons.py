@@ -1122,3 +1122,18 @@ async def test_diagnostics_formats_product_price_to_4dp():
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert 'Product: OK (0.3300₽)' in args[0]
+
+
+@pytest.mark.asyncio
+async def test_unknown_pending_action_is_reset_with_warning_message():
+    bot = make_bot()
+    bot.admin_ids = {1}
+    bot.pending_actions[100] = ('UNKNOWN_ACTION', 'ggsel')
+    update = make_update('some-value')
+
+    await bot.handle_message(update, None)
+
+    assert 100 not in bot.pending_actions
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert 'неизвестное действие' in args[0].lower()
