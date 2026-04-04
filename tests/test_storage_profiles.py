@@ -79,6 +79,22 @@ def test_runtime_settings_list_and_delete_by_prefix(tmp_path):
     )
 
 
+def test_runtime_setting_last_change_returns_timestamp(tmp_path):
+    db = tmp_path / 'state.db'
+    storage = Storage(db_path=str(db))
+    storage.set_runtime_setting(
+        'CHAT_AUTOREPLY_SENT:42',
+        '2026-04-02T10:00:00',
+        profile_id='digiseller',
+    )
+
+    last_change = storage.get_runtime_setting_last_change(
+        'CHAT_AUTOREPLY_SENT:42',
+        profile_id='digiseller',
+    )
+    assert last_change is not None
+
+
 def test_competitor_urls_profile_specific(tmp_path):
     db = tmp_path / 'state.db'
     storage = Storage(db_path=str(db))
