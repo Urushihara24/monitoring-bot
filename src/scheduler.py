@@ -994,6 +994,28 @@ class Scheduler:
             started_at.isoformat(),
         )
         try:
+            if hasattr(self.api_client, 'get_chat_perms_status'):
+                perms_ok, perms_desc = self.api_client.get_chat_perms_status(
+                    timeout=8,
+                    include_send_probe=False,
+                )
+                if not perms_ok:
+                    message = (
+                        'Недостаточно прав chat API для авто-инструкций: '
+                        f'{perms_desc}'
+                    )
+                    self._chat_meta_set(
+                        chat_keys.KEY_LAST_ERROR,
+                        message,
+                    )
+                    logger.warning('[%s] %s', self.profile_name, message)
+                    await self._notify_error_throttled(
+                        key='chat_autoreply_perms',
+                        message=message,
+                        cooldown_seconds=900,
+                    )
+                    return
+
             self._cleanup_autoreply_marks_if_due()
             target_products = self._chat_autoreply_product_ids()
             page_size = max(

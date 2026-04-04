@@ -878,6 +878,55 @@ async def test_scheduler_digiseller_chat_autoreply_error_not_break_cycle(
 
 
 @pytest.mark.asyncio
+async def test_scheduler_digiseller_chat_autoreply_perms_fail_fast(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    class NoPermsApi(DummyChatApiClient):
+        def get_chat_perms_status(self, timeout=8, include_send_probe=False):
+            assert timeout == 8
+            assert include_send_probe is False
+            return False, 'chats.read=FAIL[http_401]'
+
+        def list_chats(self, **kwargs):  # pragma: no cover
+            raise AssertionError(
+                'list_chats should not be called when perms fail'
+            )
+
+    bot = DummyTelegramBot()
+    api = NoPermsApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    state = test_storage.get_state(profile_id='digiseller')
+    assert state['skip_count'] == 1
+    last_error = test_storage.get_runtime_setting(
+        'CHAT_AUTOREPLY_LAST_ERROR',
+        profile_id='digiseller',
+    )
+    assert 'Недостаточно прав chat API для авто-инструкций' in (last_error or '')
+    assert len(bot.errors) == 1
+    assert 'chats.read=FAIL[http_401]' in bot.errors[0]
+
+
+@pytest.mark.asyncio
 async def test_scheduler_digiseller_chat_autoreply_skips_duplicate_by_messages(
     monkeypatch,
     tmp_path,
