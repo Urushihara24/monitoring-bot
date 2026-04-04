@@ -870,6 +870,7 @@ class TelegramBot:
         api_ok = False
         product_price = None
         product_ok = False
+        refresh_line = None
         client = self._api_client(profile_id)
         product_id = self._product_id(profile_id)
         if client:
@@ -881,6 +882,17 @@ class TelegramBot:
                     product_price = product.price if product else None
             except Exception as e:
                 logger.error('Ошибка API в диагностике: %s', e)
+            try:
+                if hasattr(client, 'can_refresh_access_token'):
+                    can_refresh = await asyncio.to_thread(
+                        client.can_refresh_access_token,
+                    )
+                    refresh_line = (
+                        'Token refresh: '
+                        f'{"OK" if can_refresh else "FAIL"}'
+                    )
+            except Exception as e:
+                logger.error('Ошибка проверки refresh capability: %s', e)
 
         perms_line = None
         if profile_id == 'digiseller' and client and hasattr(
@@ -922,6 +934,8 @@ class TelegramBot:
         ]
         if perms_line:
             lines.append(perms_line)
+        if refresh_line:
+            lines.append(refresh_line)
         if profile_id == 'digiseller':
             chat_meta = self._digiseller_chat_meta()
             lines.append(

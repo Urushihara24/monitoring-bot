@@ -78,6 +78,21 @@ class GGSELClient:
         self.task_poll_interval = 1.5
         self.task_poll_timeout = 30.0
 
+    def _resolve_api_login_secret(self) -> str:
+        """
+        Возвращает секрет для подписи /apilogin.
+        Приоритет: api_secret -> api_key (если это не JWT).
+        """
+        if self.api_secret:
+            return self.api_secret
+        if self.api_key and not self._is_probably_jwt(self.api_key):
+            return self.api_key
+        return ""
+
+    def can_refresh_access_token(self) -> bool:
+        """Доступно ли автообновление access token через /apilogin."""
+        return bool(self._resolve_api_login_secret())
+
     def _normalize_access_token(self, token: Optional[str]) -> str:
         """Нормализует access token (обрезает пробелы, если не None)"""
         return token.strip() if token else ""
@@ -149,11 +164,7 @@ class GGSELClient:
         Получение access token через ApiLogin:
         sign = sha256(api_secret + timestamp)
         """
-        sign_secret = self.api_secret
-        if not sign_secret and self.api_key and not self._is_probably_jwt(
-            self.api_key
-        ):
-            sign_secret = self.api_key
+        sign_secret = self._resolve_api_login_secret()
         if not sign_secret:
             logger.error(
                 "ApiLogin невозможен: не задан API secret "
@@ -916,6 +927,11 @@ class GGSELClient:
         if response.status_code in (401, 403):
             logger.error(f"Доступ запрещён ({response.status_code})")
             logger.error("Проверьте API ключ")
+            if not self.can_refresh_access_token():
+                logger.warning(
+                    "Автообновление токена недоступно: "
+                    "задайте API_SECRET для /apilogin"
+                )
             return False
 
         logger.info("API доступен")

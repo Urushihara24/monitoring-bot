@@ -792,6 +792,9 @@ async def test_diagnostics_includes_digiseller_token_perms_line():
         def get_token_perms_status(self):
             return True, 'products.read, products.write'
 
+        def can_refresh_access_token(self):
+            return True
+
     bot = TelegramBot(
         api_clients={'digiseller': DigiClient()},
         profile_products={'digiseller': 11},
@@ -815,6 +818,7 @@ async def test_diagnostics_includes_digiseller_token_perms_line():
     args, _kwargs = update.message.reply_text.await_args
     assert 'Профиль: DIGISELLER' in args[0]
     assert 'Token perms: OK (products.read, products.write)' in args[0]
+    assert 'Token refresh: OK' in args[0]
     assert 'Chat autoreply:' in args[0]
     assert 'Chat dedupe:' in args[0]
 
@@ -827,6 +831,9 @@ async def test_diagnostics_for_ggsel_has_no_token_perms_line():
 
         def get_product(self, _product_id):
             return SimpleNamespace(price=0.2649)
+
+        def can_refresh_access_token(self):
+            return False
 
     bot = TelegramBot(
         api_clients={'ggsel': GGClient()},
@@ -850,6 +857,7 @@ async def test_diagnostics_for_ggsel_has_no_token_perms_line():
     args, _kwargs = update.message.reply_text.await_args
     assert 'Профиль: GGSEL' in args[0]
     assert 'Token perms:' not in args[0]
+    assert 'Token refresh: FAIL' in args[0]
 
 
 @pytest.mark.asyncio
