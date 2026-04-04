@@ -429,7 +429,61 @@ async def test_scheduler_digiseller_chat_autoreply_uses_template(monkeypatch, tm
 
     assert api.sent_messages == [(111, 'Use template EN')]
     assert api.product_info_calls == []
-    assert api.order_info_locales == ['en']
+    assert api.order_info_locales == ['en-US']
+
+
+@pytest.mark.asyncio
+async def test_scheduler_digiseller_chat_autoreply_order_info_locale_fallback(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    class LocaleFallbackApi(DummyChatApiClient):
+        def __init__(self):
+            super().__init__()
+            self.order_info_locales = []
+
+        def list_chats(self, **kwargs):
+            if kwargs.get('page') == 1:
+                return [{'id_i': 111, 'id_d': 5077639, 'lang': 'en-US'}]
+            return []
+
+        def get_order_info(self, _order_id, **_kwargs):
+            locale = _kwargs.get('locale')
+            self.order_info_locales.append(locale)
+            if locale == 'en-US':
+                return {}
+            if locale == 'en':
+                return {
+                    'locale': 'en-US',
+                    'options': [{'value': 'already friend'}],
+                    'id_d': 5077639,
+                }
+            return {}
+
+    bot = DummyTelegramBot()
+    api = LocaleFallbackApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    assert api.order_info_locales == ['en-US', 'en']
+    assert api.sent_messages == [(111, 'Инструкция RU')]
 
 
 @pytest.mark.asyncio

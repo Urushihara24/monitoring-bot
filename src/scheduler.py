@@ -511,6 +511,18 @@ class Scheduler:
                     return locale
         return ''
 
+    def _order_locales_to_try(self, locale_hint: str) -> list[str]:
+        raw = (locale_hint or '').strip().lower()
+        if raw.startswith('en'):
+            ordered = ['en-US', 'en', 'ru-RU', 'ru']
+        else:
+            ordered = ['ru-RU', 'ru', 'en-US', 'en']
+        unique: list[str] = []
+        for item in ordered:
+            if item not in unique:
+                unique.append(item)
+        return unique
+
     def _detect_friend_mode(self, payload: Any) -> str:
         if isinstance(payload, dict):
             options = payload.get('options')
@@ -943,18 +955,15 @@ class Scheduler:
                         ),
                     )
                     locale_hint = self._extract_locale(chat) or 'ru'
-                    order_locale = 'en' if locale_hint == 'en' else 'ru'
-                    order_info = self.api_client.get_order_info(
-                        order_id,
-                        locale=order_locale,
-                        timeout=10,
-                    ) or {}
-                    if not order_info and order_locale != 'ru':
+                    order_info: dict[str, Any] = {}
+                    for order_locale in self._order_locales_to_try(locale_hint):
                         order_info = self.api_client.get_order_info(
                             order_id,
-                            locale='ru',
+                            locale=order_locale,
                             timeout=10,
                         ) or {}
+                        if order_info:
+                            break
                     order_product = self._extract_numeric_field(
                         order_info,
                         (
