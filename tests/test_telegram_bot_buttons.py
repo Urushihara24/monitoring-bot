@@ -942,6 +942,8 @@ async def test_cmd_smoke_includes_token_perms_when_present(monkeypatch):
             verify_price=0.22,
             token_perms_ok=True,
             token_perms_desc='products.read, products.write',
+            token_refresh_ok=False,
+            token_refresh_desc='api_secret_missing',
             error=None,
         ),
     )
@@ -951,6 +953,7 @@ async def test_cmd_smoke_includes_token_perms_when_present(monkeypatch):
     assert update.message.reply_text.await_count == 2
     second_args, _second_kwargs = update.message.reply_text.await_args_list[1]
     assert 'Token perms: OK (products.read, products.write)' in second_args[0]
+    assert 'Token refresh: FAIL (api_secret_missing)' in second_args[0]
 
 
 @pytest.mark.asyncio

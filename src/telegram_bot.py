@@ -528,6 +528,14 @@ class TelegramBot:
                 f'{"OK" if token_perms_ok else "FAIL"} '
                 f'({token_perms_desc or "N/A"})'
             )
+        token_refresh_ok = getattr(result, 'token_refresh_ok', None)
+        token_refresh_desc = getattr(result, 'token_refresh_desc', None)
+        if token_refresh_ok is not None or token_refresh_desc:
+            lines.append(
+                'Token refresh: '
+                f'{"OK" if token_refresh_ok else "FAIL"} '
+                f'({token_refresh_desc or "N/A"})'
+            )
         if result.error:
             lines.append(f'Error: {result.error}')
         await update.message.reply_text(
