@@ -10,6 +10,8 @@ class FakeClient:
         update_results=None,
         perms_result=None,
         perms_error=None,
+        refresh_ok=True,
+        refresh_error=None,
     ):
         self.api_ok = api_ok
         self.read_price = read_price
@@ -17,6 +19,8 @@ class FakeClient:
         self.update_calls = []
         self.perms_result = perms_result
         self.perms_error = perms_error
+        self.refresh_ok = refresh_ok
+        self.refresh_error = refresh_error
 
     def check_api_access(self):
         return self.api_ok
@@ -37,6 +41,11 @@ class FakeClient:
             return True, 'ok'
         return self.perms_result
 
+    def can_refresh_access_token(self):
+        if self.refresh_error:
+            raise RuntimeError(self.refresh_error)
+        return self.refresh_ok
+
 
 def test_smoke_noop_success():
     client = FakeClient(update_results=[True])
@@ -53,6 +62,8 @@ def test_smoke_noop_success():
     assert result.verify_price == 0.2649
     assert result.token_perms_ok is True
     assert result.token_perms_desc == 'ok'
+    assert result.token_refresh_ok is True
+    assert result.token_refresh_desc == 'available'
     assert client.update_calls == [(123, 0.2649)]
 
 
@@ -111,3 +122,15 @@ def test_smoke_token_perms_exception_is_non_fatal():
     assert result.write_probe_ok is True
     assert result.token_perms_ok is False
     assert result.token_perms_desc == 'exception:boom'
+
+
+def test_smoke_token_refresh_exception_is_non_fatal():
+    client = FakeClient(refresh_error='refresh-boom')
+
+    result = run_profile_smoke(client, 123, mutate=False)
+
+    assert result.error is None
+    assert result.api_access is True
+    assert result.write_probe_ok is True
+    assert result.token_refresh_ok is False
+    assert result.token_refresh_desc == 'exception:refresh-boom'

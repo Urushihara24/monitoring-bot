@@ -30,6 +30,12 @@ def _print_result(profile: str, result: SmokeResult) -> bool:
     if result.token_perms_ok is not None or result.token_perms_desc is not None:
         print(f'[{profile}] token_perms_ok={result.token_perms_ok}')
         print(f'[{profile}] token_perms_desc={result.token_perms_desc}')
+    if (
+        result.token_refresh_ok is not None
+        or result.token_refresh_desc is not None
+    ):
+        print(f'[{profile}] token_refresh_ok={result.token_refresh_ok}')
+        print(f'[{profile}] token_refresh_desc={result.token_refresh_desc}')
     if result.error:
         print(f'[{profile}] error={result.error}')
     if not result.api_access:
