@@ -792,6 +792,11 @@ async def test_diagnostics_includes_digiseller_token_perms_line():
         def get_token_perms_status(self):
             return True, 'products.read, products.write'
 
+        def get_chat_perms_status(self, timeout=8, include_send_probe=False):
+            assert timeout == 8
+            assert include_send_probe is False
+            return True, 'chats.read=OK[http_200]'
+
         def can_refresh_access_token(self):
             return True
 
@@ -818,6 +823,7 @@ async def test_diagnostics_includes_digiseller_token_perms_line():
     args, _kwargs = update.message.reply_text.await_args
     assert 'Профиль: DIGISELLER' in args[0]
     assert 'Token perms: OK (products.read, products.write)' in args[0]
+    assert 'Chat perms: OK (chats.read=OK[http_200])' in args[0]
     assert 'Token refresh: OK' in args[0]
     assert 'Chat autoreply:' in args[0]
     assert 'Chat dedupe:' in args[0]
@@ -858,6 +864,47 @@ async def test_diagnostics_for_ggsel_has_no_token_perms_line():
     assert 'Профиль: GGSEL' in args[0]
     assert 'Token perms:' not in args[0]
     assert 'Token refresh: FAIL' in args[0]
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_includes_chat_perms_line_when_supported():
+    class GGClient:
+        def check_api_access(self):
+            return True
+
+        def get_product(self, _product_id):
+            return SimpleNamespace(price=0.2649)
+
+        def can_refresh_access_token(self):
+            return True
+
+        def get_chat_perms_status(self, timeout=8, include_send_probe=False):
+            assert timeout == 8
+            assert include_send_probe is False
+            return False, 'chats.read=FAIL[http_403]'
+
+    bot = TelegramBot(
+        api_clients={'ggsel': GGClient()},
+        profile_products={'ggsel': 22},
+        profile_default_urls={'ggsel': ['https://example.com/gg']},
+        profile_labels={'ggsel': 'GGSEL'},
+    )
+    bot.admin_ids = {1}
+    bot._state = lambda _profile: {
+        'auto_mode': True,
+        'last_cycle': None,
+        'last_competitor_error': None,
+        'last_competitor_block_reason': None,
+    }
+    bot._runtime = lambda _profile: make_runtime(['https://example.com/gg'])
+    update = make_update('/diag')
+
+    await bot.send_diagnostics(100, update)
+
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert 'Профиль: GGSEL' in args[0]
+    assert 'Chat perms: FAIL (chats.read=FAIL[http_403])' in args[0]
 
 
 @pytest.mark.asyncio

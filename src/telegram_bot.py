@@ -918,6 +918,21 @@ class TelegramBot:
             except Exception as e:
                 logger.error('Ошибка token/perms в диагностике: %s', e)
 
+        chat_perms_line = None
+        if client and hasattr(client, 'get_chat_perms_status'):
+            try:
+                chat_ok, chat_desc = await asyncio.to_thread(
+                    client.get_chat_perms_status,
+                    8,
+                    False,
+                )
+                chat_perms_line = (
+                    f'Chat perms: {"OK" if chat_ok else "FAIL"} '
+                    f'({chat_desc})'
+                )
+            except Exception as e:
+                logger.error('Ошибка chat/perms в диагностике: %s', e)
+
         now = datetime.now()
         last_cycle = state.get('last_cycle')
         age = int((now - last_cycle).total_seconds()) if last_cycle else 0
@@ -942,6 +957,8 @@ class TelegramBot:
         ]
         if perms_line:
             lines.append(perms_line)
+        if chat_perms_line:
+            lines.append(chat_perms_line)
         if refresh_line:
             lines.append(refresh_line)
         if profile_id == 'digiseller':

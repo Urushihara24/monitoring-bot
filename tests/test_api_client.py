@@ -396,6 +396,84 @@ def test_get_order_info_returns_content(monkeypatch):
     assert info == {'content_id': 123, 'options': []}
 
 
+def test_get_chat_perms_status_ok_with_safe_400(monkeypatch):
+    client = make_client()
+
+    def fake_authorized_request(method, url, **kwargs):
+        if url.endswith('/debates/v2/chats'):
+            return FakeResponse(200, {'items': []})
+        if url.endswith('/debates/v2') and method == 'GET':
+            return FakeResponse(
+                400,
+                {'retval': -1, 'retdesc': 'invalid id_i or text parameter'},
+            )
+        if url.endswith('/purchase/info/0'):
+            return FakeResponse(
+                404,
+                {'retval': -1, 'retdesc': 'not found'},
+            )
+        if url.endswith('/debates/v2') and method == 'POST':
+            return FakeResponse(
+                400,
+                {'retval': -1, 'retdesc': 'invalid id_i or text parameter'},
+            )
+        return FakeResponse(500, {})
+
+    monkeypatch.setattr(client, '_authorized_request', fake_authorized_request)
+
+    ok, desc = client.get_chat_perms_status()
+    assert ok is True
+    assert 'chats.read=OK' in desc
+    assert 'messages.read=OK' in desc
+    assert 'purchase.read=OK' in desc
+    assert 'chat.send=OK' in desc
+
+
+def test_get_chat_perms_status_fail_when_chats_forbidden(monkeypatch):
+    client = make_client()
+
+    def fake_authorized_request(method, url, **kwargs):
+        if url.endswith('/debates/v2/chats'):
+            return FakeResponse(
+                403,
+                {'retval': -1, 'retdesc': 'Access denied'},
+            )
+        return FakeResponse(
+            400,
+            {'retval': -1, 'retdesc': 'invalid id_i or text parameter'},
+        )
+
+    monkeypatch.setattr(client, '_authorized_request', fake_authorized_request)
+
+    ok, desc = client.get_chat_perms_status()
+    assert ok is False
+    assert 'chats.read=FAIL' in desc
+
+
+def test_get_chat_perms_status_without_send_probe(monkeypatch):
+    client = make_client()
+    calls: list[tuple[str, str]] = []
+
+    def fake_authorized_request(method, url, **kwargs):
+        calls.append((method, url))
+        if url.endswith('/debates/v2/chats'):
+            return FakeResponse(200, {'items': []})
+        return FakeResponse(
+            400,
+            {'retval': -1, 'retdesc': 'invalid parameter'},
+        )
+
+    monkeypatch.setattr(client, '_authorized_request', fake_authorized_request)
+
+    ok, desc = client.get_chat_perms_status(include_send_probe=False)
+    assert ok is True
+    assert 'chat.send=' not in desc
+    assert all(
+        not (method == 'POST' and url.endswith('/debates/v2'))
+        for method, url in calls
+    )
+
+
 def test_check_api_access_none_false(monkeypatch):
     client = make_client()
     monkeypatch.setattr(client, '_request_with_retry', lambda *a, **k: None)

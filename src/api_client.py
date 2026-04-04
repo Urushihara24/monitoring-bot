@@ -901,6 +901,124 @@ class GGSELClient:
             return content
         return payload
 
+    def _probe_endpoint_permission(
+        self,
+        method: str,
+        url: str,
+        *,
+        timeout: int = 8,
+        success_statuses: tuple[int, ...] = (200,),
+        allowed_error_statuses: tuple[int, ...] = (),
+        **kwargs,
+    ) -> tuple[bool, str]:
+        """
+        Пробует endpoint и возвращает (is_ok, короткое описание).
+
+        allowed_error_statuses используется для "безопасных" проб с
+        заведомо невалидным параметром (например id_i=0), чтобы проверить
+        именно наличие прав, а не успешность бизнес-операции.
+        """
+        response = self._authorized_request(
+            method,
+            url,
+            timeout=timeout,
+            max_retries=2,
+            **kwargs,
+        )
+        if response is None:
+            return False, "no_response"
+
+        status = int(response.status_code or 0)
+        payload: Optional[Dict[str, Any]] = None
+        try:
+            parsed = response.json()
+            if isinstance(parsed, dict):
+                payload = parsed
+        except Exception:
+            payload = None
+
+        retval = self._response_retval(payload or {})
+        retdesc = ""
+        if payload:
+            retdesc = str(
+                payload.get("retdesc")
+                or payload.get("desc")
+                or ""
+            ).strip()
+
+        if status in success_statuses and retval in (None, 0):
+            return True, f"http_{status}"
+        if status in allowed_error_statuses:
+            if retdesc:
+                return True, f"http_{status}:{retdesc[:80]}"
+            return True, f"http_{status}"
+        if status in (401, 403):
+            if retdesc:
+                return False, f"http_{status}:{retdesc[:80]}"
+            return False, f"http_{status}"
+        return False, f"http_{status}"
+
+    def get_chat_perms_status(
+        self,
+        timeout: int = 8,
+        include_send_probe: bool = True,
+    ) -> tuple[bool, str]:
+        """
+        Проверяет права на endpoints переписки/заказов.
+
+        include_send_probe=True добавляет безопасную проверку POST /debates/v2
+        с заведомо невалидным id_i=0 (без реальной отправки сообщения).
+        """
+        checks: list[tuple[str, bool, str]] = []
+
+        chats_ok, chats_desc = self._probe_endpoint_permission(
+            "GET",
+            f"{self.base_url}/debates/v2/chats",
+            timeout=timeout,
+            params={"pagesize": 1, "page": 1},
+            success_statuses=(200,),
+        )
+        checks.append(("chats.read", chats_ok, chats_desc))
+
+        messages_ok, messages_desc = self._probe_endpoint_permission(
+            "GET",
+            f"{self.base_url}/debates/v2",
+            timeout=timeout,
+            params={"id_i": 0, "count": 1},
+            success_statuses=(200,),
+            allowed_error_statuses=(400, 404),
+        )
+        checks.append(("messages.read", messages_ok, messages_desc))
+
+        order_ok, order_desc = self._probe_endpoint_permission(
+            "GET",
+            f"{self.base_url}/purchase/info/0",
+            timeout=timeout,
+            headers={"locale": "ru-RU"},
+            success_statuses=(200,),
+            allowed_error_statuses=(400, 404),
+        )
+        checks.append(("purchase.read", order_ok, order_desc))
+
+        if include_send_probe:
+            send_ok, send_desc = self._probe_endpoint_permission(
+                "POST",
+                f"{self.base_url}/debates/v2",
+                timeout=timeout,
+                params={"id_i": 0},
+                json={"message": "permission_probe_ignore"},
+                success_statuses=(200,),
+                allowed_error_statuses=(400, 404),
+            )
+            checks.append(("chat.send", send_ok, send_desc))
+
+        overall_ok = all(item[1] for item in checks)
+        summary = "; ".join(
+            f"{name}={'OK' if ok else 'FAIL'}[{desc}]"
+            for name, ok, desc in checks
+        )
+        return overall_ok, summary
+
     def check_api_access(self) -> bool:
         """
         Проверка доступа к API

@@ -246,6 +246,18 @@ python3 scripts/smoke_profiles_api.py --profile digiseller
 python3 scripts/smoke_profiles_api.py --profile digiseller --mutate --delta 0.0001 --verify-read
 ```
 
+Smoke прав чатов/переписки (без отправки сообщений):
+
+```bash
+python3 scripts/smoke_chat_api.py --profile all
+```
+
+С безопасной POST-пробой `chat.send` (id_i=0):
+
+```bash
+python3 scripts/smoke_chat_api.py --profile digiseller --send-probe
+```
+
 ## Тесты и проверки
 
 ```bash
