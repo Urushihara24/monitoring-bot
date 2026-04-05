@@ -425,6 +425,9 @@ class TelegramBot:
         advanced: bool = False,
     ):
         profile = profile_id or self.default_profile
+        state = self._state(profile)
+        auto_enabled = bool(state.get('auto_mode', True))
+        auto_toggle_button = BTN_AUTO_OFF if auto_enabled else BTN_AUTO_ON
         if advanced:
             rows = [
                 [BTN_SETTINGS_QUICK],
@@ -436,13 +439,18 @@ class TelegramBot:
             return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
         rows = [
-            [BTN_AUTO_ON, BTN_AUTO_OFF],
+            [auto_toggle_button],
             [BTN_UP, BTN_DOWN],
             [BTN_INTERVAL, BTN_MODE],
             [BTN_ADD_URL, BTN_REMOVE_URL],
         ]
         if self._chat_autoreply_supported(profile):
-            rows.append([BTN_CHAT_AUTOREPLY_ON, BTN_CHAT_AUTOREPLY_OFF])
+            chat_enabled = self._chat_autoreply_enabled(profile)
+            chat_toggle_button = (
+                BTN_CHAT_AUTOREPLY_OFF
+                if chat_enabled else BTN_CHAT_AUTOREPLY_ON
+            )
+            rows.append([chat_toggle_button])
         rows.append([BTN_SETTINGS_ADVANCED])
         rows.append([BTN_BACK])
         return ReplyKeyboardMarkup(rows, resize_keyboard=True)

@@ -39,6 +39,7 @@ def make_bot() -> TelegramBot:
         profile_labels={'ggsel': 'GGSEL'},
     )
     bot.admin_ids = {1}
+    bot._state = lambda _profile: {'auto_mode': True}
     return bot
 
 
@@ -111,6 +112,8 @@ def test_settings_keyboard_is_not_overloaded():
     assert BTN_MIN not in texts
     assert BTN_MAX not in texts
     assert BTN_SETTINGS_ADVANCED in texts
+    assert BTN_AUTO_OFF in texts
+    assert BTN_AUTO_ON not in texts
 
 
 def test_advanced_settings_keyboard_contains_expert_controls():
@@ -134,15 +137,16 @@ def test_settings_keyboard_shows_chat_toggle_for_supported_profile():
         profile_labels={'ggsel': 'GGSEL'},
     )
     bot.admin_ids = {1}
+    bot._state = lambda _profile: {'auto_mode': True}
+    bot._chat_autoreply_enabled = lambda _profile: False
 
     texts = keyboard_texts(bot.get_settings_keyboard('ggsel'))
     assert BTN_CHAT_AUTOREPLY_ON in texts
-    assert BTN_CHAT_AUTOREPLY_OFF in texts
+    assert BTN_CHAT_AUTOREPLY_OFF not in texts
 
 
 def test_main_keyboard_is_not_overloaded():
     bot = make_bot()
-    bot._state = lambda _profile: {'auto_mode': True}
     texts = keyboard_texts(bot.get_main_keyboard('ggsel'))
     assert '🩺 Диагностика' not in texts
     assert BTN_AUTO_ON not in texts
@@ -150,7 +154,7 @@ def test_main_keyboard_is_not_overloaded():
     assert BTN_UP not in texts
     assert BTN_DOWN not in texts
     settings_texts = keyboard_texts(bot.get_settings_keyboard())
-    assert BTN_AUTO_ON in settings_texts
+    assert BTN_AUTO_ON not in settings_texts
     assert BTN_AUTO_OFF in settings_texts
     assert BTN_UP in settings_texts
     assert BTN_DOWN in settings_texts
