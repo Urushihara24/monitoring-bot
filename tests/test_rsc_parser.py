@@ -199,6 +199,55 @@ def test_parse_with_stealth_uses_plati_fallback_on_http_403(monkeypatch):
     assert result.price == 0.33
 
 
+def test_parse_with_stealth_retries_plati_after_http_403(monkeypatch):
+    parser = RSCParser(max_retries=1)
+    calls = {'page': 0, 'price': 0}
+
+    class Page403:
+        status_code = 403
+        text = '<html><body>DDoS-Guard</body></html>'
+
+        def json(self):  # pragma: no cover
+            return {}
+
+    class Page200:
+        status_code = 200
+        text = '<html><body><span data-testid="product-price">0.33 ₽</span></body></html>'
+
+        def json(self):  # pragma: no cover
+            return {}
+
+    class PriceFail:
+        status_code = 403
+        text = ''
+
+        def json(self):  # pragma: no cover
+            return {}
+
+    def fake_get(url, **_kwargs):
+        if 'price_options.asp' in url:
+            calls['price'] += 1
+            return PriceFail()
+        calls['page'] += 1
+        if calls['page'] == 1:
+            return Page403()
+        return Page200()
+
+    monkeypatch.setattr(rsc_module.stealth_requests, 'get', fake_get)
+    monkeypatch.setattr(rsc_module.time, 'sleep', lambda _s: None)
+
+    result = parser._parse_with_stealth(
+        'https://plati.market/itm/name/5655506',
+        timeout=3,
+        cookies=None,
+    )
+
+    assert result.success
+    assert result.price == 0.33
+    assert calls['page'] == 2
+    assert calls['price'] >= 1
+
+
 def test_parse_url_success_uses_stealth(monkeypatch):
     parser = RSCParser(max_retries=0)
     monkeypatch.setattr(
@@ -213,6 +262,39 @@ def test_parse_url_success_uses_stealth(monkeypatch):
     result = parser.parse_url('https://example.com', timeout=3)
     assert result.success
     assert result.method == 'stealth_requests'
+
+
+def test_parse_url_uses_direct_plati_before_stealth(monkeypatch):
+    parser = RSCParser(max_retries=0)
+    calls = {'direct': 0, 'stealth': 0}
+
+    def fake_direct(url, html, timeout):
+        calls['direct'] += 1
+        assert html == ''
+        return ParseResult(
+            success=True,
+            price=0.33,
+            url=url,
+            method='plati_price_options',
+        )
+
+    def fake_stealth(*_args, **_kwargs):
+        calls['stealth'] += 1
+        return ParseResult(
+            success=False,
+            error='should_not_be_called',
+            method='stealth_requests',
+        )
+
+    monkeypatch.setattr(parser, '_parse_with_plati_price_api', fake_direct)
+    monkeypatch.setattr(parser, '_parse_with_stealth', fake_stealth)
+
+    result = parser.parse_url('https://plati.market/itm/name/5655506', timeout=3)
+
+    assert result.success
+    assert result.method == 'plati_price_options'
+    assert calls['direct'] == 1
+    assert calls['stealth'] == 0
 
 
 def test_parse_url_uses_api_fallback(monkeypatch):

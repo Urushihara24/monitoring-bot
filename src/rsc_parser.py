@@ -476,6 +476,10 @@ class RSCParser:
                         )
                         if plati_result.success:
                             return plati_result
+                        if attempt < self.max_retries:
+                            time.sleep(2 ** attempt)
+                            headers['User-Agent'] = self._get_random_user_agent()
+                            continue
                     reason = f'http_{resp.status_code}'
                     return self._blocked_result(
                         url,
@@ -801,6 +805,26 @@ class RSCParser:
         """Parse URL using stealth_requests with public API fallback."""
         logger.info(f'🔍 НАЧАЛО ПАРСИНГА: {url}')
         started = time.time()
+
+        if self._is_plati_domain(url):
+            direct = self._parse_with_plati_price_api(
+                url=url,
+                html='',
+                timeout=timeout,
+            )
+            if direct.success:
+                elapsed = time.time() - started
+                direct.elapsed_seconds = elapsed
+                self.success_count += 1
+                self._inc_method_success(direct.method)
+                logger.info(
+                    '🎉 ПАРСИНГ УСПЕШЕН (direct plati): цена=%s₽, время=%.2fs',
+                    direct.price,
+                    elapsed,
+                )
+                return direct
+            self._inc_method_fail(direct.method)
+
         result = self._parse_with_stealth(url, timeout, cookies)
         if result.success:
             elapsed = time.time() - started
