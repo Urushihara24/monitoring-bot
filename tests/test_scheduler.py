@@ -1480,6 +1480,65 @@ async def test_scheduler_digiseller_chat_autoreply_perms_fail_fast(
 
 
 @pytest.mark.asyncio
+async def test_scheduler_digiseller_chat_autoreply_perms_no_response_retry_ok(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    class FlakyPermsApi(DummyChatApiClient):
+        def __init__(self):
+            super().__init__()
+            self._perms_calls = 0
+
+        def get_chat_perms_status(self, timeout=8, include_send_probe=False):
+            assert include_send_probe is False
+            self._perms_calls += 1
+            if self._perms_calls == 1:
+                assert timeout == 8
+                return (
+                    False,
+                    'chats.read=OK[http_200]; messages.read=FAIL[no_response]; '
+                    'purchase.read=OK[http_200]',
+                )
+            assert timeout == 12
+            return (
+                True,
+                'chats.read=OK[http_200]; messages.read=OK[http_200]; '
+                'purchase.read=OK[http_200]',
+            )
+
+    bot = DummyTelegramBot()
+    api = FlakyPermsApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    assert api._perms_calls == 2
+    assert api.sent_messages == [(111, 'Инструкция RU')]
+    assert not bot.errors
+    last_error = test_storage.get_runtime_setting(
+        'CHAT_AUTOREPLY_LAST_ERROR',
+        profile_id='digiseller',
+    )
+    assert last_error in (None, '')
+
+
+@pytest.mark.asyncio
 async def test_scheduler_digiseller_chat_autoreply_skips_duplicate_by_messages(
     monkeypatch,
     tmp_path,

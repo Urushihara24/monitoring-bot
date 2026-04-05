@@ -1212,20 +1212,46 @@ class Scheduler:
                     timeout=8,
                     include_send_probe=False,
                 )
+                # DigiSeller chat endpoints периодически отдают no_response
+                # из-за временной недоступности upstream. Делаем один повтор
+                # перед тем как блокировать авто-инструкции.
+                if not perms_ok and 'no_response' in (perms_desc or '').lower():
+                    try:
+                        retry_ok, retry_desc = self.api_client.get_chat_perms_status(
+                            timeout=12,
+                            include_send_probe=False,
+                        )
+                        if retry_ok:
+                            perms_ok, perms_desc = retry_ok, retry_desc
+                        else:
+                            perms_desc = retry_desc or perms_desc
+                    except Exception:
+                        pass
                 if not perms_ok:
-                    message = (
-                        'Недостаточно прав chat API для авто-инструкций: '
-                        f'{perms_desc}'
-                    )
+                    is_transient = 'no_response' in (perms_desc or '').lower()
+                    if is_transient:
+                        message = (
+                            'Временная недоступность chat API для '
+                            f'авто-инструкций: {perms_desc}'
+                        )
+                        alert_key = 'chat_autoreply_api_unavailable'
+                        cooldown_seconds = 300
+                    else:
+                        message = (
+                            'Недостаточно прав chat API для авто-инструкций: '
+                            f'{perms_desc}'
+                        )
+                        alert_key = 'chat_autoreply_perms'
+                        cooldown_seconds = 900
                     self._chat_meta_set(
                         chat_keys.KEY_LAST_ERROR,
                         message,
                     )
                     logger.warning('[%s] %s', self.profile_name, message)
                     await self._notify_error_throttled(
-                        key='chat_autoreply_perms',
+                        key=alert_key,
                         message=message,
-                        cooldown_seconds=900,
+                        cooldown_seconds=cooldown_seconds,
                     )
                     return
 
