@@ -11,8 +11,11 @@
 from __future__ import annotations
 
 import logging
+import random
+import re
 from collections import deque
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 from .api_client import GGSELClient, Product
 
@@ -253,6 +256,117 @@ class DigiSellerClient(GGSELClient):
                     return parsed
 
         return 0.0
+
+    def _extract_plati_product_id(self, card_url: str) -> Optional[int]:
+        path = (urlparse(card_url).path or '').strip('/')
+        if not path:
+            return None
+        match = re.search(r'(\d+)(?:[/?#]|$)', path)
+        if not match:
+            return None
+        try:
+            product_id = int(match.group(1))
+        except Exception:
+            return None
+        return product_id if product_id > 0 else None
+
+    def _extract_unit_cnt_min(self, product_info: Dict[str, Any]) -> Optional[int]:
+        prices_unit = product_info.get('prices_unit')
+        if not isinstance(prices_unit, dict):
+            return None
+        for key in ('unit_cnt_min', 'unit_cnt'):
+            raw = prices_unit.get(key)
+            parsed = self._to_float(raw)
+            if parsed is None:
+                continue
+            value = int(parsed)
+            if value > 0:
+                return value
+        return None
+
+    def _fetch_plati_unit_price_rub(
+        self,
+        *,
+        public_product_id: int,
+        qty: int,
+        timeout: int,
+    ) -> Optional[float]:
+        if public_product_id <= 0 or qty <= 0:
+            return None
+        url = (
+            'https://plati.market/asp/price_options.asp'
+            f'?p={public_product_id}&n={qty}&c=RUB&e=&d=false&x='
+            f'&rnd={random.random()}'
+        )
+        response = self._request_with_retry(
+            'GET',
+            url,
+            timeout=timeout,
+            max_retries=2,
+            headers={
+                'Accept': 'application/json,text/plain,*/*',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+        )
+        if response is None or response.status_code != 200:
+            return None
+        try:
+            payload = response.json()
+        except Exception:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        err_code = str(payload.get('err', '0')).strip()
+        if err_code not in ('0', ''):
+            return None
+
+        # endpoint возвращает unit-цену в поле price.
+        price = self._to_float(payload.get('price'))
+        if price is not None and price > 0:
+            return round(price, 4)
+
+        # fallback: amount/cnt -> unit price.
+        amount = self._to_float(payload.get('amount'))
+        cnt = self._to_float(payload.get('cnt'))
+        if amount is None or cnt is None or cnt <= 0:
+            return None
+        return round(amount / cnt, 4)
+
+    def get_public_price(self, product_id: int, timeout: int = 10) -> Optional[float]:
+        """
+        Публичная цена DigiSeller/Plati в RUB за 1 единицу.
+        """
+        product_info = self.get_product_info(product_id, timeout=timeout)
+        if not isinstance(product_info, dict):
+            return None
+
+        card_url = str(product_info.get('card_url') or '').strip()
+        public_product_id = self._extract_plati_product_id(card_url) or int(
+            product_id or 0
+        )
+        unit_cnt_min = self._extract_unit_cnt_min(product_info) or 1
+        public_price = self._fetch_plati_unit_price_rub(
+            public_product_id=public_product_id,
+            qty=unit_cnt_min,
+            timeout=timeout,
+        )
+        if public_price is not None:
+            logger.info(
+                'DigiSeller публичная unit-цена товара %s: %s RUB',
+                product_id,
+                public_price,
+            )
+            return public_price
+
+        # fallback по payload (может быть уже unit-цена в RUB).
+        prices_unit = product_info.get('prices_unit')
+        if isinstance(prices_unit, dict):
+            for key in ('unit_amount', 'unit_amount_min'):
+                parsed = self._to_float(prices_unit.get(key))
+                if parsed is not None and parsed > 0:
+                    return round(parsed, 4)
+
+        return None
 
     def get_product(self, product_id: int, timeout: int = 10) -> Optional[Product]:
         product_info = self.get_product_info(product_id, timeout=timeout)

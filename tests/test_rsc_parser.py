@@ -63,6 +63,102 @@ def test_parse_html_extracts_price_from_meta_amount():
     assert result.price == 0.2711
 
 
+def test_parse_html_extracts_unit_price_from_tier_block():
+    parser = RSCParser(max_retries=0)
+    html = """
+    <html><body>
+      <div>
+        <h3>Цена за 1 В-Баксов</h3>
+        <ul>
+          <li>от 100 В-Баксов ... 0.33 ₽</li>
+          <li>от 1500 В-Баксов ... 0.31 ₽</li>
+        </ul>
+      </div>
+    </body></html>
+    """
+    result = parser._parse_html(html, 'https://plati.market/itm/test')
+    assert result.success
+    # Берём цену для минимального порога (от 100).
+    assert result.price == 0.33
+
+
+def test_parse_with_stealth_ignores_recaptcha_marker_when_price_is_parsed(
+    monkeypatch,
+):
+    parser = RSCParser(max_retries=0)
+
+    class FakeResponse:
+        status_code = 200
+        text = (
+            '<html><body>'
+            '<script>var recaptcha = true;</script>'
+            '<div><h3>Цена за 1 В-Баксов</h3>'
+            '<ul><li>от 100 В-Баксов ... 0.33 ₽</li></ul>'
+            '</div>'
+            '</body></html>'
+        )
+
+    monkeypatch.setattr(
+        rsc_module.stealth_requests,
+        'get',
+        lambda *args, **kwargs: FakeResponse(),
+    )
+
+    result = parser._parse_with_stealth(
+        'https://plati.market/itm/test',
+        timeout=3,
+        cookies=None,
+    )
+    assert result.success
+    assert result.price == 0.33
+    assert result.block_reason is None
+
+
+def test_parse_with_stealth_uses_plati_price_options_fallback(monkeypatch):
+    parser = RSCParser(max_retries=0)
+
+    class PageResponse:
+        status_code = 200
+        text = (
+            '<html><body>'
+            '<script>var recaptcha = true; _unit_cnt_min = 100;</script>'
+            '<input type="hidden" name="product_id" value="5655506" />'
+            '</body></html>'
+        )
+
+        def json(self):  # pragma: no cover
+            return {}
+
+    class PriceResponse:
+        status_code = 200
+        text = '{"price":"0,33","cnt":"100","amount":"33","err":"0"}'
+
+        def json(self):
+            return {
+                'price': '0,33',
+                'cnt': '100',
+                'amount': '33',
+                'err': '0',
+            }
+
+    def fake_get(url, **_kwargs):
+        if 'price_options.asp' in url:
+            return PriceResponse()
+        return PageResponse()
+
+    monkeypatch.setattr(rsc_module.stealth_requests, 'get', fake_get)
+
+    result = parser._parse_with_stealth(
+        'https://plati.market/itm/name/5655506',
+        timeout=3,
+        cookies=None,
+    )
+
+    assert result.success
+    assert result.method == 'plati_price_options'
+    assert result.price == 0.33
+
+
 def test_parse_url_success_uses_stealth(monkeypatch):
     parser = RSCParser(max_retries=0)
     monkeypatch.setattr(

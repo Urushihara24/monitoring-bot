@@ -110,14 +110,15 @@ async def test_up_down_dispatch_price_change(bot, monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize('button', [BTN_AUTO_ON, BTN_AUTO_OFF])
 async def test_auto_buttons_dispatch_toggle(bot, monkeypatch, button):
-    called = {}
+    called = []
 
-    async def _stub(_update):
-        called['ok'] = True
+    async def _stub(_update, *, enabled):
+        called.append(enabled)
 
-    monkeypatch.setattr(bot, 'toggle_auto', _stub)
+    monkeypatch.setattr(bot, 'set_auto_enabled', _stub)
     await bot.handle_message(DummyUpdate(button), None)
-    assert called.get('ok') is True
+    expected = button == BTN_AUTO_ON
+    assert called == [expected]
 
 
 @pytest.mark.asyncio

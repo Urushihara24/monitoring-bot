@@ -229,6 +229,107 @@ class RSCParser:
                 return parsed
         return None
 
+    def _parse_quantity_value(self, raw: str) -> Optional[int]:
+        """
+        Парсит количество единиц из текста вида:
+        - "100"
+        - "1 500"
+        - "10 тыс."
+        """
+        if raw is None:
+            return None
+        text = str(raw).replace('\xa0', ' ').strip().lower()
+        if not text:
+            return None
+        m = re.search(r'(\d+(?:[.,]\d+)?)', text)
+        if not m:
+            return None
+        try:
+            qty = float(m.group(1).replace(',', '.'))
+        except Exception:
+            return None
+        if 'тыс' in text or 'k' in text:
+            qty *= 1000.0
+        if qty <= 0:
+            return None
+        return int(round(qty))
+
+    def _extract_price_from_unit_inputs(
+        self,
+        soup: BeautifulSoup,
+    ) -> Optional[float]:
+        """
+        Цена за единицу из пары полей unit_amount / unit_cnt.
+        """
+        amount_input = soup.find(
+            'input',
+            attrs={'name': re.compile(r'unit_amount$', re.IGNORECASE)},
+        )
+        cnt_input = soup.find(
+            'input',
+            attrs={'name': re.compile(r'unit_cnt$', re.IGNORECASE)},
+        )
+        if not amount_input or not cnt_input:
+            return None
+
+        amount = self._coerce_price(amount_input.get('value'))
+        qty = self._parse_quantity_value(cnt_input.get('value'))
+        if amount is None or qty is None or qty <= 0:
+            return None
+        return round(amount / qty, 4)
+
+    def _extract_price_from_unit_tiers(
+        self,
+        soup: BeautifulSoup,
+    ) -> Optional[float]:
+        """
+        Извлекает цену за единицу из блока вида:
+        "Цена за 1 ...", строки "от 100 ... 0.33 ₽".
+        Берём цену для минимального порога количества.
+        """
+        rows = soup.select('li, .d-inline-flex')
+        candidates: list[tuple[int, float]] = []
+        qty_pattern = re.compile(
+            r'(?:от|from)\s*([0-9][0-9\s.,]*)\s*'
+            r'(?:в-?баксов|v-?bucks|units?|шт)',
+            re.IGNORECASE,
+        )
+        price_pattern = re.compile(
+            r'(\d+(?:[.,]\d{1,6})?)\s*(?:₽|rub)',
+            re.IGNORECASE,
+        )
+
+        for row in rows:
+            text = ' '.join(row.stripped_strings)
+            if not text:
+                continue
+            qty_match = qty_pattern.search(text)
+            if not qty_match:
+                continue
+            qty = self._parse_quantity_value(qty_match.group(1))
+            if qty is None or qty <= 0:
+                continue
+            price_matches = price_pattern.findall(text)
+            if not price_matches:
+                continue
+            try:
+                unit_price = float(price_matches[-1].replace(',', '.'))
+            except Exception:
+                continue
+            if unit_price <= 0:
+                continue
+            candidates.append((qty, round(unit_price, 4)))
+
+        if not candidates:
+            return None
+        qty_min, unit_price = min(candidates, key=lambda item: item[0])
+        logger.debug(
+            'Найдена unit tier цена: qty_min=%s, unit_price=%s',
+            qty_min,
+            unit_price,
+        )
+        return unit_price
+
     def _parse_html(self, html: str, url: str) -> ParseResult:
         """
         Извлечение цены.
@@ -262,6 +363,24 @@ class RSCParser:
                         units_to_pay.get('value'),
                         units_to_get.get('value'),
                     )
+
+            unit_input_price = self._extract_price_from_unit_inputs(soup)
+            if unit_input_price is not None:
+                return ParseResult(
+                    success=True,
+                    price=unit_input_price,
+                    url=url,
+                    offers=[Offer(price=unit_input_price)],
+                )
+
+            unit_tier_price = self._extract_price_from_unit_tiers(soup)
+            if unit_tier_price is not None:
+                return ParseResult(
+                    success=True,
+                    price=unit_tier_price,
+                    url=url,
+                    offers=[Offer(price=unit_tier_price)],
+                )
 
             json_ld_price = self._extract_price_from_json_ld(soup)
             if json_ld_price is not None:
@@ -382,6 +501,21 @@ class RSCParser:
                         status_code=resp.status_code,
                     )
 
+                result = self._parse_html(resp.text, url)
+                if result.success:
+                    result.method = method
+                    result.status_code = resp.status_code
+                    return result
+
+                if self._is_plati_domain(url):
+                    plati_result = self._parse_with_plati_price_api(
+                        url=url,
+                        html=resp.text,
+                        timeout=timeout,
+                    )
+                    if plati_result.success:
+                        return plati_result
+
                 block_reason = self._detect_block_reason(resp.text)
                 if block_reason:
                     return self._blocked_result(
@@ -391,7 +525,6 @@ class RSCParser:
                         block_reason=block_reason,
                     )
 
-                result = self._parse_html(resp.text, url)
                 result.method = method
                 result.status_code = resp.status_code
                 return result
@@ -428,6 +561,140 @@ class RSCParser:
             return False
         allowed = ('ggsel.net', 'ggsel.com')
         return any(host == domain or host.endswith(f'.{domain}') for domain in allowed)
+
+    def _is_plati_domain(self, url: str) -> bool:
+        try:
+            host = (urlparse(url).hostname or '').lower()
+        except Exception:
+            return False
+        if not host:
+            return False
+        allowed = ('plati.market', 'digiseller.market')
+        return any(host == domain or host.endswith(f'.{domain}') for domain in allowed)
+
+    def _extract_plati_product_id(
+        self,
+        url: str,
+        html: str,
+    ) -> Optional[str]:
+        html_match = re.search(
+            r'name=["\']product_id["\']\s+value=["\'](\d+)["\']',
+            html,
+            re.IGNORECASE,
+        )
+        if html_match:
+            return html_match.group(1)
+
+        parsed_path = (urlparse(url).path or '').strip('/')
+        path_match = re.search(r'(\d+)(?:[/?#]|$)', parsed_path)
+        if path_match:
+            return path_match.group(1)
+        return None
+
+    def _extract_plati_min_qty(self, html: str) -> Optional[int]:
+        patterns = (
+            r'_unit_cnt_min\s*=\s*(\d+)',
+            r'Минимально\s+можно\s+купить\s+([0-9\s.,]+)',
+            r'Minimum\s+you\s+can\s+buy\s+([0-9\s.,]+)',
+            r'name=["\']unit_cnt["\'][^>]*value=["\']([0-9\s.,]+)["\']',
+        )
+        for pattern in patterns:
+            match = re.search(pattern, html, re.IGNORECASE)
+            if not match:
+                continue
+            qty = self._parse_quantity_value(match.group(1))
+            if qty and qty > 0:
+                return qty
+        return None
+
+    def _parse_with_plati_price_api(
+        self,
+        url: str,
+        html: str,
+        timeout: int,
+    ) -> ParseResult:
+        method = 'plati_price_options'
+        product_id = self._extract_plati_product_id(url, html)
+        if not product_id:
+            return ParseResult(
+                success=False,
+                error='Plati fallback: не удалось извлечь product_id',
+                url=url,
+                method=method,
+            )
+
+        qty_candidates: List[int] = []
+        min_qty = self._extract_plati_min_qty(html)
+        if min_qty and min_qty > 0:
+            qty_candidates.append(min_qty)
+        if 1 not in qty_candidates:
+            qty_candidates.append(1)
+
+        headers = {
+            'User-Agent': self._get_random_user_agent(),
+            'Accept': 'application/json,text/plain,*/*',
+            'X-Requested-With': 'XMLHttpRequest',
+        }
+
+        last_error: Optional[str] = None
+        for qty in qty_candidates:
+            api_url = (
+                f'https://plati.market/asp/price_options.asp?'
+                f'p={product_id}&n={qty}&c=RUB&e=&d=false&x=&rnd={random.random()}'
+            )
+            try:
+                response = stealth_requests.get(
+                    api_url,
+                    headers=headers,
+                    timeout=timeout,
+                )
+            except Exception as e:
+                last_error = f'Plati fallback exception: {e}'
+                continue
+
+            if response.status_code != 200:
+                last_error = f'Plati fallback HTTP {response.status_code}'
+                continue
+
+            try:
+                payload = response.json()
+            except Exception:
+                last_error = 'Plati fallback: invalid JSON'
+                continue
+            if not isinstance(payload, dict):
+                last_error = 'Plati fallback: invalid payload'
+                continue
+
+            err_code = str(payload.get('err', '0')).strip()
+            if err_code not in ('0', ''):
+                last_error = f'Plati fallback: err={err_code}'
+                continue
+
+            price = self._coerce_price(payload.get('price'))
+            if price is None:
+                amount = self._coerce_price(payload.get('amount'))
+                cnt = self._parse_quantity_value(payload.get('cnt'))
+                if amount is not None and cnt and cnt > 0:
+                    price = round(amount / cnt, 4)
+            if price is None or price <= 0:
+                last_error = 'Plati fallback: поле price отсутствует'
+                continue
+
+            return ParseResult(
+                success=True,
+                price=price,
+                url=url,
+                offers=[Offer(price=price)],
+                method=method,
+                status_code=response.status_code,
+            )
+
+        return ParseResult(
+            success=False,
+            error=last_error or 'Plati fallback failed',
+            url=url,
+            method=method,
+        )
 
     def _parse_with_goods_api(self, url: str, timeout: int) -> ParseResult:
         """

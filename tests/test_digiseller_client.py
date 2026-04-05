@@ -146,6 +146,56 @@ def test_get_product_price_from_comma_string(monkeypatch):
     assert product.price == 0.2649
 
 
+def test_get_public_price_uses_price_options_with_min_unit_count(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(
+        client,
+        'get_product_info',
+        lambda *_a, **_kw: {
+            'card_url': 'https://plati.market/itm/name/5077639',
+            'prices_unit': {'unit_cnt_min': 200},
+        },
+    )
+    captured = {'url': None}
+
+    def fake_request(_method, url, **_kwargs):
+        captured['url'] = url
+        return FakeResponse(
+            {'price': '0,35', 'cnt': '200', 'amount': '70', 'err': '0'},
+            status_code=200,
+        )
+
+    monkeypatch.setattr(client, '_request_with_retry', fake_request)
+
+    price = client.get_public_price(5077639)
+
+    assert price == 0.35
+    assert 'p=5077639' in captured['url']
+    assert 'n=200' in captured['url']
+
+
+def test_get_public_price_falls_back_to_prices_unit_when_api_err(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(
+        client,
+        'get_product_info',
+        lambda *_a, **_kw: {
+            'card_url': 'https://plati.market/itm/name/5077639',
+            'prices_unit': {
+                'unit_cnt_min': 200,
+                'unit_amount': '0,41',
+            },
+        },
+    )
+    monkeypatch.setattr(
+        client,
+        '_request_with_retry',
+        lambda *_a, **_kw: FakeResponse({'err': '1'}, status_code=200),
+    )
+
+    assert client.get_public_price(5077639) == 0.41
+
+
 def test_check_api_access_false_on_unauthorized(monkeypatch):
     client = make_client()
     monkeypatch.setattr(

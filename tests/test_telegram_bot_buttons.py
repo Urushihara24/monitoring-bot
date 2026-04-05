@@ -125,9 +125,13 @@ def test_main_keyboard_is_not_overloaded():
     bot._state = lambda _profile: {'auto_mode': True}
     texts = keyboard_texts(bot.get_main_keyboard('ggsel'))
     assert '🩺 Диагностика' not in texts
+    assert BTN_AUTO_ON not in texts
+    assert BTN_AUTO_OFF not in texts
     assert BTN_UP not in texts
     assert BTN_DOWN not in texts
     settings_texts = keyboard_texts(bot.get_settings_keyboard())
+    assert BTN_AUTO_ON in settings_texts
+    assert BTN_AUTO_OFF in settings_texts
     assert BTN_UP in settings_texts
     assert BTN_DOWN in settings_texts
 
@@ -139,7 +143,7 @@ async def test_main_buttons_route_to_handlers():
 
     bot.send_status = AsyncMock()
     bot.handle_price_change = AsyncMock()
-    bot.toggle_auto = AsyncMock()
+    bot.set_auto_enabled = AsyncMock()
     bot.set_chat_autoreply_enabled = AsyncMock()
     bot.send_settings = AsyncMock()
 
@@ -157,7 +161,11 @@ async def test_main_buttons_route_to_handlers():
 
     auto = make_update(BTN_AUTO_ON)
     await bot.handle_message(auto, None)
-    bot.toggle_auto.assert_awaited_once_with(auto)
+    bot.set_auto_enabled.assert_any_await(auto, enabled=True)
+
+    auto_off = make_update(BTN_AUTO_OFF)
+    await bot.handle_message(auto_off, None)
+    bot.set_auto_enabled.assert_any_await(auto_off, enabled=False)
 
     settings = make_update(BTN_SETTINGS)
     await bot.handle_message(settings, None)
@@ -244,6 +252,7 @@ async def test_toggle_auto_updates_only_active_profile(monkeypatch):
     bot.admin_ids = {1}
     bot.chat_profile[100] = 'digiseller'
     bot._state = lambda _profile: {'auto_mode': True}
+    bot.send_settings = AsyncMock()
     update = make_update(BTN_AUTO_ON)
 
     calls = []
@@ -262,7 +271,7 @@ async def test_toggle_auto_updates_only_active_profile(monkeypatch):
     assert calls == [('digiseller', {'auto_mode': False})]
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
-    assert args[0] == '🔔 Авто: ВЫКЛ'
+    assert args[0] == '🔔 Автоцена (DIGISELLER): ВЫКЛ'
 
 
 @pytest.mark.asyncio

@@ -117,6 +117,46 @@ class Scheduler:
             return ''
         return raw.replace('$$', '$')
 
+    def _read_current_price(self) -> Optional[float]:
+        """
+        Читает текущую цену в приоритете:
+        1) display/public (в т.ч. unit price), 2) seller API.
+        """
+        get_display_price = getattr(self.api_client, 'get_display_price', None)
+        if callable(get_display_price):
+            try:
+                display_price = get_display_price(self.product_id)
+            except Exception as e:
+                logger.error(
+                    '[%s] Ошибка получения display цены: %s',
+                    self.profile_name,
+                    e,
+                )
+            else:
+                if display_price is not None:
+                    try:
+                        return float(display_price)
+                    except Exception:
+                        pass
+
+        get_my_price = getattr(self.api_client, 'get_my_price', None)
+        if callable(get_my_price):
+            try:
+                my_price = get_my_price(self.product_id)
+            except Exception as e:
+                logger.error(
+                    '[%s] Ошибка получения текущей цены по API: %s',
+                    self.profile_name,
+                    e,
+                )
+                return None
+            if my_price is not None:
+                try:
+                    return float(my_price)
+                except Exception:
+                    return None
+        return None
+
     async def _notify_error_throttled(
         self,
         key: str,
@@ -1661,15 +1701,7 @@ class Scheduler:
                 last_competitor_status_code=selected.status_code,
             )
 
-            try:
-                current_price = self.api_client.get_my_price(self.product_id)
-            except Exception as e:
-                logger.error(
-                    '[%s] Ошибка получения текущей цены по API: %s',
-                    self.profile_name,
-                    e,
-                )
-                current_price = None
+            current_price = self._read_current_price()
             if current_price is None:
                 current_price = state.get('last_price')
             if current_price is not None:
@@ -1842,9 +1874,9 @@ class Scheduler:
                 if success:
                     applied_price = decision.price
                     try:
-                        api_price = self.api_client.get_my_price(self.product_id)
-                        if api_price is not None:
-                            applied_price = round(float(api_price), 4)
+                        verified_price = self._read_current_price()
+                        if verified_price is not None:
+                            applied_price = round(float(verified_price), 4)
                     except Exception as e:
                         logger.warning(
                             '[%s] Не удалось перечитать цену после update: %s',

@@ -389,13 +389,9 @@ class TelegramBot:
         return f'🧩 {self._profile_name(profile_id)}'
 
     def get_main_keyboard(self, profile_id: Optional[str] = None):
-        profile = profile_id or self.default_profile
-        auto_mode = self._state(profile).get('auto_mode', True)
-        auto_btn = BTN_AUTO_ON if auto_mode else BTN_AUTO_OFF
         return ReplyKeyboardMarkup(
             [
                 [BTN_STATUS],
-                [auto_btn],
                 [BTN_PROFILE, BTN_SETTINGS],
             ],
             resize_keyboard=True,
@@ -404,6 +400,7 @@ class TelegramBot:
     def get_settings_keyboard(self, profile_id: Optional[str] = None):
         profile = profile_id or self.default_profile
         rows = [
+            [BTN_AUTO_ON, BTN_AUTO_OFF],
             [BTN_UP, BTN_DOWN],
             [BTN_PRICE, BTN_STEP],
             [BTN_MIN, BTN_MAX],
@@ -618,8 +615,11 @@ class TelegramBot:
         if text == BTN_DOWN:
             await self.handle_price_change(chat_id, -0.01, update)
             return
-        if text in (BTN_AUTO_ON, BTN_AUTO_OFF):
-            await self.toggle_auto(update)
+        if text == BTN_AUTO_ON:
+            await self.set_auto_enabled(update, enabled=True)
+            return
+        if text == BTN_AUTO_OFF:
+            await self.set_auto_enabled(update, enabled=False)
             return
         if text == BTN_PROFILE:
             await update.message.reply_text(
@@ -852,7 +852,7 @@ class TelegramBot:
 
         text = f"""📊 Статус
 
-🧩 Профиль: {profile_name}
+🧭 Активная площадка: {profile_name}
 💰 Моя цена: {display_price_str}₽
 🎯 Выставлено ботом: {target_price_str}₽
 📈 Цена конкурента: {competitor_price_str}₽
@@ -881,6 +881,7 @@ class TelegramBot:
             return
         profile_id = self._active_profile(chat_id)
         profile_name = self._profile_name(profile_id)
+        state = self._state(profile_id)
         runtime = self._runtime(profile_id)
         monitor_enabled = bool(runtime.COMPETITOR_URLS)
         monitor_mode = (
@@ -907,7 +908,8 @@ class TelegramBot:
 
         text = f"""⚙️ Настройки
 
-🧩 Профиль: {profile_name}
+🧭 Активная площадка: {profile_name}
+🔔 Автоцена: {'ВКЛ' if state.get('auto_mode', True) else 'ВЫКЛ'}
 📉 MIN: {runtime.MIN_PRICE:.4f}₽
 📈 MAX: {runtime.MAX_PRICE:.4f}₽
 🎯 Желаемая: {runtime.DESIRED_PRICE:.4f}₽
@@ -1125,15 +1127,27 @@ class TelegramBot:
     async def toggle_auto(self, update: Update):
         if not update.message or not update.effective_chat:
             return
+        profile_id = self._active_profile(update.effective_chat.id)
+        state = self._state(profile_id)
+        await self.set_auto_enabled(
+            update,
+            enabled=not state.get('auto_mode', True),
+        )
+
+    async def set_auto_enabled(self, update: Update, *, enabled: bool):
+        if not update.message or not update.effective_chat:
+            return
         chat_id = update.effective_chat.id
         profile_id = self._active_profile(chat_id)
-        state = self._state(profile_id)
-        new_auto = not state.get('auto_mode', True)
-        storage.update_state(profile_id=profile_id, auto_mode=new_auto)
+        storage.update_state(profile_id=profile_id, auto_mode=enabled)
         await update.message.reply_text(
-            f'🔔 Авто: {"ВКЛ" if new_auto else "ВЫКЛ"}',
-            reply_markup=self.get_main_keyboard(profile_id),
+            (
+                f'🔔 Автоцена ({self._profile_name(profile_id)}): '
+                f'{"ВКЛ" if enabled else "ВЫКЛ"}'
+            ),
+            reply_markup=self.get_settings_keyboard(profile_id),
         )
+        await self.send_settings(chat_id, update)
 
     async def set_chat_autoreply_enabled(
         self,
