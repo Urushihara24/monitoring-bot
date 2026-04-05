@@ -246,6 +246,8 @@ class Scheduler:
         runtime,
         url: str,
         result: ParseResult,
+        *,
+        fail_streak: int = 1,
     ):
         if not getattr(runtime, 'NOTIFY_PARSER_ISSUES', True):
             return
@@ -254,6 +256,23 @@ class Scheduler:
             or (f'http_{result.status_code}' if result.status_code else None)
             or 'parse_failed'
         )
+        min_streak = 1
+        if self.profile_id == 'digiseller':
+            # Для plati/digiseller anti-bot ошибки часто транзиентные.
+            if reason in {'http_403', 'http_429', 'captcha', 'cloudflare'}:
+                min_streak = 3
+            else:
+                min_streak = 2
+        if fail_streak < min_streak:
+            logger.info(
+                '[%s] Parser-уведомление подавлено: fail_streak=%s < %s '
+                '(reason=%s)',
+                self.profile_name,
+                fail_streak,
+                min_streak,
+                reason,
+            )
+            return
         key = f'parser_issue:{reason}'
         if not storage.should_send_alert(
             key=key,
@@ -1617,24 +1636,27 @@ class Scheduler:
                 for url in runtime.COMPETITOR_URLS
             ])
 
-            for idx, parsed in enumerate(competitor_results):
-                if parsed.success:
-                    continue
-                source_url = (
-                    runtime.COMPETITOR_URLS[idx]
-                    if idx < len(runtime.COMPETITOR_URLS) else parsed.url
-                )
-                await self._notify_parser_issue_if_needed(
-                    runtime=runtime,
-                    url=source_url,
-                    result=parsed,
-                )
-
             valid_competitors = [
                 (runtime.COMPETITOR_URLS[i], r)
                 for i, r in enumerate(competitor_results)
                 if r.success and r.price is not None
             ]
+            if valid_competitors:
+                fail_streak_raw = storage.get_runtime_setting(
+                    'PARSER_FAIL_STREAK',
+                    profile_id=self.profile_id,
+                )
+                if fail_streak_raw not in (None, '', '0', 0):
+                    storage.set_runtime_setting(
+                        'PARSER_FAIL_STREAK',
+                        '0',
+                        source='runtime',
+                        profile_id=self.profile_id,
+                    )
+                    logger.info(
+                        '[%s] Parser fail streak сброшен после успешного цикла',
+                        self.profile_name,
+                    )
 
             state = self._state()
             auto_mode = state.get('auto_mode', True)
@@ -1661,6 +1683,33 @@ class Scheduler:
                     (r for r in competitor_results if not r.success),
                     None,
                 )
+                fail_streak_raw = storage.get_runtime_setting(
+                    'PARSER_FAIL_STREAK',
+                    profile_id=self.profile_id,
+                )
+                try:
+                    fail_streak = int(float(fail_streak_raw or 0)) + 1
+                except (TypeError, ValueError):
+                    fail_streak = 1
+                storage.set_runtime_setting(
+                    'PARSER_FAIL_STREAK',
+                    str(fail_streak),
+                    source='runtime',
+                    profile_id=self.profile_id,
+                )
+                for idx, parsed in enumerate(competitor_results):
+                    if parsed.success:
+                        continue
+                    source_url = (
+                        runtime.COMPETITOR_URLS[idx]
+                        if idx < len(runtime.COMPETITOR_URLS) else parsed.url
+                    )
+                    await self._notify_parser_issue_if_needed(
+                        runtime=runtime,
+                        url=source_url,
+                        result=parsed,
+                        fail_streak=fail_streak,
+                    )
                 storage.update_state(
                     profile_id=self.profile_id,
                     last_competitor_error=first_error.error if first_error else None,

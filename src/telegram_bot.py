@@ -894,6 +894,16 @@ class TelegramBot:
             f'{competitor_price:.4f}'
             if competitor_price is not None else 'N/A'
         )
+        price_hint = ''
+        if (
+            profile_id == 'ggsel'
+            and display_price is not None
+            and target_price is not None
+            and abs(float(display_price) - float(target_price)) >= 0.0001
+        ):
+            price_hint = (
+                '\nℹ️ API/витрина GGSEL может округлять отображаемую цену'
+            )
 
         chat_block = ''
         chat_meta = self._chat_autoreply_meta(profile_id)
@@ -919,6 +929,7 @@ class TelegramBot:
 🧪 Метод парсинга: {parse_method}
 🕓 Последний парс: {parse_at_str}
 📡 Мониторинг: {monitor_mode}
+{price_hint}
 {chat_block}
 
 🔔 Авто: {'ВКЛ' if state.get('auto_mode', True) else 'ВЫКЛ'}

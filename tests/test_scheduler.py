@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import sqlite3
+from types import SimpleNamespace
 
 import pytest
 
@@ -30,6 +31,7 @@ class DummyTelegramBot:
         self.skips = []
         self.updates = []
         self.competitor_changes = []
+        self.parser_issues = []
         self.notifications = []
 
     async def notify_error(self, message):
@@ -94,6 +96,27 @@ class DummyTelegramBot:
     async def notify(self, message):
         self.notifications.append(message)
 
+    async def notify_parser_issue(
+        self,
+        *,
+        url,
+        method,
+        reason,
+        error,
+        status_code=None,
+        profile_name=None,
+    ):
+        self.parser_issues.append(
+            {
+                'url': url,
+                'method': method,
+                'reason': reason,
+                'error': error,
+                'status_code': status_code,
+                'profile_name': profile_name,
+            }
+        )
+
 
 def test_read_current_price_digiseller_skips_my_price_fallback():
     class ApiClient:
@@ -122,6 +145,65 @@ def test_read_current_price_digiseller_skips_my_price_fallback():
     assert scheduler._read_current_price() is None
     assert api.display_calls == 1
     assert api.my_price_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_notify_parser_issue_digiseller_transient_403_suppressed(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    monkey_cfg = Config()
+    monkey_cfg.DIGISELLER_PRODUCT_ID = 5077639
+    monkey_cfg.DIGISELLER_COMPETITOR_URLS = [
+        'https://plati.market/itm/name/5655506'
+    ]
+    monkey_cfg.NOTIFY_PARSER_ISSUES = True
+    monkey_cfg.PARSER_ISSUE_COOLDOWN_SECONDS = 0
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', monkey_cfg)
+
+    bot = DummyTelegramBot()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=DummyApiClient(),
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=monkey_cfg.DIGISELLER_COMPETITOR_URLS,
+    )
+
+    runtime = SimpleNamespace(
+        NOTIFY_PARSER_ISSUES=True,
+        PARSER_ISSUE_COOLDOWN_SECONDS=0,
+    )
+    result = ParseResult(
+        success=False,
+        price=None,
+        error='HTTP 403',
+        url='https://plati.market/itm/name/5655506',
+        method='stealth_requests',
+        block_reason='http_403',
+        status_code=403,
+    )
+
+    await scheduler._notify_parser_issue_if_needed(
+        runtime=runtime,
+        url=result.url,
+        result=result,
+        fail_streak=1,
+    )
+    assert bot.parser_issues == []
+
+    await scheduler._notify_parser_issue_if_needed(
+        runtime=runtime,
+        url=result.url,
+        result=result,
+        fail_streak=3,
+    )
+    assert len(bot.parser_issues) == 1
+    assert bot.parser_issues[0]['reason'] == 'http_403'
 
 
 @pytest.mark.asyncio
