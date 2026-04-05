@@ -67,7 +67,7 @@ def check_ggsel(args) -> bool:
         mutate=args.mutate,
         delta=args.delta,
         verify_read=args.verify_read,
-        write_probe=not args.read_only,
+        write_probe=args.write_probe,
     )
     return _print_result('ggsel', result)
 
@@ -91,7 +91,7 @@ def check_digiseller(args) -> bool:
         mutate=args.mutate,
         delta=args.delta,
         verify_read=args.verify_read,
-        write_probe=not args.read_only,
+        write_probe=args.write_probe,
     )
     return _print_result('digiseller', result)
 
@@ -111,7 +111,7 @@ def parse_args() -> argparse.Namespace:
         action='store_true',
         help=(
             'сделать реальное тестовое изменение цены и rollback; '
-            'по умолчанию write probe выполняется noop-ценой'
+            'требует --write-probe'
         ),
     )
     parser.add_argument(
@@ -123,20 +123,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         '--verify-read',
         action='store_true',
-        help='после write probe дополнительно перечитать текущую цену',
+        help='после проверки дополнительно перечитать текущую цену',
     )
     parser.add_argument(
-        '--read-only',
+        '--write-probe',
         action='store_true',
-        help='проверять только чтение (без write probe)',
+        help='разрешить безопасную write-проверку (noop update текущей ценой)',
     )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    if args.mutate and args.read_only:
-        print('invalid args: --mutate нельзя использовать вместе с --read-only')
+    if args.mutate and not args.write_probe:
+        print('invalid args: --mutate требует --write-probe')
         return 1
     if args.profile == 'ggsel' and not config.GGSEL_ENABLED:
         print('[ggsel] disabled: set GGSEL_ENABLED=true to run this profile')

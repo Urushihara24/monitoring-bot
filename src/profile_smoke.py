@@ -18,6 +18,31 @@ def _round4(value: float) -> float:
     return round(float(value), 4)
 
 
+def _read_display_price(client, product_id: int) -> Optional[float]:
+    """
+    Читает цену для smoke-проверки в приоритете:
+    1) display/public (unit/UI-консистентная), 2) seller my_price.
+    """
+    get_display_price = getattr(client, 'get_display_price', None)
+    if callable(get_display_price):
+        try:
+            value = get_display_price(int(product_id))
+        except Exception:
+            value = None
+        if value is not None:
+            try:
+                return _round4(value)
+            except Exception:
+                return None
+
+    get_my_price = getattr(client, 'get_my_price', None)
+    if callable(get_my_price):
+        value = get_my_price(int(product_id))
+        if value is not None:
+            return _round4(value)
+    return None
+
+
 @dataclass
 class SmokeResult:
     api_access: bool
@@ -130,7 +155,7 @@ def run_profile_smoke(
                 token_refresh_desc=token_refresh_desc,
             )
 
-        current_price = client.get_my_price(int(product_id))
+        current_price = _read_display_price(client, int(product_id))
         if current_price is None:
             return SmokeResult(
                 api_access=True,
@@ -147,17 +172,10 @@ def run_profile_smoke(
                 token_refresh_ok=token_refresh_ok,
                 token_refresh_desc=token_refresh_desc,
             )
-        current_price = _round4(current_price)
-
         if not write_probe:
             verify_price = None
             if verify_read:
-                verify_value = client.get_my_price(int(product_id))
-                verify_price = (
-                    _round4(verify_value)
-                    if verify_value is not None
-                    else None
-                )
+                verify_price = _read_display_price(client, int(product_id))
             return SmokeResult(
                 api_access=True,
                 product_read_ok=True,
@@ -210,12 +228,7 @@ def run_profile_smoke(
 
         verify_price = None
         if verify_read:
-            verify_value = client.get_my_price(int(product_id))
-            verify_price = (
-                _round4(verify_value)
-                if verify_value is not None
-                else None
-            )
+            verify_price = _read_display_price(client, int(product_id))
 
         return SmokeResult(
             api_access=True,

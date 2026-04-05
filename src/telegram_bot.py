@@ -591,6 +591,7 @@ class TelegramBot:
             int(product_id),
             mutate=False,
             verify_read=True,
+            write_probe=False,
         )
         lines = [
             '🧪 Smoke API',

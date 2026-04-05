@@ -216,12 +216,25 @@ async def main():
         if api_accessible and product_id:
             product = client.get_product(product_id)
             if product:
+                display_price = None
+                display_currency = product.currency
+                get_display_price = getattr(client, 'get_display_price', None)
+                if callable(get_display_price):
+                    try:
+                        resolved = get_display_price(product_id)
+                        if resolved is not None:
+                            display_price = float(resolved)
+                            display_currency = 'RUB'
+                    except Exception:
+                        display_price = None
+                if display_price is None:
+                    display_price = product.price
                 logger.info(
                     '[%s] Товар найден: %s (цена=%s %s)',
                     pname,
                     product.name,
-                    product.price,
-                    product.currency,
+                    display_price,
+                    display_currency,
                 )
                 state = storage.get_state(profile_id=pid)
                 if state.get('last_target_price') is not None:
@@ -233,7 +246,7 @@ async def main():
                 elif state.get('last_price') is None:
                     storage.update_state(
                         profile_id=pid,
-                        last_price=product.price,
+                        last_price=display_price,
                     )
             else:
                 logger.warning('[%s] Товар %s не найден', pname, product_id)

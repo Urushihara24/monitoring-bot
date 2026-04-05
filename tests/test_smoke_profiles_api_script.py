@@ -58,9 +58,9 @@ def test_all_profiles_disabled_still_returns_zero():
     assert '[digiseller] skipped (disabled)' in result.stdout
 
 
-def test_mutate_with_read_only_returns_nonzero():
+def test_mutate_without_write_probe_returns_nonzero():
     result = _run_script(
-        ['--mutate', '--read-only'],
+        ['--mutate'],
         {
             'DIGISELLER_ENABLED': 'false',
             'GGSEL_ENABLED': 'false',
