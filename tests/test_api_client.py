@@ -474,6 +474,52 @@ def test_get_chat_perms_status_without_send_probe(monkeypatch):
     )
 
 
+def test_get_chat_perms_status_uses_real_chat_id_for_probe(monkeypatch):
+    client = make_client()
+    calls: list[tuple[str, str, dict[str, Any]]] = []
+
+    def fake_authorized_request(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        if url.endswith('/debates/v2/chats'):
+            return FakeResponse(200, {'chats': [{'id_i': 289145075}]})
+        if url.endswith('/debates/v2') and method == 'GET':
+            params = kwargs.get('params') or {}
+            if int(params.get('id_i') or 0) == 289145075:
+                return FakeResponse(
+                    200,
+                    [{'id': 1, 'message': 'hello'}],
+                )
+            return FakeResponse(
+                403,
+                {'retval': -1, 'retdesc': 'The applied API Key does not have enough permissions'},
+            )
+        if url.endswith('/purchase/info/289145075'):
+            return FakeResponse(
+                200,
+                {'retval': 0, 'content': {'id_i': 289145075}},
+            )
+        if url.endswith('/purchase/info/0'):
+            return FakeResponse(
+                200,
+                {'retval': -1, 'retdesc': 'Not found'},
+            )
+        return FakeResponse(500, {})
+
+    monkeypatch.setattr(client, '_authorized_request', fake_authorized_request)
+
+    ok, desc = client.get_chat_perms_status(include_send_probe=False)
+    assert ok is True
+    assert 'messages.read=OK' in desc
+    assert 'purchase.read=OK' in desc
+    assert any(
+        method == 'GET'
+        and url.endswith('/debates/v2')
+        and int((kwargs.get('params') or {}).get('id_i') or 0) == 289145075
+        for method, url, kwargs in calls
+    )
+    assert any(url.endswith('/purchase/info/289145075') for _, url, _ in calls)
+
+
 def test_check_api_access_none_false(monkeypatch):
     client = make_client()
     monkeypatch.setattr(client, '_request_with_retry', lambda *a, **k: None)

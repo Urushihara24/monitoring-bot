@@ -984,24 +984,95 @@ class GGSELClient:
         )
         checks.append(("chats.read", chats_ok, chats_desc))
 
+        probe_order_id = 0
+        if chats_ok:
+            try:
+                chats = self.list_chats(
+                    page_size=1,
+                    page=1,
+                    timeout=timeout,
+                )
+                if chats:
+                    first = chats[0] if isinstance(chats[0], dict) else {}
+                    for key in ("id_i", "invoice_id", "order_id", "purchase_id"):
+                        if key not in first:
+                            continue
+                        try:
+                            candidate = int(float(first.get(key) or 0))
+                        except Exception:
+                            candidate = 0
+                        if candidate > 0:
+                            probe_order_id = candidate
+                            break
+            except Exception:
+                probe_order_id = 0
+
+        messages_probe_id = probe_order_id or 0
         messages_ok, messages_desc = self._probe_endpoint_permission(
             "GET",
             f"{self.base_url}/debates/v2",
             timeout=timeout,
-            params={"id_i": 0, "count": 1},
+            params={"id_i": messages_probe_id, "count": 1},
             success_statuses=(200,),
-            allowed_error_statuses=(400, 404),
+            allowed_error_statuses=(
+                (400, 404, 403)
+                if messages_probe_id == 0
+                else (400, 404)
+            ),
         )
         checks.append(("messages.read", messages_ok, messages_desc))
 
-        order_ok, order_desc = self._probe_endpoint_permission(
+        purchase_probe_id = probe_order_id or 0
+        purchase_url = f"{self.base_url}/purchase/info/{purchase_probe_id}"
+        response = self._authorized_request(
             "GET",
-            f"{self.base_url}/purchase/info/0",
+            purchase_url,
             timeout=timeout,
+            max_retries=2,
+            suppress_404_log=True,
             headers={"locale": "ru-RU"},
-            success_statuses=(200,),
-            allowed_error_statuses=(400, 404),
         )
+        if response is None:
+            order_ok, order_desc = False, "no_response"
+        else:
+            status = int(response.status_code or 0)
+            payload: Optional[Dict[str, Any]] = None
+            try:
+                parsed = response.json()
+                if isinstance(parsed, dict):
+                    payload = parsed
+            except Exception:
+                payload = None
+            retval = self._response_retval(payload or {})
+            retdesc = ""
+            if payload:
+                retdesc = str(
+                    payload.get("retdesc")
+                    or payload.get("desc")
+                    or ""
+                ).strip()
+
+            if status in (401, 403):
+                order_ok, order_desc = False, f"http_{status}"
+            elif status in (400, 404):
+                order_ok, order_desc = True, f"http_{status}"
+            elif status == 200 and retval in (None, 0):
+                order_ok, order_desc = True, "http_200"
+            elif (
+                status == 200
+                and purchase_probe_id == 0
+                and any(
+                    marker in retdesc.lower()
+                    for marker in (
+                        "not found",
+                        "не найден",
+                        "покупка не найдена",
+                    )
+                )
+            ):
+                order_ok, order_desc = True, f"http_200:{retdesc[:80]}"
+            else:
+                order_ok, order_desc = False, f"http_{status}"
         checks.append(("purchase.read", order_ok, order_desc))
 
         if include_send_probe:
