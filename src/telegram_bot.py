@@ -42,6 +42,8 @@ BTN_AUTO_OFF = '🔕 Авто: ВЫКЛ'
 BTN_PROFILE = '🧩 Профиль'
 BTN_SETTINGS = '⚙ Настройки'
 BTN_BACK = '🔙 Назад'
+BTN_SETTINGS_ADVANCED = '🧰 Расширенные'
+BTN_SETTINGS_QUICK = '⚡ Быстрые'
 
 # Настройки
 BTN_PRICE = '🎯 Цена'
@@ -80,6 +82,7 @@ class TelegramBot:
         self._app: Optional[Application] = None
         self.pending_actions: Dict[int, Tuple[str, str]] = {}
         self.chat_profile: Dict[int, str] = {}
+        self.chat_settings_mode: Dict[int, str] = {}
 
         if api_clients is None:
             api_clients = {DEFAULT_PROFILE: api_client} if api_client else {}
@@ -137,6 +140,20 @@ class TelegramBot:
         if profile in self.available_profiles:
             self.chat_profile[chat_id] = profile
 
+    def _settings_mode(self, chat_id: Optional[int]) -> str:
+        if chat_id is None:
+            return 'quick'
+        mode = self.chat_settings_mode.get(chat_id, 'quick')
+        if mode not in {'quick', 'advanced'}:
+            return 'quick'
+        return mode
+
+    def _set_settings_mode(self, chat_id: int, mode: str):
+        normalized = (mode or '').strip().lower()
+        self.chat_settings_mode[chat_id] = (
+            normalized if normalized in {'quick', 'advanced'} else 'quick'
+        )
+
     def _set_pending_action(
         self,
         chat_id: int,
@@ -158,9 +175,13 @@ class TelegramBot:
         if not update.message:
             return
         self._set_pending_action(chat_id, action, profile_id)
+        is_advanced = self._settings_mode(chat_id) == 'advanced'
         await update.message.reply_text(
             prompt,
-            reply_markup=self.get_settings_keyboard(profile_id),
+            reply_markup=self.get_settings_keyboard(
+                profile_id,
+                advanced=is_advanced,
+            ),
         )
 
     def _get_pending_action(self, chat_id: int) -> Tuple[Optional[str], str]:
@@ -397,20 +418,32 @@ class TelegramBot:
             resize_keyboard=True,
         )
 
-    def get_settings_keyboard(self, profile_id: Optional[str] = None):
+    def get_settings_keyboard(
+        self,
+        profile_id: Optional[str] = None,
+        *,
+        advanced: bool = False,
+    ):
         profile = profile_id or self.default_profile
+        if advanced:
+            rows = [
+                [BTN_SETTINGS_QUICK],
+                [BTN_PRICE, BTN_STEP],
+                [BTN_MIN, BTN_MAX],
+                [BTN_POSITION, BTN_HISTORY],
+                [BTN_BACK],
+            ]
+            return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+
         rows = [
             [BTN_AUTO_ON, BTN_AUTO_OFF],
             [BTN_UP, BTN_DOWN],
-            [BTN_PRICE, BTN_STEP],
-            [BTN_MIN, BTN_MAX],
             [BTN_INTERVAL, BTN_MODE],
-            [BTN_POSITION],
             [BTN_ADD_URL, BTN_REMOVE_URL],
         ]
         if self._chat_autoreply_supported(profile):
             rows.append([BTN_CHAT_AUTOREPLY_ON, BTN_CHAT_AUTOREPLY_OFF])
-        rows.append([BTN_HISTORY])
+        rows.append([BTN_SETTINGS_ADVANCED])
         rows.append([BTN_BACK])
         return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
@@ -628,6 +661,15 @@ class TelegramBot:
             )
             return
         if text == BTN_SETTINGS:
+            self._set_settings_mode(chat_id, 'quick')
+            await self.send_settings(chat_id, update)
+            return
+        if text == BTN_SETTINGS_ADVANCED:
+            self._set_settings_mode(chat_id, 'advanced')
+            await self.send_settings(chat_id, update)
+            return
+        if text == BTN_SETTINGS_QUICK:
+            self._set_settings_mode(chat_id, 'quick')
             await self.send_settings(chat_id, update)
             return
         if text == BTN_CHAT_AUTOREPLY_ON:
@@ -651,6 +693,7 @@ class TelegramBot:
             if text == self._profile_button(pid):
                 had_pending = chat_id in self.pending_actions
                 self._set_profile(chat_id, pid)
+                self._set_settings_mode(chat_id, 'quick')
                 if had_pending:
                     self.pending_actions.pop(chat_id, None)
                 suffix = (
@@ -737,6 +780,7 @@ class TelegramBot:
             return
         if text == BTN_BACK:
             self.pending_actions.pop(chat_id, None)
+            self._set_settings_mode(chat_id, 'quick')
             await update.message.reply_text(
                 '📋 Главное меню',
                 reply_markup=self.get_main_keyboard(profile_id),
@@ -881,6 +925,8 @@ class TelegramBot:
             return
         profile_id = self._active_profile(chat_id)
         profile_name = self._profile_name(profile_id)
+        settings_mode = self._settings_mode(chat_id)
+        is_advanced = settings_mode == 'advanced'
         state = self._state(profile_id)
         runtime = self._runtime(profile_id)
         monitor_enabled = bool(runtime.COMPETITOR_URLS)
@@ -910,6 +956,7 @@ class TelegramBot:
 
 🧭 Активная площадка: {profile_name}
 🔔 Автоцена: {'ВКЛ' if state.get('auto_mode', True) else 'ВЫКЛ'}
+🗂 Раздел: {'Расширенные' if is_advanced else 'Быстрые'}
 📉 MIN: {runtime.MIN_PRICE:.4f}₽
 📈 MAX: {runtime.MAX_PRICE:.4f}₽
 🎯 Желаемая: {runtime.DESIRED_PRICE:.4f}₽
@@ -930,7 +977,10 @@ class TelegramBot:
 """
         await update.message.reply_text(
             text,
-            reply_markup=self.get_settings_keyboard(profile_id),
+            reply_markup=self.get_settings_keyboard(
+                profile_id,
+                advanced=is_advanced,
+            ),
         )
 
     async def send_diagnostics(

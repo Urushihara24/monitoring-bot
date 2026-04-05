@@ -21,6 +21,8 @@ from src.telegram_bot import (
     BTN_PROFILE,
     BTN_REMOVE_URL,
     BTN_SETTINGS,
+    BTN_SETTINGS_ADVANCED,
+    BTN_SETTINGS_QUICK,
     BTN_STATUS,
     BTN_STEP,
     BTN_UP,
@@ -101,9 +103,27 @@ def test_settings_keyboard_is_not_overloaded():
     texts = keyboard_texts(bot.get_settings_keyboard())
     assert '📤 Экспорт' not in texts
     assert '📥 Импорт' not in texts
-    assert BTN_HISTORY in texts
+    assert BTN_HISTORY not in texts
     assert BTN_ADD_URL in texts
     assert BTN_REMOVE_URL in texts
+    assert BTN_PRICE not in texts
+    assert BTN_STEP not in texts
+    assert BTN_MIN not in texts
+    assert BTN_MAX not in texts
+    assert BTN_SETTINGS_ADVANCED in texts
+
+
+def test_advanced_settings_keyboard_contains_expert_controls():
+    bot = make_bot()
+    texts = keyboard_texts(bot.get_settings_keyboard(advanced=True))
+    assert BTN_SETTINGS_QUICK in texts
+    assert BTN_HISTORY in texts
+    assert BTN_PRICE in texts
+    assert BTN_STEP in texts
+    assert BTN_MIN in texts
+    assert BTN_MAX in texts
+    assert BTN_AUTO_ON not in texts
+    assert BTN_AUTO_OFF not in texts
 
 
 def test_settings_keyboard_shows_chat_toggle_for_supported_profile():
@@ -170,6 +190,16 @@ async def test_main_buttons_route_to_handlers():
     settings = make_update(BTN_SETTINGS)
     await bot.handle_message(settings, None)
     bot.send_settings.assert_awaited_once_with(100, settings)
+
+    bot.send_settings.reset_mock()
+    adv = make_update(BTN_SETTINGS_ADVANCED)
+    await bot.handle_message(adv, None)
+    bot.send_settings.assert_awaited_once_with(100, adv)
+
+    bot.send_settings.reset_mock()
+    quick = make_update(BTN_SETTINGS_QUICK)
+    await bot.handle_message(quick, None)
+    bot.send_settings.assert_awaited_once_with(100, quick)
 
     chat_on = make_update(BTN_CHAT_AUTOREPLY_ON)
     await bot.handle_message(chat_on, None)
