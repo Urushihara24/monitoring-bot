@@ -1197,9 +1197,11 @@ class Scheduler:
             sent_count = 0
             processed_orders: set[int] = set()
             product_info_cache: Dict[tuple[int, str], dict[str, Any]] = {}
+            chats_product_filter = target_products or None
             for page in range(1, max_pages + 1):
                 chats = self.api_client.list_chats(
                     filter_new=1,
+                    product_ids=chats_product_filter,
                     page_size=page_size,
                     page=page,
                     timeout=10,
@@ -1255,9 +1257,20 @@ class Scheduler:
                             'content_id',
                         ),
                     )
-                    product_id = order_product or chat_product or self.product_id
-                    if target_products and product_id not in target_products:
-                        continue
+                    known_product_id = order_product or chat_product
+                    if target_products:
+                        if known_product_id <= 0:
+                            logger.info(
+                                '[%s] Пропуск order_id=%s: не удалось определить '
+                                'product_id для фильтра target товаров',
+                                self.profile_name,
+                                order_id,
+                            )
+                            continue
+                        if known_product_id not in target_products:
+                            continue
+
+                    product_id = known_product_id or self.product_id
 
                     locale = (
                         self._extract_locale(order_info)

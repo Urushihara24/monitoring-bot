@@ -382,6 +382,29 @@ def test_send_chat_message_200_non_json(monkeypatch):
     assert client.send_chat_message(1001, 'hello') is True
 
 
+def test_send_chat_message_blocks_probe_payload_for_real_order(monkeypatch):
+    client = make_client()
+
+    def fail_authorized_request(*args, **kwargs):  # pragma: no cover
+        raise AssertionError('request should not be executed')
+
+    monkeypatch.setattr(client, '_authorized_request', fail_authorized_request)
+
+    assert client.send_chat_message(12345, 'smoke_message_ignore') is False
+    assert client.send_chat_message(12345, 'permission_probe_ignore') is False
+
+
+def test_send_chat_message_allows_probe_payload_for_zero_order(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(
+        client,
+        '_authorized_request',
+        lambda *a, **k: FakeResponse(400, {'retval': -1}),
+    )
+    # Допускаем вызов API, чтобы safe-probe механика могла работать с id_i=0.
+    assert client.send_chat_message(0, 'smoke_message_ignore') is False
+
+
 def test_get_order_info_returns_content(monkeypatch):
     client = make_client()
     monkeypatch.setattr(

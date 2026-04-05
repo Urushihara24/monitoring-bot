@@ -846,14 +846,27 @@ class GGSELClient:
         Отправляет сообщение в чат заказа.
         POST /api_sellers/api/debates/v2
         """
-        if not message.strip():
+        raw_message = str(message or '')
+        if not raw_message.strip():
+            return False
+        normalized_message = raw_message.strip().lower()
+        # Защита от случайной отправки сервисных probe-сообщений
+        # в реальный заказ.
+        if int(order_id) > 0 and normalized_message in {
+            'permission_probe_ignore',
+            'smoke_message_ignore',
+        }:
+            logger.error(
+                'Блокирована отправка probe-сообщения в реальный заказ id_i=%s',
+                order_id,
+            )
             return False
         url = f"{self.base_url}/debates/v2"
         response = self._authorized_request(
             "POST",
             url,
             params={"id_i": int(order_id)},
-            json={"message": message},
+            json={"message": raw_message},
             timeout=timeout,
             max_retries=2,
         )
