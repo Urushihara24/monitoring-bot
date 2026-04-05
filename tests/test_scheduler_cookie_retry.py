@@ -88,6 +88,43 @@ async def test_parse_retries_without_cookies_after_expired(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_parse_plati_ignores_runtime_cookies(monkeypatch):
+    """Для plati.market парсер всегда идёт без runtime cookies."""
+    scheduler = Scheduler(
+        DummyApiClient(),
+        DummyTelegramBot(),
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+    )
+    runtime = SimpleNamespace(COMPETITOR_COOKIES='old_cookie=1')
+    parse_calls = []
+
+    def fake_parse(url, timeout=15, cookies=None):
+        parse_calls.append(cookies)
+        return ParseResult(
+            success=True,
+            price=0.33,
+            url=url,
+            method='plati_price_options',
+        )
+
+    monkeypatch.setattr(
+        scheduler_module,
+        'rsc_parser',
+        SimpleNamespace(parse_url=fake_parse),
+    )
+
+    result = await scheduler._parse_competitor_price(
+        'https://plati.market/itm/name/5655506',
+        runtime=runtime,
+        timeout=5,
+    )
+
+    assert result.success is True
+    assert parse_calls == [None]
+
+
+@pytest.mark.asyncio
 async def test_parse_returns_error_when_retry_failed(monkeypatch):
     """Если повтор без cookies не помог, возвращаем последнюю ошибку."""
     scheduler = Scheduler(DummyApiClient(), DummyTelegramBot())

@@ -468,6 +468,14 @@ class RSCParser:
                     timeout=timeout,
                 )
                 if resp.status_code in (401, 403):
+                    if resp.status_code == 403 and self._is_plati_domain(url):
+                        plati_result = self._parse_with_plati_price_api(
+                            url=url,
+                            html=resp.text,
+                            timeout=timeout,
+                        )
+                        if plati_result.success:
+                            return plati_result
                     reason = f'http_{resp.status_code}'
                     return self._blocked_result(
                         url,
@@ -665,12 +673,14 @@ class RSCParser:
                 last_error = 'Plati fallback: invalid payload'
                 continue
 
+            price = self._coerce_price(payload.get('price'))
             err_code = str(payload.get('err', '0')).strip()
-            if err_code not in ('0', ''):
+            # На части товаров n может быть ниже минимального и err != 0,
+            # но unit-цена в price при этом корректная.
+            if err_code not in ('0', '') and (price is None or price <= 0):
                 last_error = f'Plati fallback: err={err_code}'
                 continue
 
-            price = self._coerce_price(payload.get('price'))
             if price is None:
                 amount = self._coerce_price(payload.get('amount'))
                 cnt = self._parse_quantity_value(payload.get('cnt'))

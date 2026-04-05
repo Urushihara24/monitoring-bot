@@ -284,6 +284,29 @@ class DigiSellerClient(GGSELClient):
                 return value
         return None
 
+    def _prices_unit_is_rub(self, prices_unit: Dict[str, Any]) -> bool:
+        """
+        Определяет, можно ли считать prices_unit.unit_amount рублёвой ценой.
+
+        На части DigiSeller товаров поле unit_amount приходит в валюте товара
+        (например USD), и его нельзя показывать как RUB.
+        """
+        markers: list[str] = []
+        for key in ('unit_currency', 'unit_amount_desc', 'currency'):
+            raw = prices_unit.get(key)
+            if not isinstance(raw, str):
+                continue
+            value = raw.strip().lower()
+            if value:
+                markers.append(value)
+
+        # Если валюта явно не указана — сохраняем legacy fallback поведение.
+        if not markers:
+            return True
+
+        rub_tokens = ('rub', 'rur', 'руб', '₽')
+        return any(any(token in marker for token in rub_tokens) for marker in markers)
+
     def _fetch_plati_unit_price_rub(
         self,
         *,
@@ -361,6 +384,19 @@ class DigiSellerClient(GGSELClient):
         # fallback по payload (может быть уже unit-цена в RUB).
         prices_unit = product_info.get('prices_unit')
         if isinstance(prices_unit, dict):
+            if not self._prices_unit_is_rub(prices_unit):
+                logger.warning(
+                    'DigiSeller prices_unit fallback пропущен: '
+                    'не-RUB unit currency (%s)',
+                    {
+                        'unit_currency': prices_unit.get('unit_currency'),
+                        'unit_amount_desc': prices_unit.get(
+                            'unit_amount_desc'
+                        ),
+                        'currency': prices_unit.get('currency'),
+                    },
+                )
+                return None
             for key in ('unit_amount', 'unit_amount_min'):
                 parsed = self._to_float(prices_unit.get(key))
                 if parsed is not None and parsed > 0:

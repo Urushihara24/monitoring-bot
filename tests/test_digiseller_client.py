@@ -196,6 +196,30 @@ def test_get_public_price_falls_back_to_prices_unit_when_api_err(monkeypatch):
     assert client.get_public_price(5077639) == 0.41
 
 
+def test_get_public_price_skips_non_rub_prices_unit_fallback(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(
+        client,
+        'get_product_info',
+        lambda *_a, **_kw: {
+            'card_url': 'https://plati.market/itm/name/5077639',
+            'prices_unit': {
+                'unit_cnt_min': 200,
+                'unit_amount': '1.1',
+                'unit_currency': 'USD',
+                'unit_amount_desc': 'USD',
+            },
+        },
+    )
+    monkeypatch.setattr(
+        client,
+        '_request_with_retry',
+        lambda *_a, **_kw: FakeResponse({'err': '1'}, status_code=200),
+    )
+
+    assert client.get_public_price(5077639) is None
+
+
 def test_check_api_access_false_on_unauthorized(monkeypatch):
     client = make_client()
     monkeypatch.setattr(

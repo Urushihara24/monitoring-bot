@@ -95,6 +95,35 @@ class DummyTelegramBot:
         self.notifications.append(message)
 
 
+def test_read_current_price_digiseller_skips_my_price_fallback():
+    class ApiClient:
+        def __init__(self):
+            self.display_calls = 0
+            self.my_price_calls = 0
+
+        def get_display_price(self, _product_id):
+            self.display_calls += 1
+            return None
+
+        def get_my_price(self, _product_id):
+            self.my_price_calls += 1
+            return 1.1
+
+    api = ApiClient()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=DummyTelegramBot(),
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    assert scheduler._read_current_price() is None
+    assert api.display_calls == 1
+    assert api.my_price_calls == 0
+
+
 @pytest.mark.asyncio
 async def test_scheduler_notifies_competitor_price_change(monkeypatch, tmp_path):
     test_storage = Storage(str(tmp_path / 'state.db'))

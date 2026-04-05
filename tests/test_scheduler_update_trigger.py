@@ -554,9 +554,9 @@ async def test_run_cycle_treats_no_effect_update_as_skip(monkeypatch):
     scheduler = Scheduler(
         api_client,
         DummyTelegramBot(),
-        profile_id='digiseller',
-        profile_name='DIGISELLER',
-        product_id=5077639,
+        profile_id='ggsel',
+        profile_name='GGSEL',
+        product_id=4697439,
         competitor_urls=['https://example.com/item-1'],
     )
 

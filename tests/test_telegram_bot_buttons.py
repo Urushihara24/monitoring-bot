@@ -704,6 +704,50 @@ async def test_status_falls_back_to_state_when_live_api_fails():
 
 
 @pytest.mark.asyncio
+async def test_status_digiseller_uses_target_when_display_unavailable():
+    class ApiClient:
+        def get_display_price(self, _product_id):
+            return None
+
+        def get_my_price(self, _product_id):
+            return 1.1
+
+    bot = TelegramBot(
+        api_clients={'digiseller': ApiClient()},
+        profile_products={'digiseller': 5077639},
+        profile_default_urls={'digiseller': []},
+        profile_labels={'digiseller': 'DIGISELLER'},
+    )
+    bot.admin_ids = {1}
+    bot._state = lambda _profile: {
+        'last_target_price': 0.3249,
+        'last_price': 0.3249,
+        'last_competitor_min': 0.33,
+        'last_update': None,
+        'last_competitor_rank': None,
+        'last_competitor_parse_at': None,
+        'last_competitor_url': 'https://plati.market/itm/name/5077639',
+        'last_competitor_method': 'stealth_requests',
+        'auto_mode': True,
+        'update_count': 1,
+        'skip_count': 2,
+    }
+    bot._runtime = lambda _profile: SimpleNamespace(
+        MODE='STEP_UP',
+        CHECK_INTERVAL=30,
+        COMPETITOR_URLS=[],
+    )
+    update = make_update(BTN_STATUS)
+
+    await bot.send_status(100, update, profile_id='digiseller')
+
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert '💰 Моя цена: 0.3249₽' in args[0]
+    assert '🎯 Выставлено ботом: 0.3249₽' in args[0]
+
+
+@pytest.mark.asyncio
 async def test_pending_price_action_formats_to_4dp(monkeypatch):
     bot = make_bot()
     bot.pending_actions[100] = ('UNDERCUT_VALUE', 'ggsel')

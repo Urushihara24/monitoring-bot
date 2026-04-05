@@ -159,6 +159,46 @@ def test_parse_with_stealth_uses_plati_price_options_fallback(monkeypatch):
     assert result.price == 0.33
 
 
+def test_parse_with_stealth_uses_plati_fallback_on_http_403(monkeypatch):
+    parser = RSCParser(max_retries=0)
+
+    class Page403:
+        status_code = 403
+        text = '<html><body>DDoS-Guard</body></html>'
+
+        def json(self):  # pragma: no cover
+            return {}
+
+    class PriceResponse:
+        status_code = 200
+        text = '{"price":"0,33","cnt":"1","amount":"0.33","err":"1"}'
+
+        def json(self):
+            return {
+                'price': '0,33',
+                'cnt': '1',
+                'amount': '0.33',
+                'err': '1',
+            }
+
+    def fake_get(url, **_kwargs):
+        if 'price_options.asp' in url:
+            return PriceResponse()
+        return Page403()
+
+    monkeypatch.setattr(rsc_module.stealth_requests, 'get', fake_get)
+
+    result = parser._parse_with_stealth(
+        'https://plati.market/itm/name/5655506',
+        timeout=3,
+        cookies=None,
+    )
+
+    assert result.success
+    assert result.method == 'plati_price_options'
+    assert result.price == 0.33
+
+
 def test_parse_url_success_uses_stealth(monkeypatch):
     parser = RSCParser(max_retries=0)
     monkeypatch.setattr(

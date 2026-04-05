@@ -12,6 +12,7 @@ import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional
+from urllib.parse import urlparse
 
 from dotenv import dotenv_values
 
@@ -138,6 +139,12 @@ class Scheduler:
                         return float(display_price)
                     except Exception:
                         pass
+
+        # Для DigiSeller fallback на seller-цену может вернуть цену
+        # в валюте товара (например USD), что ломает RUB unit-логику.
+        # В таком случае используем только display/public источник.
+        if self.profile_id == 'digiseller':
+            return None
 
         get_my_price = getattr(self.api_client, 'get_my_price', None)
         if callable(get_my_price):
@@ -404,6 +411,20 @@ class Scheduler:
         # без fallback на config, чтобы не возвращать протухшие значения
         # из process env после авто-очистки runtime cookies.
         cookies = runtime.COMPETITOR_COOKIES or None
+        try:
+            host = (urlparse(url).hostname or '').lower()
+        except Exception:
+            host = ''
+        if host in ('plati.market', 'digiseller.market') or host.endswith(
+            '.plati.market'
+        ) or host.endswith('.digiseller.market'):
+            if cookies:
+                logger.info(
+                    '[%s] Для %s парсим без cookies (избежание 403 anti-bot)',
+                    self.profile_name,
+                    host,
+                )
+            cookies = None
 
         result = await asyncio.to_thread(
             rsc_parser.parse_url,

@@ -864,7 +864,12 @@ class TelegramBot:
                     profile_name,
                     e,
                 )
-        if display_price is None and callable(get_my_price) and product_id > 0:
+        if (
+            display_price is None
+            and profile_id != 'digiseller'
+            and callable(get_my_price)
+            and product_id > 0
+        ):
             try:
                 api_price = await asyncio.to_thread(get_my_price, product_id)
                 if api_price is not None:
