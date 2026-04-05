@@ -81,6 +81,40 @@ async def shutdown():
     logger.info('✅ Бот корректно завершил работу')
 
 
+def _resolve_startup_prices(
+    *,
+    profile_id: str,
+    client,
+    product_id: int,
+    product,
+) -> tuple[float, str, Optional[float]]:
+    """
+    Возвращает цены для логирования и seed в state:
+    (log_price, log_currency, state_seed_price).
+
+    Для DigiSeller при недоступной публичной unit-цене не seed-им last_price,
+    чтобы не подмешивать seller-цену (может быть не unit/RUB).
+    """
+    log_price = float(product.price)
+    log_currency = str(product.currency)
+    state_seed_price: Optional[float] = float(product.price)
+
+    get_display_price = getattr(client, 'get_display_price', None)
+    if callable(get_display_price):
+        try:
+            resolved = get_display_price(product_id)
+            if resolved is not None:
+                display_price = float(resolved)
+                return display_price, 'RUB', display_price
+        except Exception:
+            pass
+
+    if profile_id == 'digiseller':
+        state_seed_price = None
+
+    return log_price, log_currency, state_seed_price
+
+
 def _build_profiles(logger: logging.Logger):
     """
     Собирает список включённых профилей.
@@ -216,19 +250,18 @@ async def main():
         if api_accessible and product_id:
             product = client.get_product(product_id)
             if product:
-                display_price = None
-                display_currency = product.currency
-                get_display_price = getattr(client, 'get_display_price', None)
-                if callable(get_display_price):
-                    try:
-                        resolved = get_display_price(product_id)
-                        if resolved is not None:
-                            display_price = float(resolved)
-                            display_currency = 'RUB'
-                    except Exception:
-                        display_price = None
-                if display_price is None:
-                    display_price = product.price
+                display_price, display_currency, seed_price = _resolve_startup_prices(
+                    profile_id=pid,
+                    client=client,
+                    product_id=product_id,
+                    product=product,
+                )
+                if pid == 'digiseller' and seed_price is None:
+                    logger.warning(
+                        '[%s] Публичная unit-цена недоступна на старте; '
+                        'seed last_price пропущен',
+                        pname,
+                    )
                 logger.info(
                     '[%s] Товар найден: %s (цена=%s %s)',
                     pname,
@@ -243,10 +276,10 @@ async def main():
                         profile_id=pid,
                         last_price=state.get('last_target_price'),
                     )
-                elif state.get('last_price') is None:
+                elif state.get('last_price') is None and seed_price is not None:
                     storage.update_state(
                         profile_id=pid,
-                        last_price=display_price,
+                        last_price=seed_price,
                     )
             else:
                 logger.warning('[%s] Товар %s не найден', pname, product_id)

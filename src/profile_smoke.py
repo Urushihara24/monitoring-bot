@@ -18,6 +18,11 @@ def _round4(value: float) -> float:
     return round(float(value), 4)
 
 
+def _is_digiseller_client(client) -> bool:
+    name = client.__class__.__name__.lower()
+    return 'digiseller' in name
+
+
 def _read_display_price(client, product_id: int) -> Optional[float]:
     """
     Читает цену для smoke-проверки в приоритете:
@@ -34,6 +39,9 @@ def _read_display_price(client, product_id: int) -> Optional[float]:
                 return _round4(value)
             except Exception:
                 return None
+
+    if _is_digiseller_client(client):
+        return None
 
     get_my_price = getattr(client, 'get_my_price', None)
     if callable(get_my_price):

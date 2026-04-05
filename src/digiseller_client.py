@@ -291,8 +291,16 @@ class DigiSellerClient(GGSELClient):
         На части DigiSeller товаров поле unit_amount приходит в валюте товара
         (например USD), и его нельзя показывать как RUB.
         """
+        rub_tokens = ('rub', 'rur', 'руб', '₽')
+
+        unit_currency_raw = prices_unit.get('unit_currency')
+        if isinstance(unit_currency_raw, str):
+            unit_currency = unit_currency_raw.strip().lower()
+            if unit_currency:
+                return any(token in unit_currency for token in rub_tokens)
+
         markers: list[str] = []
-        for key in ('unit_currency', 'unit_amount_desc', 'currency'):
+        for key in ('unit_amount_desc', 'currency'):
             raw = prices_unit.get(key)
             if not isinstance(raw, str):
                 continue
@@ -304,7 +312,6 @@ class DigiSellerClient(GGSELClient):
         if not markers:
             return True
 
-        rub_tokens = ('rub', 'rur', 'руб', '₽')
         return any(any(token in marker for token in rub_tokens) for marker in markers)
 
     def _fetch_plati_unit_price_rub(
@@ -403,6 +410,13 @@ class DigiSellerClient(GGSELClient):
                     return round(parsed, 4)
 
         return None
+
+    def get_display_price(self, product_id: int, timeout: int = 10) -> Optional[float]:
+        """
+        Для DigiSeller display-цена должна быть только публичной unit-ценой
+        в RUB (без fallback на seller/my_price, который может быть в валюте).
+        """
+        return self.get_public_price(product_id, timeout=timeout)
 
     def get_product(self, product_id: int, timeout: int = 10) -> Optional[Product]:
         product_info = self.get_product_info(product_id, timeout=timeout)

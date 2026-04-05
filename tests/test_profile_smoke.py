@@ -47,6 +47,15 @@ class FakeClient:
         return self.refresh_ok
 
 
+class FakeDigiSellerClient(FakeClient):
+    def __init__(self, *, display_price=None, my_price=1.1, **kwargs):
+        super().__init__(read_price=my_price, **kwargs)
+        self.display_price = display_price
+
+    def get_display_price(self, _product_id):
+        return self.display_price
+
+
 def test_smoke_noop_success():
     client = FakeClient(update_results=[True])
 
@@ -156,3 +165,44 @@ def test_smoke_token_refresh_exception_is_non_fatal():
     assert result.write_probe_ok is True
     assert result.token_refresh_ok is False
     assert result.token_refresh_desc == 'exception:refresh-boom'
+
+
+def test_smoke_digiseller_prefers_display_over_my_price():
+    client = FakeDigiSellerClient(
+        display_price=0.3249,
+        my_price=1.1,
+        update_results=[True],
+    )
+
+    result = run_profile_smoke(
+        client,
+        5077639,
+        mutate=False,
+        verify_read=True,
+        write_probe=False,
+    )
+
+    assert result.error is None
+    assert result.current_price == 0.3249
+    assert result.probe_price == 0.3249
+    assert result.verify_price == 0.3249
+
+
+def test_smoke_digiseller_does_not_fallback_to_my_price():
+    client = FakeDigiSellerClient(
+        display_price=None,
+        my_price=1.1,
+        update_results=[True],
+    )
+
+    result = run_profile_smoke(
+        client,
+        5077639,
+        mutate=False,
+        verify_read=False,
+        write_probe=False,
+    )
+
+    assert result.api_access is True
+    assert result.product_read_ok is False
+    assert result.error == 'price_read_failed'

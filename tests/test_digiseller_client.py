@@ -220,6 +220,46 @@ def test_get_public_price_skips_non_rub_prices_unit_fallback(monkeypatch):
     assert client.get_public_price(5077639) is None
 
 
+def test_get_public_price_skips_conflicting_currency_markers(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(
+        client,
+        'get_product_info',
+        lambda *_a, **_kw: {
+            'card_url': 'https://plati.market/itm/name/5077639',
+            'prices_unit': {
+                'unit_cnt_min': 200,
+                'unit_amount': '1.1',
+                'unit_currency': 'USD',
+                'unit_amount_desc': 'RUR',
+            },
+        },
+    )
+    monkeypatch.setattr(
+        client,
+        '_request_with_retry',
+        lambda *_a, **_kw: FakeResponse({'err': '1'}, status_code=200),
+    )
+
+    assert client.get_public_price(5077639) is None
+
+
+def test_get_display_price_uses_public_price_only(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(client, 'get_public_price', lambda *_a, **_kw: 0.3249)
+    monkeypatch.setattr(client, 'get_my_price', lambda *_a, **_kw: 1.1)
+
+    assert client.get_display_price(5077639) == 0.3249
+
+
+def test_get_display_price_no_public_price_returns_none(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(client, 'get_public_price', lambda *_a, **_kw: None)
+    monkeypatch.setattr(client, 'get_my_price', lambda *_a, **_kw: 1.1)
+
+    assert client.get_display_price(5077639) is None
+
+
 def test_check_api_access_false_on_unauthorized(monkeypatch):
     client = make_client()
     monkeypatch.setattr(

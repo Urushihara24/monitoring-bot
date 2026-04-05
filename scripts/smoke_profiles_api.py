@@ -17,7 +17,24 @@ from src.digiseller_client import DigiSellerClient
 from src.profile_smoke import SmokeResult, run_profile_smoke
 
 
-def _print_result(profile: str, result: SmokeResult) -> bool:
+def _is_transient_read_failure(profile: str, result: SmokeResult) -> bool:
+    """
+    Временный read-fail для DigiSeller при anti-bot блоке публичной витрины.
+    """
+    return (
+        profile == 'digiseller'
+        and bool(result.api_access)
+        and not bool(result.product_read_ok)
+        and (result.error or '') == 'price_read_failed'
+    )
+
+
+def _print_result(
+    profile: str,
+    result: SmokeResult,
+    *,
+    allow_transient_read_fail: bool = False,
+) -> bool:
     print(f'[{profile}] api_access={result.api_access}')
     print(f'[{profile}] product_read_ok={result.product_read_ok}')
     print(f'[{profile}] current_price={result.current_price}')
@@ -38,6 +55,11 @@ def _print_result(profile: str, result: SmokeResult) -> bool:
         print(f'[{profile}] token_refresh_desc={result.token_refresh_desc}')
     if result.error:
         print(f'[{profile}] error={result.error}')
+
+    if allow_transient_read_fail and _is_transient_read_failure(profile, result):
+        print(f'[{profile}] transient_read_fail_allowed=true')
+        return True
+
     if not result.api_access:
         return False
     if not result.product_read_ok:
@@ -69,7 +91,11 @@ def check_ggsel(args) -> bool:
         verify_read=args.verify_read,
         write_probe=args.write_probe,
     )
-    return _print_result('ggsel', result)
+    return _print_result(
+        'ggsel',
+        result,
+        allow_transient_read_fail=not args.strict_read,
+    )
 
 
 def check_digiseller(args) -> bool:
@@ -93,7 +119,11 @@ def check_digiseller(args) -> bool:
         verify_read=args.verify_read,
         write_probe=args.write_probe,
     )
-    return _print_result('digiseller', result)
+    return _print_result(
+        'digiseller',
+        result,
+        allow_transient_read_fail=not args.strict_read,
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -129,6 +159,14 @@ def parse_args() -> argparse.Namespace:
         '--write-probe',
         action='store_true',
         help='разрешить безопасную write-проверку (noop update текущей ценой)',
+    )
+    parser.add_argument(
+        '--strict-read',
+        action='store_true',
+        help=(
+            'не допускать transient read-fail для digiseller '
+            '(по умолчанию допускается)'
+        ),
     )
     return parser.parse_args()
 
