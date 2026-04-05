@@ -412,13 +412,7 @@ class TelegramBot:
             [BTN_ADD_URL, BTN_REMOVE_URL],
         ]
         if self._chat_autoreply_supported(profile):
-            enabled = self._chat_autoreply_enabled(profile)
-            rows.append(
-                [
-                    BTN_CHAT_AUTOREPLY_ON
-                    if enabled else BTN_CHAT_AUTOREPLY_OFF
-                ]
-            )
+            rows.append([BTN_CHAT_AUTOREPLY_ON, BTN_CHAT_AUTOREPLY_OFF])
         rows.append([BTN_HISTORY])
         rows.append([BTN_BACK])
         return ReplyKeyboardMarkup(rows, resize_keyboard=True)
@@ -636,8 +630,21 @@ class TelegramBot:
         if text == BTN_SETTINGS:
             await self.send_settings(chat_id, update)
             return
-        if text in (BTN_CHAT_AUTOREPLY_ON, BTN_CHAT_AUTOREPLY_OFF):
-            await self.toggle_chat_autoreply(chat_id, user_id, update)
+        if text == BTN_CHAT_AUTOREPLY_ON:
+            await self.set_chat_autoreply_enabled(
+                chat_id,
+                user_id,
+                update,
+                enabled=True,
+            )
+            return
+        if text == BTN_CHAT_AUTOREPLY_OFF:
+            await self.set_chat_autoreply_enabled(
+                chat_id,
+                user_id,
+                update,
+                enabled=False,
+            )
             return
         # Выбор профиля
         for pid in self.available_profiles:
@@ -1128,11 +1135,13 @@ class TelegramBot:
             reply_markup=self.get_main_keyboard(profile_id),
         )
 
-    async def toggle_chat_autoreply(
+    async def set_chat_autoreply_enabled(
         self,
         chat_id: int,
         user_id: int,
         update: Update,
+        *,
+        enabled: bool,
     ):
         if not update.message:
             return
@@ -1144,16 +1153,15 @@ class TelegramBot:
             )
             return
 
-        new_value = not self._chat_autoreply_enabled(profile_id)
         storage.set_runtime_setting(
             'CHAT_AUTOREPLY_ENABLED',
-            'true' if new_value else 'false',
+            'true' if enabled else 'false',
             user_id=user_id,
             source='telegram',
             profile_id=profile_id,
         )
         await update.message.reply_text(
-            f'💬 Авто-инструкции: {"ВКЛ" if new_value else "ВЫКЛ"}',
+            f'💬 Авто-инструкции: {"ВКЛ" if enabled else "ВЫКЛ"}',
             reply_markup=self.get_settings_keyboard(profile_id),
         )
         await self.send_settings(chat_id, update)

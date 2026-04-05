@@ -106,7 +106,7 @@ def test_settings_keyboard_is_not_overloaded():
     assert BTN_REMOVE_URL in texts
 
 
-def test_settings_keyboard_shows_chat_toggle_for_supported_profile(monkeypatch):
+def test_settings_keyboard_shows_chat_toggle_for_supported_profile():
     bot = TelegramBot(
         api_clients={'ggsel': ChatCapableClient()},
         profile_products={'ggsel': 1},
@@ -115,32 +115,8 @@ def test_settings_keyboard_shows_chat_toggle_for_supported_profile(monkeypatch):
     )
     bot.admin_ids = {1}
 
-    monkeypatch.setattr(
-        telegram_module.storage,
-        'get_runtime_setting',
-        lambda key, profile_id='ggsel': (
-            'true'
-            if (
-                key == 'CHAT_AUTOREPLY_ENABLED'
-                and profile_id == 'ggsel'
-            ) else None
-        ),
-    )
     texts = keyboard_texts(bot.get_settings_keyboard('ggsel'))
     assert BTN_CHAT_AUTOREPLY_ON in texts
-
-    monkeypatch.setattr(
-        telegram_module.storage,
-        'get_runtime_setting',
-        lambda key, profile_id='ggsel': (
-            'false'
-            if (
-                key == 'CHAT_AUTOREPLY_ENABLED'
-                and profile_id == 'ggsel'
-            ) else None
-        ),
-    )
-    texts = keyboard_texts(bot.get_settings_keyboard('ggsel'))
     assert BTN_CHAT_AUTOREPLY_OFF in texts
 
 
@@ -164,7 +140,7 @@ async def test_main_buttons_route_to_handlers():
     bot.send_status = AsyncMock()
     bot.handle_price_change = AsyncMock()
     bot.toggle_auto = AsyncMock()
-    bot.toggle_chat_autoreply = AsyncMock()
+    bot.set_chat_autoreply_enabled = AsyncMock()
     bot.send_settings = AsyncMock()
 
     status = make_update(BTN_STATUS)
@@ -187,9 +163,17 @@ async def test_main_buttons_route_to_handlers():
     await bot.handle_message(settings, None)
     bot.send_settings.assert_awaited_once_with(100, settings)
 
-    chat_toggle = make_update(BTN_CHAT_AUTOREPLY_ON)
-    await bot.handle_message(chat_toggle, None)
-    bot.toggle_chat_autoreply.assert_awaited_once_with(100, 1, chat_toggle)
+    chat_on = make_update(BTN_CHAT_AUTOREPLY_ON)
+    await bot.handle_message(chat_on, None)
+    bot.set_chat_autoreply_enabled.assert_any_await(
+        100, 1, chat_on, enabled=True
+    )
+
+    chat_off = make_update(BTN_CHAT_AUTOREPLY_OFF)
+    await bot.handle_message(chat_off, None)
+    bot.set_chat_autoreply_enabled.assert_any_await(
+        100, 1, chat_off, enabled=False
+    )
 
 
 @pytest.mark.asyncio
@@ -282,7 +266,7 @@ async def test_toggle_auto_updates_only_active_profile(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_toggle_chat_autoreply_updates_runtime_setting(monkeypatch):
+async def test_set_chat_autoreply_enabled_updates_runtime_setting(monkeypatch):
     bot = TelegramBot(
         api_clients={'ggsel': ChatCapableClient()},
         profile_products={'ggsel': 1},
@@ -293,16 +277,6 @@ async def test_toggle_chat_autoreply_updates_runtime_setting(monkeypatch):
     bot.chat_profile[100] = 'ggsel'
     bot.send_settings = AsyncMock()
 
-    monkeypatch.setattr(
-        telegram_module.storage,
-        'get_runtime_setting',
-        lambda key, profile_id='ggsel': None,
-    )
-    monkeypatch.setattr(
-        telegram_module.config,
-        'GGSEL_CHAT_AUTOREPLY_ENABLED',
-        False,
-    )
     captured = {}
 
     def fake_set_runtime_setting(
@@ -323,9 +297,9 @@ async def test_toggle_chat_autoreply_updates_runtime_setting(monkeypatch):
         'set_runtime_setting',
         fake_set_runtime_setting,
     )
-    update = make_update(BTN_CHAT_AUTOREPLY_OFF)
+    update = make_update(BTN_CHAT_AUTOREPLY_ON)
 
-    await bot.toggle_chat_autoreply(100, 1, update)
+    await bot.set_chat_autoreply_enabled(100, 1, update, enabled=True)
 
     assert captured == {
         'key': 'CHAT_AUTOREPLY_ENABLED',
