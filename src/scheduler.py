@@ -766,6 +766,56 @@ class Scheduler:
                     return value
         return 0
 
+    def _iter_numeric_values_for_key(self, payload: Any, key: str):
+        if isinstance(payload, dict):
+            if key in payload:
+                try:
+                    value = int(float(payload.get(key) or 0))
+                except (TypeError, ValueError):
+                    value = 0
+                if value > 0:
+                    yield value
+            for nested in payload.values():
+                yield from self._iter_numeric_values_for_key(nested, key)
+            return
+        if isinstance(payload, list):
+            for item in payload:
+                yield from self._iter_numeric_values_for_key(item, key)
+
+    def _extract_product_id(
+        self,
+        payload: Any,
+        *,
+        exclude_ids: Optional[set[int]] = None,
+    ) -> int:
+        """
+        Извлекает product id из произвольного payload.
+        Важно: исключает order/invoice id из кандидатов.
+        """
+        excluded = {int(x) for x in (exclude_ids or set()) if int(x) > 0}
+        primary_keys = (
+            'product',
+            'product_id',
+            'id_d',
+            'id_goods',
+            'item_id',
+            'goods_id',
+            'id_product',
+        )
+        fallback_keys = (
+            # content_id иногда несёт не товар, а id заказа.
+            'content_id',
+        )
+        for key in primary_keys:
+            for value in self._iter_numeric_values_for_key(payload, key):
+                if value not in excluded:
+                    return value
+        for key in fallback_keys:
+            for value in self._iter_numeric_values_for_key(payload, key):
+                if value not in excluded:
+                    return value
+        return 0
+
     def _extract_locale(self, payload: Any) -> str:
         if isinstance(payload, dict):
             for key in ('locale', 'lang', 'language', 'site_lang'):
@@ -1477,14 +1527,9 @@ class Scheduler:
                     if self._is_autoreply_sent(order_id):
                         continue
 
-                    chat_product = self._extract_numeric_field(
+                    chat_product = self._extract_product_id(
                         chat,
-                        (
-                            'id_d',
-                            'id_goods',
-                            'product_id',
-                            'content_id',
-                        ),
+                        exclude_ids={order_id},
                     )
                     locale_hint = self._extract_locale(chat) or 'ru'
                     order_info: dict[str, Any] = {}
@@ -1496,18 +1541,26 @@ class Scheduler:
                         ) or {}
                         if order_info:
                             break
-                    order_product = self._extract_numeric_field(
+                    order_product = self._extract_product_id(
                         order_info,
-                        (
-                            'id_d',
-                            'id_goods',
-                            'product_id',
-                            'content_id',
-                        ),
+                        exclude_ids={order_id},
                     )
+                    candidate_product_ids = []
+                    for candidate in (chat_product, order_product):
+                        if candidate > 0 and candidate not in candidate_product_ids:
+                            candidate_product_ids.append(candidate)
                     known_product_id = order_product or chat_product
                     if target_products:
-                        if known_product_id <= 0:
+                        matched_product_id = next(
+                            (
+                                candidate for candidate in candidate_product_ids
+                                if candidate in target_products
+                            ),
+                            0,
+                        )
+                        if matched_product_id > 0:
+                            known_product_id = matched_product_id
+                        elif not candidate_product_ids:
                             logger.info(
                                 '[%s] Пропуск order_id=%s: не удалось определить '
                                 'product_id для фильтра target товаров',
@@ -1515,7 +1568,15 @@ class Scheduler:
                                 order_id,
                             )
                             continue
-                        if known_product_id not in target_products:
+                        else:
+                            logger.info(
+                                '[%s] Пропуск order_id=%s: product_id не в '
+                                'target (candidates=%s, targets=%s)',
+                                self.profile_name,
+                                order_id,
+                                candidate_product_ids,
+                                target_products,
+                            )
                             continue
 
                     product_id = known_product_id or self.product_id
