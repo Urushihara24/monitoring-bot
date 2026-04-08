@@ -94,6 +94,25 @@ def test_get_product_info_bad_retval_returns_none(monkeypatch):
     assert client.get_product_info(123) is None
 
 
+def test_get_product_info_passes_lang_header(monkeypatch):
+    client = make_client()
+    captured = {}
+
+    def fake_request(method, url, **kwargs):
+        captured['method'] = method
+        captured['url'] = url
+        captured['headers'] = kwargs.get('headers')
+        return FakeResponse(200, {'retval': 0, 'product': {'price': 1.0}})
+
+    monkeypatch.setattr(client, '_request_with_retry', fake_request)
+    info = client.get_product_info(123, lang='en-US')
+
+    assert info == {'price': 1.0}
+    assert captured['method'] == 'GET'
+    assert captured['url'].endswith('/products/123/data')
+    assert captured['headers'] == {'lang': 'en-US'}
+
+
 def test_get_product_success(monkeypatch):
     client = make_client()
     monkeypatch.setattr(

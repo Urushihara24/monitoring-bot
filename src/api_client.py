@@ -420,7 +420,10 @@ class GGSELClient:
         )
 
     def get_product_info(
-        self, product_id: int, timeout: int = 10
+        self,
+        product_id: int,
+        timeout: int = 10,
+        lang: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Получение детальной информации о товаре
@@ -428,9 +431,11 @@ class GGSELClient:
         GET /api_sellers/api/products/{product_id}/data
         """
         url = f"{self.base_url}/products/{product_id}/data"
+        request_lang = (lang or self.lang or "ru-RU").strip() or "ru-RU"
         response = self._authorized_request(
             "GET",
             url,
+            headers={"lang": request_lang},
             timeout=timeout,
         )
 
