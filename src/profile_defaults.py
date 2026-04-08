@@ -16,6 +16,7 @@ _DIGISELLER_RUNTIME_TYPES = {
     'MODE': 'mode',
     'FIXED_PRICE': 'float',
     'STEP_UP_VALUE': 'float',
+    'FOLLOW_PLUS_VALUE': 'float',
     'WEAK_PRICE_CEIL_LIMIT': 'float',
     'POSITION_FILTER_ENABLED': 'bool',
     'WEAK_POSITION_THRESHOLD': 'int',
@@ -54,7 +55,19 @@ def _coerce_raw_value(raw: str, value_type: str):
         if value_type == 'float':
             return float(normalized)
         if value_type == 'mode':
-            return normalized.upper()
+            mode = normalized.upper()
+            aliases = {
+                'FIX': 'FIXED',
+                'STEP': 'STEP_UP',
+                'FOLLOW': 'FOLLOW_EXACT',
+                'FOLLOW_MINUS': 'FOLLOW_PLUS',
+                'FOLLOW_ADD': 'FOLLOW_PLUS',
+                'ФИКС': 'FIXED',
+                'ШАГ': 'STEP_UP',
+                'СЛЕДОВАТЬ': 'FOLLOW_EXACT',
+                'СЛЕДОВАТЬ_ПЛЮС': 'FOLLOW_PLUS',
+            }
+            return aliases.get(mode, mode)
         return normalized
     except ValueError:
         return None

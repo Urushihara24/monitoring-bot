@@ -13,6 +13,7 @@ def make_cfg(**kwargs):
         'MODE': 'FIXED',
         'FIXED_PRICE': 0.35,
         'STEP_UP_VALUE': 0.05,
+        'FOLLOW_PLUS_VALUE': 0.0049,
         'LOW_PRICE_THRESHOLD': 0.0,
         'WEAK_PRICE_CEIL_LIMIT': 0.3,
         'COOLDOWN_SECONDS': 30,
@@ -102,6 +103,36 @@ def test_max_down_step_caps_drop():
     assert decision.action == 'update'
     assert decision.price == 0.33
     assert 'max_down_step' in decision.reason
+
+
+def test_follow_exact_sets_same_price_as_competitor():
+    cfg = make_cfg(MODE='FOLLOW_EXACT', MAX_DOWN_STEP=0.0)
+    decision = calculate_price(
+        competitor_prices=[0.3505],
+        current_price=0.31,
+        last_update=None,
+        config=cfg,
+    )
+    assert decision.action == 'update'
+    assert decision.price == 0.3505
+    assert decision.reason.startswith('follow_exact')
+
+
+def test_follow_plus_uses_showcase_rounding_then_plus_value():
+    cfg = make_cfg(
+        MODE='FOLLOW_PLUS',
+        FOLLOW_PLUS_VALUE=0.0049,
+        MAX_DOWN_STEP=0.0,
+    )
+    decision = calculate_price(
+        competitor_prices=[0.3505],
+        current_price=0.31,
+        last_update=None,
+        config=cfg,
+    )
+    assert decision.action == 'update'
+    assert decision.price == 0.3549
+    assert decision.reason.startswith('follow_plus_showcase')
 
 
 def test_cooldown_blocks_without_rebound():

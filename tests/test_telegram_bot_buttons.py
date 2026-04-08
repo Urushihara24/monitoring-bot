@@ -279,6 +279,43 @@ async def test_mode_and_position_buttons_call_toggles():
 
 
 @pytest.mark.asyncio
+async def test_toggle_mode_cycles_through_follow_modes(monkeypatch):
+    bot = make_bot()
+    bot.chat_profile[100] = 'ggsel'
+    bot.send_settings = AsyncMock()
+    update = make_update(BTN_MODE)
+
+    captured = []
+
+    def fake_set_runtime_setting(
+        key,
+        value,
+        user_id=None,
+        source='system',
+        profile_id='ggsel',
+    ):
+        captured.append((key, value, user_id, source, profile_id))
+
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_runtime_setting',
+        fake_set_runtime_setting,
+    )
+
+    bot._runtime = lambda _profile: SimpleNamespace(MODE='STEP_UP')
+    await bot.toggle_mode(100, 1, update)
+    assert captured[-1][1] == 'FOLLOW_EXACT'
+
+    bot._runtime = lambda _profile: SimpleNamespace(MODE='FOLLOW_EXACT')
+    await bot.toggle_mode(100, 1, update)
+    assert captured[-1][1] == 'FOLLOW_PLUS'
+
+    bot._runtime = lambda _profile: SimpleNamespace(MODE='FOLLOW_PLUS')
+    await bot.toggle_mode(100, 1, update)
+    assert captured[-1][1] == 'FIXED'
+
+
+@pytest.mark.asyncio
 async def test_toggle_auto_updates_only_active_profile(monkeypatch):
     bot = TelegramBot(
         api_clients={'ggsel': object(), 'digiseller': object()},

@@ -3,11 +3,12 @@
 
 Строго следует ТЗ:
 1. Базовая формула: my_price = competitor_price - 0.0051
-2. Нижний порог: MIN_PRICE + MODE (FIXED/STEP_UP)
-3. Множество конкурентов: min(competitor_prices)
-4. Фильтр слабого конкурента: только при слабой позиции (force_weak_mode)
-5. Cooldown: не чаще COOLDOWN_SECONDS
-6. Ignore delta: если |new - current| < 0.001 → skip
+2. Режим цены: базовый демпинг / следование за ценой конкурента
+3. Нижний порог: MIN_PRICE + MODE (FIXED/STEP_UP)
+4. Множество конкурентов: min(competitor_prices)
+5. Фильтр слабого конкурента: только при слабой позиции (force_weak_mode)
+6. Cooldown: не чаще COOLDOWN_SECONDS
+7. Ignore delta: если |new - current| < 0.001 → skip
 """
 
 import logging
@@ -21,6 +22,7 @@ from .config import Config
 
 logger = logging.getLogger(__name__)
 PRICE_PRECISION = Decimal('0.0001')
+SHOWCASE_PRECISION = Decimal('0.01')
 
 
 def _d(value: float) -> Decimal:
@@ -57,7 +59,7 @@ def calculate_price(
     1. Получить min цену конкурента
     2. Проверить режим слабой позиции (force_weak_mode)
     3. Применить special logic (фильтр слабого конкурента)
-    4. Применить базовую формулу (-0.0051)
+    4. Рассчитать цену по режиму (base/follow)
     5. Проверить MIN_PRICE
     6. Применить MODE (FIXED/STEP_UP)
     7. Проверить MAX_PRICE
@@ -166,12 +168,43 @@ def calculate_price(
             competitor_price=min_competitor_price,
         )
     
-    # === ШАГ 4: Применить базовую формулу (-0.0051) ===
-    new_price = _to_price(min_competitor_price_d - undercut_value_d)
-    reason = 'base_formula'
-    logger.info(
-        f'Базовая формула: {min_competitor_price} - {config.UNDERCUT_VALUE} = {new_price}'
-    )
+    # === ШАГ 4: Рассчитать целевую цену по выбранному режиму ===
+    mode = str(getattr(config, 'MODE', 'FIXED') or 'FIXED').strip().upper()
+    if mode == 'FOLLOW_EXACT':
+        new_price = _to_price(min_competitor_price_d)
+        reason = 'follow_exact'
+        logger.info(
+            'Режим FOLLOW_EXACT: цена конкурента %s -> %s',
+            min_competitor_price,
+            new_price,
+        )
+    elif mode == 'FOLLOW_PLUS':
+        rounded_showcase = min_competitor_price_d.quantize(
+            SHOWCASE_PRECISION,
+            rounding=ROUND_HALF_UP,
+        )
+        follow_plus_value = _d(getattr(config, 'FOLLOW_PLUS_VALUE', 0.0049))
+        new_price = _to_price(rounded_showcase + follow_plus_value)
+        reason = (
+            'follow_plus_showcase('
+            f'{float(rounded_showcase)}+'
+            f'{float(follow_plus_value)})'
+        )
+        logger.info(
+            'Режим FOLLOW_PLUS: витрина %s + %s = %s',
+            float(rounded_showcase),
+            float(follow_plus_value),
+            new_price,
+        )
+    else:
+        new_price = _to_price(min_competitor_price_d - undercut_value_d)
+        reason = 'base_formula'
+        logger.info(
+            'Базовая формула: %s - %s = %s',
+            min_competitor_price,
+            config.UNDERCUT_VALUE,
+            new_price,
+        )
     
     # === ШАГ 5: Проверить MAX_PRICE ===
     if new_price > config.MAX_PRICE:

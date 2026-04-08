@@ -203,6 +203,9 @@ class Config:
     DIGISELLER_STEP_UP_VALUE: Optional[float] = _env_optional_float(
         'DIGISELLER_STEP_UP_VALUE'
     )
+    DIGISELLER_FOLLOW_PLUS_VALUE: Optional[float] = _env_optional_float(
+        'DIGISELLER_FOLLOW_PLUS_VALUE'
+    )
     DIGISELLER_WEAK_PRICE_CEIL_LIMIT: Optional[float] = _env_optional_float(
         'DIGISELLER_WEAK_PRICE_CEIL_LIMIT'
     )
@@ -293,10 +296,13 @@ class Config:
     # Насколько быть ниже конкурента (пример: 0.30 -> 0.2949)
     UNDERCUT_VALUE: float = float(os.getenv('UNDERCUT_VALUE', '0.0051'))
     
-    # Режим при достижении MIN_PRICE: FIXED или STEP_UP
+    # Режим ценообразования:
+    # FIXED / STEP_UP / FOLLOW_EXACT / FOLLOW_PLUS
     MODE: str = os.getenv('MODE', 'FIXED')
     FIXED_PRICE: float = float(os.getenv('FIXED_PRICE', '0.35'))
     STEP_UP_VALUE: float = float(os.getenv('STEP_UP_VALUE', '0.05'))
+    # Для FOLLOW_PLUS: прибавка к цене конкурента, округлённой до 2 знаков
+    FOLLOW_PLUS_VALUE: float = float(os.getenv('FOLLOW_PLUS_VALUE', '0.0049'))
     
     # До какого уровня считаем логику "ceil(до 0.1) - undercut"
     WEAK_PRICE_CEIL_LIMIT: float = float(os.getenv('WEAK_PRICE_CEIL_LIMIT', '0.3'))

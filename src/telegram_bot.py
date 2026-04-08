@@ -60,6 +60,19 @@ BTN_HISTORY = '🧾 История'
 BTN_CHAT_AUTOREPLY_ON = '💬 Инструкции: ВКЛ'
 BTN_CHAT_AUTOREPLY_OFF = '💬 Инструкции: ВЫКЛ'
 
+_MODE_SEQUENCE = [
+    'FIXED',
+    'STEP_UP',
+    'FOLLOW_EXACT',
+    'FOLLOW_PLUS',
+]
+_MODE_LABELS_RU = {
+    'FIXED': 'Фиксированный порог',
+    'STEP_UP': 'Шаг вверх от текущей',
+    'FOLLOW_EXACT': 'Следовать: точно как конкурент',
+    'FOLLOW_PLUS': 'Следовать: витрина + 0.0049',
+}
+
 _CHAT_PROFILE_PREFIX = {
     'ggsel': 'GGSEL',
     'digiseller': 'DIGISELLER',
@@ -128,6 +141,19 @@ class TelegramBot:
 
     def _profile_name(self, profile_id: str) -> str:
         return self.profile_labels.get(profile_id, profile_id.upper())
+
+    def _normalize_mode(self, mode: object) -> str:
+        normalized = str(mode or '').strip().upper()
+        return normalized if normalized in _MODE_SEQUENCE else 'FIXED'
+
+    def _mode_label(self, mode: object) -> str:
+        normalized = self._normalize_mode(mode)
+        return _MODE_LABELS_RU.get(normalized, normalized)
+
+    def _next_mode(self, mode: object) -> str:
+        normalized = self._normalize_mode(mode)
+        idx = _MODE_SEQUENCE.index(normalized)
+        return _MODE_SEQUENCE[(idx + 1) % len(_MODE_SEQUENCE)]
 
     def _active_profile(self, chat_id: Optional[int]) -> str:
         if chat_id is None:
@@ -1032,7 +1058,7 @@ class TelegramBot:
 {chat_block}
 
 🔔 Авто: {'ВКЛ' if state.get('auto_mode', True) else 'ВЫКЛ'}
-🎯 Режим: {runtime.MODE}
+🎯 Режим: {self._mode_label(runtime.MODE)}
 🕐 Обновление: {update_str}
 ⏲️ Интервал: {runtime.CHECK_INTERVAL}s
 
@@ -1105,9 +1131,10 @@ class TelegramBot:
 🎯 Желаемая: {runtime.DESIRED_PRICE:.4f}₽
 ↘️ Шаг: {runtime.UNDERCUT_VALUE:.4f}
 
-🔹 Режим: {runtime.MODE}
-   - FIXED: {runtime.FIXED_PRICE:.4f}₽
-   - STEP_UP: {runtime.STEP_UP_VALUE:.4f}₽
+🔹 Режим: {self._mode_label(runtime.MODE)}
+   - Фиксированный порог: {runtime.FIXED_PRICE:.4f}₽
+   - Шаг вверх: +{runtime.STEP_UP_VALUE:.4f}₽
+   - Следовать+ (витрина): +{getattr(runtime, 'FOLLOW_PLUS_VALUE', 0.0049):.4f}₽
 
 ⏱️ CHECK_INTERVAL: {runtime.CHECK_INTERVAL}s
 ⛑️ MAX_DOWN_STEP: {runtime.MAX_DOWN_STEP:.4f}₽
@@ -1391,7 +1418,7 @@ class TelegramBot:
             return
         profile_id = self._active_profile(chat_id)
         runtime = self._runtime(profile_id)
-        new_mode = 'STEP_UP' if runtime.MODE == 'FIXED' else 'FIXED'
+        new_mode = self._next_mode(runtime.MODE)
         storage.set_runtime_setting(
             'MODE',
             new_mode,
@@ -1400,7 +1427,7 @@ class TelegramBot:
             profile_id=profile_id,
         )
         await update.message.reply_text(
-            f'✅ Режим: {new_mode}',
+            f'✅ Режим: {self._mode_label(new_mode)}',
             reply_markup=self.get_settings_keyboard(profile_id),
         )
         await self.send_settings(chat_id, update)

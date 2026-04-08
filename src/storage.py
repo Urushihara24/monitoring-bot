@@ -29,6 +29,7 @@ RUNTIME_PRICE_KEYS = {
     'UNDERCUT_VALUE',
     'FIXED_PRICE',
     'STEP_UP_VALUE',
+    'FOLLOW_PLUS_VALUE',
     'WEAK_PRICE_CEIL_LIMIT',
     'WEAK_UNKNOWN_RANK_ABS_GAP',
     'WEAK_UNKNOWN_RANK_REL_GAP',
@@ -1076,7 +1077,9 @@ class Storage:
                 base_config.UNDERCUT_VALUE,
                 profile,
             ),
-            'MODE': self._get_str('MODE', base_config.MODE, profile),
+            'MODE': str(
+                self._get_str('MODE', base_config.MODE, profile)
+            ).strip().upper(),
             'FIXED_PRICE': self._get_float(
                 'FIXED_PRICE',
                 base_config.FIXED_PRICE,
@@ -1085,6 +1088,11 @@ class Storage:
             'STEP_UP_VALUE': self._get_float(
                 'STEP_UP_VALUE',
                 base_config.STEP_UP_VALUE,
+                profile,
+            ),
+            'FOLLOW_PLUS_VALUE': self._get_float(
+                'FOLLOW_PLUS_VALUE',
+                getattr(base_config, 'FOLLOW_PLUS_VALUE', 0.0049),
                 profile,
             ),
             'WEAK_PRICE_CEIL_LIMIT': self._get_float(
