@@ -714,6 +714,44 @@ def test_refresh_access_token_accepts_retval_camel(monkeypatch):
     assert client.access_token == 'issued-token-2'
 
 
+def test_refresh_access_token_retries_on_non_unique_timestamp(monkeypatch):
+    client = GGSELClient(
+        api_key='secret-abc',
+        seller_id=8175,
+        base_url='https://seller.ggsel.com/api_sellers/api',
+        lang='ru-RU',
+    )
+    calls: list[dict[str, Any]] = []
+
+    def fake_request(method, url, **kwargs):
+        calls.append(kwargs.get('json', {}))
+        if len(calls) == 1:
+            return FakeResponse(
+                200,
+                {
+                    'retval': -4,
+                    'desc': 'Не уникальный timestamp!',
+                    'endesc': 'Not unique timestamp!',
+                },
+            )
+        return FakeResponse(
+            200,
+            {
+                'retval': 0,
+                'token': 'issued-token-after-retry',
+                'valid_thru': '2030-01-01T00:00:00Z',
+            },
+        )
+
+    monkeypatch.setattr(client, '_request_with_retry', fake_request)
+
+    ok = client._refresh_access_token()
+    assert ok is True
+    assert client.access_token == 'issued-token-after-retry'
+    assert len(calls) == 2
+    assert calls[0]['timestamp'] != calls[1]['timestamp']
+
+
 def test_can_refresh_access_token_uses_plain_api_key():
     client = GGSELClient(
         api_key='secret-abc',

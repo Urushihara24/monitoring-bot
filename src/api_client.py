@@ -62,6 +62,7 @@ class GGSELClient:
         self.lang = lang
         self.access_token = self._normalize_access_token(access_token)
         self.token_valid_thru: Optional[datetime] = None
+        self._last_apilogin_timestamp: int = 0
         # Если access_token не задан, но api_key похож на JWT,
         # используем его как токен (legacy-конфиг)
         if not self.access_token and self._is_probably_jwt(self.api_key):
@@ -162,6 +163,17 @@ class GGSELClient:
         remaining = (self.token_valid_thru - now).total_seconds()
         return remaining > 60
 
+    def _next_apilogin_timestamp(self) -> str:
+        """
+        Возвращает уникальный timestamp для /apilogin.
+        Некоторые инсталляции отклоняют повторный timestamp в ту же секунду.
+        """
+        current = int(time.time())
+        if current <= self._last_apilogin_timestamp:
+            current = self._last_apilogin_timestamp + 1
+        self._last_apilogin_timestamp = current
+        return str(current)
+
     def _refresh_access_token(self, timeout: int = 10) -> bool:
         """
         Получение access token через ApiLogin:
@@ -175,42 +187,61 @@ class GGSELClient:
             )
             return False
 
-        timestamp = str(int(time.time()))
-        sign_input = (sign_secret + timestamp).encode("utf-8")
-        sign = hashlib.sha256(sign_input).hexdigest()
-        payload = {
-            "seller_id": self.seller_id,
-            "timestamp": timestamp,
-            "sign": sign,
-        }
         url = f"{self.base_url}/apilogin"
+        for attempt in range(3):
+            timestamp = self._next_apilogin_timestamp()
+            sign_input = (sign_secret + timestamp).encode("utf-8")
+            sign = hashlib.sha256(sign_input).hexdigest()
+            payload = {
+                "seller_id": self.seller_id,
+                "timestamp": timestamp,
+                "sign": sign,
+            }
 
-        response = self._request_with_retry(
-            "POST",
-            url,
-            json=payload,
-            timeout=timeout,
-            max_retries=2,
-        )
-        if response is None:
-            logger.error("ApiLogin не вернул ответ")
+            response = self._request_with_retry(
+                "POST",
+                url,
+                json=payload,
+                timeout=timeout,
+                max_retries=2,
+            )
+            if response is None:
+                logger.error("ApiLogin не вернул ответ")
+                return False
+
+            try:
+                data = response.json()
+            except Exception as e:
+                logger.error(f"Ошибка парсинга JSON ApiLogin: {e}")
+                return False
+
+            retval = self._response_retval(data)
+            if data.get("token") and retval in (None, 0):
+                self.access_token = str(data.get("token"))
+                valid_thru = data.get("valid_thru")
+                self.token_valid_thru = self._parse_valid_thru(valid_thru)
+                logger.info("Access token успешно получен через ApiLogin")
+                return True
+
+            desc_raw = str(
+                data.get("desc")
+                or data.get("endesc")
+                or ""
+            ).lower()
+            if (
+                retval == -4
+                or "not unique timestamp" in desc_raw
+                or "не уникальный timestamp" in desc_raw
+            ) and attempt < 2:
+                logger.warning(
+                    "ApiLogin вернул неуникальный timestamp, повторяю попытку %s/3",
+                    attempt + 2,
+                )
+                continue
+
+            logger.error(f"ApiLogin error: {data}")
             return False
-
-        try:
-            data = response.json()
-        except Exception as e:
-            logger.error(f"Ошибка парсинга JSON ApiLogin: {e}")
-            return False
-
-        retval = self._response_retval(data)
-        if data.get("token") and retval in (None, 0):
-            self.access_token = str(data.get("token"))
-            valid_thru = data.get("valid_thru")
-            self.token_valid_thru = self._parse_valid_thru(valid_thru)
-            logger.info("Access token успешно получен через ApiLogin")
-            return True
-
-        logger.error(f"ApiLogin error: {data}")
+        logger.error("ApiLogin не удалось выполнить после повторов timestamp")
         return False
 
     def _get_access_token(
