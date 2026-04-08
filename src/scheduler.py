@@ -300,7 +300,18 @@ class Scheduler:
         key: str,
         message: str,
         cooldown_seconds: int = 300,
+        runtime=None,
     ):
+        current_runtime = runtime or self._runtime()
+        if not getattr(current_runtime, 'NOTIFY_ERRORS', True):
+            logger.info(
+                '[%s] Telegram-уведомление об ошибке отключено '
+                '(NOTIFY_ERRORS=false): key=%s, message=%s',
+                self.profile_name,
+                key,
+                message,
+            )
+            return
         if storage.should_send_alert(
             key=key,
             cooldown_seconds=cooldown_seconds,

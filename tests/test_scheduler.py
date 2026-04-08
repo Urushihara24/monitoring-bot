@@ -344,6 +344,35 @@ async def test_notify_parser_issue_digiseller_transient_403_suppressed(
 
 
 @pytest.mark.asyncio
+async def test_notify_error_throttled_disabled_by_runtime_flag(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+
+    bot = DummyTelegramBot()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=DummyApiClient(),
+        telegram_bot=bot,
+        profile_id='ggsel',
+        profile_name='GGSEL',
+        product_id=4697439,
+        competitor_urls=[],
+    )
+
+    runtime = SimpleNamespace(NOTIFY_ERRORS=False)
+    await scheduler._notify_error_throttled(
+        key='test_error',
+        message='test message',
+        cooldown_seconds=0,
+        runtime=runtime,
+    )
+
+    assert bot.errors == []
+
+
+@pytest.mark.asyncio
 async def test_scheduler_notifies_competitor_price_change(monkeypatch, tmp_path):
     test_storage = Storage(str(tmp_path / 'state.db'))
     test_storage.update_state(last_price=0.35, last_competitor_min=0.3000)

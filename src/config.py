@@ -341,6 +341,8 @@ class Config:
     )
     NOTIFY_PARSER_ISSUES: bool = _env_bool('NOTIFY_PARSER_ISSUES', True)
     PARSER_ISSUE_COOLDOWN_SECONDS: int = int(os.getenv('PARSER_ISSUE_COOLDOWN_SECONDS', '300'))
+    # Авто-ошибки планировщика в Telegram (не влияет на серверные логи)
+    NOTIFY_ERRORS: bool = _env_bool('NOTIFY_ERRORS', True)
 
     # Защита от убытков и резких колебаний
     HARD_FLOOR_ENABLED: bool = _env_bool('HARD_FLOOR_ENABLED', True)

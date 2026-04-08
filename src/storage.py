@@ -1033,6 +1033,11 @@ class Storage:
                 base_config.NOTIFY_PARSER_ISSUES,
                 profile,
             ),
+            'NOTIFY_ERRORS': self._get_bool(
+                'NOTIFY_ERRORS',
+                getattr(base_config, 'NOTIFY_ERRORS', True),
+                profile,
+            ),
             'PARSER_ISSUE_COOLDOWN_SECONDS': self._get_int(
                 'PARSER_ISSUE_COOLDOWN_SECONDS',
                 base_config.PARSER_ISSUE_COOLDOWN_SECONDS,
