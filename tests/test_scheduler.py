@@ -147,6 +147,32 @@ def test_read_current_price_digiseller_skips_my_price_fallback():
     assert api.my_price_calls == 0
 
 
+def test_scheduler_syncs_product_id_from_runtime(monkeypatch, tmp_path):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+
+    scheduler = scheduler_mod.Scheduler(
+        api_client=DummyApiClient(),
+        telegram_bot=DummyTelegramBot(),
+        profile_id='ggsel',
+        profile_name='GGSEL',
+        product_id=4697439,
+        competitor_urls=[],
+    )
+    scheduler._own_product_url_cache = 'https://ggsel.net/catalog/product/4697439'
+
+    test_storage.set_runtime_setting(
+        'PRODUCT_ID',
+        '4697440',
+        profile_id='ggsel',
+    )
+
+    scheduler._sync_runtime_product_id()
+
+    assert scheduler.product_id == 4697440
+    assert scheduler._own_product_url_cache is None
+
+
 def test_read_current_price_ggsel_prefers_card_unit_price(monkeypatch):
     class ApiClient:
         def __init__(self):

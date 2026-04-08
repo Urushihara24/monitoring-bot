@@ -50,6 +50,7 @@ BTN_PRICE = '🎯 Цена'
 BTN_STEP = '➖ Шаг'
 BTN_MIN = '📉 Мин'
 BTN_MAX = '📈 Макс'
+BTN_PRODUCT = '📦 Товар'
 BTN_INTERVAL = '⏱ Интервал'
 BTN_MODE = '🔀 Режим'
 BTN_POSITION = '📍 Позиция'
@@ -268,6 +269,17 @@ class TelegramBot:
         return self.api_clients.get(profile_id)
 
     def _product_id(self, profile_id: str) -> int:
+        runtime_value = storage.get_runtime_setting(
+            'PRODUCT_ID',
+            profile_id=profile_id,
+        )
+        if runtime_value is not None:
+            try:
+                runtime_product_id = int(float(str(runtime_value).strip()))
+                if runtime_product_id > 0:
+                    return runtime_product_id
+            except (TypeError, ValueError):
+                pass
         return int(self.profile_products.get(profile_id, 0))
 
     def _fmt_price(self, value) -> str:
@@ -442,7 +454,8 @@ class TelegramBot:
             [auto_toggle_button],
             [BTN_UP, BTN_DOWN],
             [BTN_INTERVAL, BTN_MODE],
-            [BTN_ADD_URL, BTN_REMOVE_URL],
+            [BTN_PRODUCT, BTN_ADD_URL],
+            [BTN_REMOVE_URL],
         ]
         if self._chat_autoreply_supported(profile):
             chat_enabled = self._chat_autoreply_enabled(profile)
@@ -766,6 +779,15 @@ class TelegramBot:
                 update=update,
             )
             return
+        if text == BTN_PRODUCT:
+            await self._prompt_pending_action(
+                chat_id=chat_id,
+                profile_id=profile_id,
+                action='PRODUCT_ID',
+                prompt='Введи ID товара (целое число, например 4697439):',
+                update=update,
+            )
+            return
         if text == BTN_MODE:
             await self.toggle_mode(chat_id, user_id, update)
             return
@@ -839,6 +861,7 @@ class TelegramBot:
         parse_at_str = parse_at.strftime('%Y-%m-%d %H:%M:%S') if parse_at else 'Никогда'
         competitor_url = state.get('last_competitor_url') or 'N/A'
         parse_method = state.get('last_competitor_method') or 'N/A'
+        product_id = self._product_id(profile_id)
 
         target_price = state.get('last_target_price')
         if target_price is None:
@@ -894,17 +917,6 @@ class TelegramBot:
             f'{competitor_price:.4f}'
             if competitor_price is not None else 'N/A'
         )
-        price_hint = ''
-        if (
-            profile_id == 'ggsel'
-            and display_price is not None
-            and target_price is not None
-            and abs(float(display_price) - float(target_price)) >= 0.0001
-        ):
-            price_hint = (
-                '\nℹ️ API/витрина GGSEL может округлять отображаемую цену'
-            )
-
         chat_block = ''
         chat_meta = self._chat_autoreply_meta(profile_id)
         if chat_meta:
@@ -921,6 +933,7 @@ class TelegramBot:
         text = f"""📊 Статус
 
 🧭 Активная площадка: {profile_name}
+🆔 Товар: {product_id or 'N/A'}
 💰 Моя цена: {display_price_str}₽
 🎯 Выставлено ботом: {target_price_str}₽
 📈 Цена конкурента: {competitor_price_str}₽
@@ -929,7 +942,6 @@ class TelegramBot:
 🧪 Метод парсинга: {parse_method}
 🕓 Последний парс: {parse_at_str}
 📡 Мониторинг: {monitor_mode}
-{price_hint}
 {chat_block}
 
 🔔 Авто: {'ВКЛ' if state.get('auto_mode', True) else 'ВЫКЛ'}
@@ -954,6 +966,7 @@ class TelegramBot:
         is_advanced = settings_mode == 'advanced'
         state = self._state(profile_id)
         runtime = self._runtime(profile_id)
+        product_id = self._product_id(profile_id)
         monitor_enabled = bool(runtime.COMPETITOR_URLS)
         monitor_mode = (
             f'АКТИВЕН ({len(runtime.COMPETITOR_URLS)} URL)'
@@ -980,6 +993,7 @@ class TelegramBot:
         text = f"""⚙️ Настройки
 
 🧭 Активная площадка: {profile_name}
+🆔 Товар: {product_id or 'N/A'}
 🔔 Автоцена: {'ВКЛ' if state.get('auto_mode', True) else 'ВЫКЛ'}
 🗂 Раздел: {'Расширенные' if is_advanced else 'Быстрые'}
 📉 MIN: {runtime.MIN_PRICE:.4f}₽
@@ -1388,6 +1402,37 @@ class TelegramBot:
             self.pending_actions.pop(chat_id, None)
             await update.message.reply_text(
                 f'✅ {action} = {value:.4f}',
+                reply_markup=self.get_settings_keyboard(profile_id),
+            )
+            await self.send_settings(chat_id, update)
+            return
+
+        if action == 'PRODUCT_ID':
+            try:
+                value = int(float(text.replace(',', '.')))
+            except ValueError:
+                await update.message.reply_text(
+                    '❌ Введи целое число',
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+            if value <= 0:
+                await update.message.reply_text(
+                    '❌ ID товара должен быть > 0',
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+            storage.set_runtime_setting(
+                'PRODUCT_ID',
+                str(value),
+                user_id=user_id,
+                source='telegram',
+                profile_id=profile_id,
+            )
+            self.profile_products[profile_id] = value
+            self.pending_actions.pop(chat_id, None)
+            await update.message.reply_text(
+                f'✅ PRODUCT_ID = {value}',
                 reply_markup=self.get_settings_keyboard(profile_id),
             )
             await self.send_settings(chat_id, update)

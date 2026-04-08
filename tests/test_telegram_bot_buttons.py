@@ -18,6 +18,7 @@ from src.telegram_bot import (
     BTN_MODE,
     BTN_POSITION,
     BTN_PRICE,
+    BTN_PRODUCT,
     BTN_PROFILE,
     BTN_REMOVE_URL,
     BTN_SETTINGS,
@@ -106,6 +107,7 @@ def test_settings_keyboard_is_not_overloaded():
     assert '📥 Импорт' not in texts
     assert BTN_HISTORY not in texts
     assert BTN_ADD_URL in texts
+    assert BTN_PRODUCT in texts
     assert BTN_REMOVE_URL in texts
     assert BTN_PRICE not in texts
     assert BTN_STEP not in texts
@@ -240,6 +242,7 @@ async def test_profile_button_opens_profile_keyboard():
         (BTN_STEP, 'UNDERCUT_VALUE'),
         (BTN_MIN, 'MIN_PRICE'),
         (BTN_MAX, 'MAX_PRICE'),
+        (BTN_PRODUCT, 'PRODUCT_ID'),
         (BTN_INTERVAL, 'CHECK_INTERVAL'),
         (BTN_ADD_URL, 'ADD_URL'),
     ],
@@ -787,6 +790,50 @@ async def test_pending_price_action_formats_to_4dp(monkeypatch):
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert args[0] == '✅ UNDERCUT_VALUE = 0.0051'
+
+
+@pytest.mark.asyncio
+async def test_pending_product_id_action_updates_runtime(monkeypatch):
+    bot = make_bot()
+    bot.pending_actions[100] = ('PRODUCT_ID', 'ggsel')
+    bot.send_settings = AsyncMock()
+
+    captured = {}
+
+    def fake_set_runtime_setting(
+        key,
+        value,
+        user_id=None,
+        source='system',
+        profile_id='ggsel',
+    ):
+        captured['key'] = key
+        captured['value'] = value
+        captured['user_id'] = user_id
+        captured['source'] = source
+        captured['profile_id'] = profile_id
+
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_runtime_setting',
+        fake_set_runtime_setting,
+    )
+    update = make_update('4697439')
+
+    await bot.handle_pending_action(100, 1, '4697439', update)
+
+    assert captured == {
+        'key': 'PRODUCT_ID',
+        'value': '4697439',
+        'user_id': 1,
+        'source': 'telegram',
+        'profile_id': 'ggsel',
+    }
+    assert bot.profile_products['ggsel'] == 4697439
+    assert 100 not in bot.pending_actions
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert args[0] == '✅ PRODUCT_ID = 4697439'
 
 
 @pytest.mark.asyncio

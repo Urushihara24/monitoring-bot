@@ -96,6 +96,44 @@ class Scheduler:
         self._env_cookies_cached_value: Optional[str] = None
         self._own_product_url_cache: Optional[str] = None
 
+    def _sync_runtime_product_id(self):
+        """
+        Подтягивает PRODUCT_ID из runtime_settings (если задан),
+        чтобы можно было переключать товар без перезапуска.
+        """
+        raw = storage.get_runtime_setting(
+            'PRODUCT_ID',
+            profile_id=self.profile_id,
+        )
+        if raw is None:
+            return
+        try:
+            runtime_product_id = int(float(str(raw).strip()))
+        except (TypeError, ValueError):
+            logger.warning(
+                '[%s] Игнорирую некорректный PRODUCT_ID в runtime: %r',
+                self.profile_name,
+                raw,
+            )
+            return
+        if runtime_product_id <= 0:
+            logger.warning(
+                '[%s] Игнорирую некорректный PRODUCT_ID <= 0: %s',
+                self.profile_name,
+                runtime_product_id,
+            )
+            return
+        if runtime_product_id == self.product_id:
+            return
+        logger.info(
+            '[%s] Переключение товара: %s -> %s (runtime PRODUCT_ID)',
+            self.profile_name,
+            self.product_id,
+            runtime_product_id,
+        )
+        self.product_id = runtime_product_id
+        self._own_product_url_cache = None
+
     def _runtime(self):
         return storage.get_runtime_config(
             config,
@@ -1787,6 +1825,7 @@ class Scheduler:
             if not synced_from_env:
                 await self._reload_cookies_from_backup()
             runtime = self._runtime()
+            self._sync_runtime_product_id()
             state = self._state()
 
             await self._run_chat_autoreply()
@@ -2325,6 +2364,7 @@ class Scheduler:
 
     async def run(self):
         self._running = True
+        self._sync_runtime_product_id()
         runtime = self._runtime()
         logger.info(
             '[%s] Планировщик запущен (интервал: %ss)',
