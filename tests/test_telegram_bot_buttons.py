@@ -826,7 +826,81 @@ async def test_pending_price_action_formats_to_4dp(monkeypatch):
     assert 100 not in bot.pending_actions
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
-    assert args[0] == '✅ UNDERCUT_VALUE = 0.0051'
+    assert args[0] == '✅ UNDERCUT_VALUE (GGSEL / 1) = 0.0051'
+
+
+@pytest.mark.asyncio
+async def test_toggle_mode_isolated_for_active_product(monkeypatch):
+    bot = make_bot()
+    bot.profile_products['ggsel'] = 999
+    bot.send_settings = AsyncMock()
+    bot._runtime_for_product = lambda _profile, _product: SimpleNamespace(
+        MODE='DUMPING'
+    )
+    update = make_update(BTN_MODE)
+
+    captured = {}
+
+    def fake_set_runtime_setting(
+        key,
+        value,
+        user_id=None,
+        source='system',
+        profile_id='ggsel',
+    ):
+        captured['key'] = key
+        captured['value'] = value
+        captured['profile_id'] = profile_id
+
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_runtime_setting',
+        fake_set_runtime_setting,
+    )
+
+    await bot.toggle_mode(100, 1, update)
+
+    assert captured['key'] == 'MODE'
+    assert captured['value'] == 'RAISE'
+    assert captured['profile_id'] == 'ggsel:999'
+
+
+@pytest.mark.asyncio
+async def test_pending_price_action_isolated_for_active_product(monkeypatch):
+    bot = make_bot()
+    bot.profile_products['ggsel'] = 999
+    bot.pending_actions[100] = ('MIN_PRICE', 'ggsel')
+    bot.send_settings = AsyncMock()
+    bot._runtime_for_product = lambda _profile, _product: SimpleNamespace(
+        FAST_CHECK_INTERVAL_MIN=20,
+        FAST_CHECK_INTERVAL_MAX=60,
+    )
+    update = make_update('0.30')
+
+    captured = {}
+
+    def fake_set_runtime_setting(
+        key,
+        value,
+        user_id=None,
+        source='system',
+        profile_id='ggsel',
+    ):
+        captured['key'] = key
+        captured['value'] = value
+        captured['profile_id'] = profile_id
+
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_runtime_setting',
+        fake_set_runtime_setting,
+    )
+
+    await bot.handle_pending_action(100, 1, '0.30', update)
+
+    assert captured['key'] == 'MIN_PRICE'
+    assert captured['value'] == '0.3'
+    assert captured['profile_id'] == 'ggsel:999'
 
 
 @pytest.mark.asyncio

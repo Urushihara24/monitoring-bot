@@ -37,7 +37,7 @@ def test_base_formula_update():
     assert decision.reason.startswith('dumping_showcase')
 
 
-def test_hard_floor_fixed_mode():
+def test_hard_floor_min_for_legacy_fixed_mode():
     cfg = make_cfg(
         MODE='FIXED',
         MIN_PRICE=0.25,
@@ -51,11 +51,11 @@ def test_hard_floor_fixed_mode():
         config=cfg,
     )
     assert decision.action == 'update'
-    assert decision.price == 0.35
-    assert 'hard_floor_fixed' in decision.reason
+    assert decision.price == 0.25
+    assert 'hard_floor_min' in decision.reason
 
 
-def test_hard_floor_step_up_mode():
+def test_hard_floor_min_for_legacy_step_up_mode():
     cfg = make_cfg(
         MODE='STEP_UP',
         MIN_PRICE=0.25,
@@ -69,8 +69,8 @@ def test_hard_floor_step_up_mode():
         config=cfg,
     )
     assert decision.action == 'update'
-    assert decision.price == 0.35
-    assert 'hard_floor_step_up' in decision.reason
+    assert decision.price == 0.25
+    assert 'hard_floor_min' in decision.reason
 
 
 def test_low_price_does_not_trigger_weak_mode_without_position_flag():

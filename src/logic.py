@@ -301,17 +301,8 @@ def _apply_loss_protection(
     if getattr(config, 'HARD_FLOOR_ENABLED', True):
         min_price = _d(config.MIN_PRICE)
         if candidate < min_price:
-            if config.MODE == 'FIXED':
-                fixed_target = max(_d(config.FIXED_PRICE), min_price)
-                candidate = fixed_target
-                reason_out += f'_hard_floor_fixed({float(candidate)})'
-            elif config.MODE == 'STEP_UP' and current_price is not None:
-                step_target = max(_d(current_price) + _d(config.STEP_UP_VALUE), min_price)
-                candidate = step_target
-                reason_out += f'_hard_floor_step_up({float(candidate)})'
-            else:
-                candidate = min_price
-                reason_out += f'_hard_floor_min({config.MIN_PRICE})'
+            candidate = min_price
+            reason_out += f'_hard_floor_min({config.MIN_PRICE})'
 
     # Ограничение резкого снижения за цикл.
     max_down_step = max(getattr(config, 'MAX_DOWN_STEP', 0.0), 0.0)

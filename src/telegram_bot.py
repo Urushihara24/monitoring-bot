@@ -1425,17 +1425,25 @@ class TelegramBot:
         if not update.message:
             return
         profile_id = self._active_profile(chat_id)
-        runtime = self._runtime(profile_id)
+        product_id = self._product_id(profile_id)
+        runtime_profile_id = self._runtime_profile_id_for_product(
+            profile_id,
+            product_id,
+        )
+        runtime = self._runtime_for_product(profile_id, product_id)
         new_mode = self._next_mode(runtime.MODE)
         storage.set_runtime_setting(
             'MODE',
             new_mode,
             user_id=user_id,
             source='telegram',
-            profile_id=profile_id,
+            profile_id=runtime_profile_id,
         )
         await update.message.reply_text(
-            f'✅ Режим: {self._mode_label(new_mode)}',
+            (
+                f'✅ Режим ({self._profile_name(profile_id)} / {product_id}): '
+                f'{self._mode_label(new_mode)}'
+            ),
             reply_markup=self.get_settings_keyboard(profile_id),
         )
         await self.send_settings(chat_id, update)
@@ -1444,17 +1452,25 @@ class TelegramBot:
         if not update.message:
             return
         profile_id = self._active_profile(chat_id)
-        runtime = self._runtime(profile_id)
+        product_id = self._product_id(profile_id)
+        runtime_profile_id = self._runtime_profile_id_for_product(
+            profile_id,
+            product_id,
+        )
+        runtime = self._runtime_for_product(profile_id, product_id)
         new_value = not runtime.POSITION_FILTER_ENABLED
         storage.set_runtime_setting(
             'POSITION_FILTER_ENABLED',
             'true' if new_value else 'false',
             user_id=user_id,
             source='telegram',
-            profile_id=profile_id,
+            profile_id=runtime_profile_id,
         )
         await update.message.reply_text(
-            f'✅ Позиция: {"Вкл" if new_value else "Выкл"}',
+            (
+                f'✅ Позиция ({self._profile_name(profile_id)} / {product_id}): '
+                f'{"Вкл" if new_value else "Выкл"}'
+            ),
             reply_markup=self.get_settings_keyboard(profile_id),
         )
         await self.send_settings(chat_id, update)
@@ -1534,7 +1550,12 @@ class TelegramBot:
                 reply_markup=self.get_main_keyboard(profile_id),
             )
             return
-        runtime = self._runtime(profile_id)
+        product_id = self._product_id(profile_id)
+        runtime_profile_id = self._runtime_profile_id_for_product(
+            profile_id,
+            product_id,
+        )
+        runtime = self._runtime_for_product(profile_id, product_id)
 
         if action in {'DESIRED_PRICE', 'UNDERCUT_VALUE', 'MIN_PRICE', 'MAX_PRICE'}:
             try:
@@ -1557,11 +1578,14 @@ class TelegramBot:
                 str(value),
                 user_id=user_id,
                 source='telegram',
-                profile_id=profile_id,
+                profile_id=runtime_profile_id,
             )
             self.pending_actions.pop(chat_id, None)
             await update.message.reply_text(
-                f'✅ {action} = {value:.4f}',
+                (
+                    f'✅ {action} ({self._profile_name(profile_id)} / '
+                    f'{product_id}) = {value:.4f}'
+                ),
                 reply_markup=self.get_settings_keyboard(profile_id),
             )
             await self.send_settings(chat_id, update)
@@ -1699,11 +1723,14 @@ class TelegramBot:
                 str(value),
                 user_id=user_id,
                 source='telegram',
-                profile_id=profile_id,
+                profile_id=runtime_profile_id,
             )
             self.pending_actions.pop(chat_id, None)
             await update.message.reply_text(
-                f'✅ CHECK_INTERVAL = {value}s',
+                (
+                    f'✅ CHECK_INTERVAL ({self._profile_name(profile_id)} / '
+                    f'{product_id}) = {value}s'
+                ),
                 reply_markup=self.get_settings_keyboard(profile_id),
             )
             await self.send_settings(chat_id, update)
