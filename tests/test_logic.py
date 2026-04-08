@@ -13,7 +13,6 @@ def make_cfg(**kwargs):
         'MODE': 'FIXED',
         'FIXED_PRICE': 0.35,
         'STEP_UP_VALUE': 0.05,
-        'FOLLOW_PLUS_VALUE': 0.0049,
         'LOW_PRICE_THRESHOLD': 0.0,
         'WEAK_PRICE_CEIL_LIMIT': 0.3,
         'COOLDOWN_SECONDS': 30,
@@ -35,7 +34,7 @@ def test_base_formula_update():
     )
     assert decision.action == 'update'
     assert decision.price == 0.3349
-    assert decision.reason.startswith('base_formula')
+    assert decision.reason.startswith('dumping_showcase')
 
 
 def test_hard_floor_fixed_mode():
@@ -89,7 +88,7 @@ def test_low_price_does_not_trigger_weak_mode_without_position_flag():
     )
     assert decision.action == 'update'
     assert decision.price == 0.2649
-    assert decision.reason.startswith('base_formula')
+    assert decision.reason.startswith('dumping_showcase')
 
 
 def test_max_down_step_caps_drop():
@@ -105,25 +104,21 @@ def test_max_down_step_caps_drop():
     assert 'max_down_step' in decision.reason
 
 
-def test_follow_exact_sets_same_price_as_competitor():
-    cfg = make_cfg(MODE='FOLLOW_EXACT', MAX_DOWN_STEP=0.0)
+def test_follow_sets_same_price_as_competitor_with_4dp():
+    cfg = make_cfg(MODE='FOLLOW', MAX_DOWN_STEP=0.0)
     decision = calculate_price(
-        competitor_prices=[0.3505],
+        competitor_prices=[0.3560],
         current_price=0.31,
         last_update=None,
         config=cfg,
     )
     assert decision.action == 'update'
-    assert decision.price == 0.3505
-    assert decision.reason.startswith('follow_exact')
+    assert decision.price == 0.3560
+    assert decision.reason.startswith('follow')
 
 
-def test_follow_plus_uses_showcase_rounding_then_plus_value():
-    cfg = make_cfg(
-        MODE='FOLLOW_PLUS',
-        FOLLOW_PLUS_VALUE=0.0049,
-        MAX_DOWN_STEP=0.0,
-    )
+def test_raise_uses_showcase_rounding_then_plus_value():
+    cfg = make_cfg(MODE='RAISE', MAX_DOWN_STEP=0.0)
     decision = calculate_price(
         competitor_prices=[0.3505],
         current_price=0.31,
@@ -132,7 +127,32 @@ def test_follow_plus_uses_showcase_rounding_then_plus_value():
     )
     assert decision.action == 'update'
     assert decision.price == 0.3549
-    assert decision.reason.startswith('follow_plus_showcase')
+    assert decision.reason.startswith('raise_showcase')
+
+
+def test_dumping_uses_showcase_rounding_then_minus_value():
+    cfg = make_cfg(MODE='DUMPING', MAX_DOWN_STEP=0.0)
+    decision = calculate_price(
+        competitor_prices=[0.3505],
+        current_price=0.31,
+        last_update=None,
+        config=cfg,
+    )
+    assert decision.action == 'update'
+    assert decision.price == 0.3449
+    assert decision.reason.startswith('dumping_showcase')
+
+
+def test_raise_on_showcase_036_range():
+    cfg = make_cfg(MODE='RAISE', MAX_DOWN_STEP=0.0)
+    decision = calculate_price(
+        competitor_prices=[0.3599],
+        current_price=0.31,
+        last_update=None,
+        config=cfg,
+    )
+    assert decision.action == 'update'
+    assert decision.price == 0.3649
 
 
 def test_cooldown_blocks_without_rebound():

@@ -29,7 +29,6 @@ RUNTIME_PRICE_KEYS = {
     'UNDERCUT_VALUE',
     'FIXED_PRICE',
     'STEP_UP_VALUE',
-    'FOLLOW_PLUS_VALUE',
     'WEAK_PRICE_CEIL_LIMIT',
     'WEAK_UNKNOWN_RANK_ABS_GAP',
     'WEAK_UNKNOWN_RANK_REL_GAP',
@@ -761,6 +760,8 @@ class Storage:
     ):
         profile = self._normalize_profile(profile_id)
         normalized_value = str(value)
+        if key == 'MODE':
+            normalized_value = self._normalize_mode(normalized_value)
         if key in RUNTIME_PRICE_KEYS:
             price_value = self._normalize_price(normalized_value)
             if price_value is not None:
@@ -1077,9 +1078,9 @@ class Storage:
                 base_config.UNDERCUT_VALUE,
                 profile,
             ),
-            'MODE': str(
+            'MODE': self._normalize_mode(
                 self._get_str('MODE', base_config.MODE, profile)
-            ).strip().upper(),
+            ),
             'FIXED_PRICE': self._get_float(
                 'FIXED_PRICE',
                 base_config.FIXED_PRICE,
@@ -1088,11 +1089,6 @@ class Storage:
             'STEP_UP_VALUE': self._get_float(
                 'STEP_UP_VALUE',
                 base_config.STEP_UP_VALUE,
-                profile,
-            ),
-            'FOLLOW_PLUS_VALUE': self._get_float(
-                'FOLLOW_PLUS_VALUE',
-                getattr(base_config, 'FOLLOW_PLUS_VALUE', 0.0049),
                 profile,
             ),
             'WEAK_PRICE_CEIL_LIMIT': self._get_float(
@@ -1266,6 +1262,22 @@ class Storage:
         if value is None:
             return default
         return value.strip().lower() in ('1', 'true', 'yes', 'on')
+
+    def _normalize_mode(self, mode: str) -> str:
+        normalized = str(mode or '').strip().upper()
+        aliases = {
+            'FOLLOW_EXACT': 'FOLLOW',
+            'FOLLOW_PLUS': 'RAISE',
+            'FIXED': 'DUMPING',
+            'STEP_UP': 'DUMPING',
+            'СЛЕДОВАНИЕ': 'FOLLOW',
+            'ДЕМПИНГ': 'DUMPING',
+            'ПОВЫШЕНИЕ': 'RAISE',
+        }
+        normalized = aliases.get(normalized, normalized)
+        if normalized not in {'FOLLOW', 'DUMPING', 'RAISE'}:
+            return 'DUMPING'
+        return normalized
 
     def get_settings_history(
         self,

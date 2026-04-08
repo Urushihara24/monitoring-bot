@@ -4,7 +4,7 @@
 Строго следует ТЗ:
 1. Базовая формула: my_price = competitor_price - 0.0051
 2. Режим цены: базовый демпинг / следование за ценой конкурента
-3. Нижний порог: MIN_PRICE + MODE (FIXED/STEP_UP)
+3. Нижний порог / защита от убыточной цены
 4. Множество конкурентов: min(competitor_prices)
 5. Фильтр слабого конкурента: только при слабой позиции (force_weak_mode)
 6. Cooldown: не чаще COOLDOWN_SECONDS
@@ -23,6 +23,8 @@ from .config import Config
 logger = logging.getLogger(__name__)
 PRICE_PRECISION = Decimal('0.0001')
 SHOWCASE_PRECISION = Decimal('0.01')
+DUMPING_OFFSET = Decimal('0.0051')
+RAISE_OFFSET = Decimal('0.0049')
 
 
 def _d(value: float) -> Decimal:
@@ -31,6 +33,21 @@ def _d(value: float) -> Decimal:
 
 def _to_price(value: Decimal) -> float:
     return float(value.quantize(PRICE_PRECISION, rounding=ROUND_HALF_UP))
+
+
+def _normalize_pricing_mode(mode: object) -> str:
+    normalized = str(mode or '').strip().upper()
+    aliases = {
+        'FOLLOW_EXACT': 'FOLLOW',
+        'FOLLOW_PLUS': 'RAISE',
+        'FIXED': 'DUMPING',
+        'STEP_UP': 'DUMPING',
+        'СЛЕДОВАНИЕ': 'FOLLOW',
+        'ДЕМПИНГ': 'DUMPING',
+        'ПОВЫШЕНИЕ': 'RAISE',
+    }
+    normalized = aliases.get(normalized, normalized)
+    return normalized if normalized in {'FOLLOW', 'DUMPING', 'RAISE'} else 'DUMPING'
 
 
 @dataclass
@@ -61,7 +78,7 @@ def calculate_price(
     3. Применить special logic (фильтр слабого конкурента)
     4. Рассчитать цену по режиму (base/follow)
     5. Проверить MIN_PRICE
-    6. Применить MODE (FIXED/STEP_UP)
+    6. Применить защиту от убыточной цены
     7. Проверить MAX_PRICE
     8. Проверить cooldown
     9. Проверить ignore delta
@@ -169,40 +186,47 @@ def calculate_price(
         )
     
     # === ШАГ 4: Рассчитать целевую цену по выбранному режиму ===
-    mode = str(getattr(config, 'MODE', 'FIXED') or 'FIXED').strip().upper()
-    if mode == 'FOLLOW_EXACT':
+    mode = _normalize_pricing_mode(getattr(config, 'MODE', 'DUMPING'))
+    if mode == 'FOLLOW':
         new_price = _to_price(min_competitor_price_d)
-        reason = 'follow_exact'
+        reason = 'follow'
         logger.info(
-            'Режим FOLLOW_EXACT: цена конкурента %s -> %s',
+            'Режим FOLLOW: цена конкурента %s -> %s',
             min_competitor_price,
             new_price,
         )
-    elif mode == 'FOLLOW_PLUS':
+    elif mode == 'RAISE':
         rounded_showcase = min_competitor_price_d.quantize(
             SHOWCASE_PRECISION,
             rounding=ROUND_HALF_UP,
         )
-        follow_plus_value = _d(getattr(config, 'FOLLOW_PLUS_VALUE', 0.0049))
-        new_price = _to_price(rounded_showcase + follow_plus_value)
+        new_price = _to_price(rounded_showcase + RAISE_OFFSET)
         reason = (
-            'follow_plus_showcase('
+            'raise_showcase('
             f'{float(rounded_showcase)}+'
-            f'{float(follow_plus_value)})'
+            f'{float(RAISE_OFFSET)})'
         )
         logger.info(
-            'Режим FOLLOW_PLUS: витрина %s + %s = %s',
+            'Режим RAISE: витрина %s + %s = %s',
             float(rounded_showcase),
-            float(follow_plus_value),
+            float(RAISE_OFFSET),
             new_price,
         )
     else:
-        new_price = _to_price(min_competitor_price_d - undercut_value_d)
-        reason = 'base_formula'
+        rounded_showcase = min_competitor_price_d.quantize(
+            SHOWCASE_PRECISION,
+            rounding=ROUND_HALF_UP,
+        )
+        new_price = _to_price(rounded_showcase - DUMPING_OFFSET)
+        reason = (
+            'dumping_showcase('
+            f'{float(rounded_showcase)}-'
+            f'{float(DUMPING_OFFSET)})'
+        )
         logger.info(
-            'Базовая формула: %s - %s = %s',
-            min_competitor_price,
-            config.UNDERCUT_VALUE,
+            'Режим DUMPING: витрина %s - %s = %s',
+            float(rounded_showcase),
+            float(DUMPING_OFFSET),
             new_price,
         )
     

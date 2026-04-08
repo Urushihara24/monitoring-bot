@@ -9,7 +9,6 @@ def make_cfg(**kwargs):
         'MAX_PRICE': 10.0,
         'UNDERCUT_VALUE': 0.0051,
         'MODE': 'FIXED',
-        'FOLLOW_PLUS_VALUE': 0.0049,
         'CHECK_INTERVAL': 30,
         'FAST_CHECK_INTERVAL_MIN': 20,
         'FAST_CHECK_INTERVAL_MAX': 60,
@@ -55,7 +54,7 @@ def test_validate_runtime_config_allows_empty_competitor_urls():
 
 
 def test_validate_runtime_config_accepts_follow_modes():
-    ok_exact, errors_exact = validate_runtime_config(make_cfg(MODE='FOLLOW_EXACT'))
-    ok_plus, errors_plus = validate_runtime_config(make_cfg(MODE='FOLLOW_PLUS'))
+    ok_exact, errors_exact = validate_runtime_config(make_cfg(MODE='FOLLOW'))
+    ok_plus, errors_plus = validate_runtime_config(make_cfg(MODE='RAISE'))
     assert ok_exact and errors_exact == []
     assert ok_plus and errors_plus == []

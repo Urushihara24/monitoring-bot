@@ -45,7 +45,7 @@ def test_build_profile_runtime_defaults_for_digiseller():
     assert defaults['MAX_PRICE'] == '0.88'
     assert defaults['DESIRED_PRICE'] == '0.55'
     assert defaults['UNDERCUT_VALUE'] == '0.0051'
-    assert defaults['MODE'] == 'STEP_UP'
+    assert defaults['MODE'] == 'DUMPING'
     assert defaults['FIXED_PRICE'] == '0.6'
     assert defaults['STEP_UP_VALUE'] == '0.07'
     assert defaults['CHECK_INTERVAL'] == '45'
@@ -90,7 +90,7 @@ def test_build_profile_runtime_defaults_reads_missing_attrs_from_env(monkeypatch
     assert defaults['IGNORE_DELTA'] == '0.001'
     assert defaults['HARD_FLOOR_ENABLED'] == 'false'
     assert defaults['WEAK_POSITION_THRESHOLD'] == '25'
-    assert defaults['MODE'] == 'FIXED'
+    assert defaults['MODE'] == 'DUMPING'
 
 
 def test_build_profile_runtime_defaults_non_digiseller_empty():

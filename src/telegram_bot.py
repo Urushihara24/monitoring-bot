@@ -61,16 +61,14 @@ BTN_CHAT_AUTOREPLY_ON = '💬 Инструкции: ВКЛ'
 BTN_CHAT_AUTOREPLY_OFF = '💬 Инструкции: ВЫКЛ'
 
 _MODE_SEQUENCE = [
-    'FIXED',
-    'STEP_UP',
-    'FOLLOW_EXACT',
-    'FOLLOW_PLUS',
+    'FOLLOW',
+    'DUMPING',
+    'RAISE',
 ]
 _MODE_LABELS_RU = {
-    'FIXED': 'Фиксированный порог',
-    'STEP_UP': 'Шаг вверх от текущей',
-    'FOLLOW_EXACT': 'Следовать: точно как конкурент',
-    'FOLLOW_PLUS': 'Следовать: витрина + 0.0049',
+    'FOLLOW': 'Следование',
+    'DUMPING': 'Демпинг',
+    'RAISE': 'Повышение',
 }
 
 _CHAT_PROFILE_PREFIX = {
@@ -144,7 +142,17 @@ class TelegramBot:
 
     def _normalize_mode(self, mode: object) -> str:
         normalized = str(mode or '').strip().upper()
-        return normalized if normalized in _MODE_SEQUENCE else 'FIXED'
+        aliases = {
+            'FOLLOW_EXACT': 'FOLLOW',
+            'FOLLOW_PLUS': 'RAISE',
+            'FIXED': 'DUMPING',
+            'STEP_UP': 'DUMPING',
+            'СЛЕДОВАНИЕ': 'FOLLOW',
+            'ДЕМПИНГ': 'DUMPING',
+            'ПОВЫШЕНИЕ': 'RAISE',
+        }
+        normalized = aliases.get(normalized, normalized)
+        return normalized if normalized in _MODE_SEQUENCE else 'DUMPING'
 
     def _mode_label(self, mode: object) -> str:
         normalized = self._normalize_mode(mode)
@@ -1132,9 +1140,9 @@ class TelegramBot:
 ↘️ Шаг: {runtime.UNDERCUT_VALUE:.4f}
 
 🔹 Режим: {self._mode_label(runtime.MODE)}
-   - Фиксированный порог: {runtime.FIXED_PRICE:.4f}₽
-   - Шаг вверх: +{runtime.STEP_UP_VALUE:.4f}₽
-   - Следовать+ (витрина): +{getattr(runtime, 'FOLLOW_PLUS_VALUE', 0.0049):.4f}₽
+   - Следование: точно как конкурент (4 знака)
+   - Демпинг: витрина - 0.0051 (получается ...49)
+   - Повышение: витрина + 0.0049 (получается ...49)
 
 ⏱️ CHECK_INTERVAL: {runtime.CHECK_INTERVAL}s
 ⛑️ MAX_DOWN_STEP: {runtime.MAX_DOWN_STEP:.4f}₽

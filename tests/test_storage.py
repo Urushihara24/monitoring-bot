@@ -110,7 +110,7 @@ def test_runtime_config_override(tmp_path):
     storage.set_runtime_setting('COMPETITOR_CHANGE_DELTA', '0.0025')
     runtime = storage.get_runtime_config(base)
     assert runtime.MIN_PRICE == 0.42
-    assert runtime.MODE == 'STEP_UP'
+    assert runtime.MODE == 'DUMPING'
     assert runtime.POSITION_FILTER_ENABLED is True
     assert runtime.NOTIFY_SKIP is True
     assert runtime.COMPETITOR_CHANGE_DELTA == 0.0025

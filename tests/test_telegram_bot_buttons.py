@@ -302,17 +302,17 @@ async def test_toggle_mode_cycles_through_follow_modes(monkeypatch):
         fake_set_runtime_setting,
     )
 
-    bot._runtime = lambda _profile: SimpleNamespace(MODE='STEP_UP')
+    bot._runtime = lambda _profile: SimpleNamespace(MODE='DUMPING')
     await bot.toggle_mode(100, 1, update)
-    assert captured[-1][1] == 'FOLLOW_EXACT'
+    assert captured[-1][1] == 'RAISE'
 
-    bot._runtime = lambda _profile: SimpleNamespace(MODE='FOLLOW_EXACT')
+    bot._runtime = lambda _profile: SimpleNamespace(MODE='RAISE')
     await bot.toggle_mode(100, 1, update)
-    assert captured[-1][1] == 'FOLLOW_PLUS'
+    assert captured[-1][1] == 'FOLLOW'
 
-    bot._runtime = lambda _profile: SimpleNamespace(MODE='FOLLOW_PLUS')
+    bot._runtime = lambda _profile: SimpleNamespace(MODE='FOLLOW')
     await bot.toggle_mode(100, 1, update)
-    assert captured[-1][1] == 'FIXED'
+    assert captured[-1][1] == 'DUMPING'
 
 
 @pytest.mark.asyncio

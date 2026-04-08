@@ -7,6 +7,12 @@ from typing import List, Tuple
 
 def validate_runtime_config(cfg) -> Tuple[bool, List[str]]:
     errors: List[str] = []
+    mode_aliases = {
+        'FOLLOW_EXACT': 'FOLLOW',
+        'FOLLOW_PLUS': 'RAISE',
+        'FIXED': 'DUMPING',
+        'STEP_UP': 'DUMPING',
+    }
 
     if cfg.MIN_PRICE <= 0:
         errors.append('MIN_PRICE должен быть > 0')
@@ -16,9 +22,11 @@ def validate_runtime_config(cfg) -> Tuple[bool, List[str]]:
         errors.append('MIN_PRICE не может быть больше MAX_PRICE')
     if cfg.UNDERCUT_VALUE <= 0:
         errors.append('UNDERCUT_VALUE должен быть > 0')
-    if cfg.MODE not in ('FIXED', 'STEP_UP', 'FOLLOW_EXACT', 'FOLLOW_PLUS'):
+    mode_value = str(getattr(cfg, 'MODE', '') or '').strip().upper()
+    mode_value = mode_aliases.get(mode_value, mode_value)
+    if mode_value not in ('FOLLOW', 'DUMPING', 'RAISE'):
         errors.append(
-            'MODE должен быть FIXED, STEP_UP, FOLLOW_EXACT или FOLLOW_PLUS'
+            'MODE должен быть FOLLOW, DUMPING или RAISE'
         )
     if cfg.CHECK_INTERVAL < 5:
         errors.append('CHECK_INTERVAL должен быть >= 5 секунд')
@@ -32,8 +40,6 @@ def validate_runtime_config(cfg) -> Tuple[bool, List[str]]:
         errors.append('COOLDOWN_SECONDS не может быть отрицательным')
     if cfg.IGNORE_DELTA < 0:
         errors.append('IGNORE_DELTA не может быть отрицательным')
-    if getattr(cfg, 'FOLLOW_PLUS_VALUE', 0.0049) < 0:
-        errors.append('FOLLOW_PLUS_VALUE не может быть отрицательным')
     if cfg.MAX_DOWN_STEP < 0:
         errors.append('MAX_DOWN_STEP не может быть отрицательным')
     if cfg.FAST_REBOUND_DELTA < 0:
