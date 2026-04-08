@@ -308,7 +308,7 @@ async def test_toggle_auto_updates_only_active_profile(monkeypatch):
     assert calls == [('digiseller', {'auto_mode': False})]
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
-    assert args[0] == '🔔 Автоцена (DIGISELLER): ВЫКЛ'
+    assert args[0] == '🔔 Автоцена (DIGISELLER / 2): ВЫКЛ'
 
 
 @pytest.mark.asyncio
@@ -822,19 +822,19 @@ async def test_pending_manage_products_add(monkeypatch):
         'normalize_competitor_urls',
         lambda urls: [u.strip() for u in urls if u.strip()],
     )
-    update = make_update('add 4697439 https://a.example,https://b.example')
+    update = make_update('4697439')
 
     await bot.handle_pending_action(
         100,
         1,
-        'add 4697439 https://a.example,https://b.example',
+        '4697439',
         update,
     )
 
     assert captured == {
         'profile_id': 'ggsel',
         'product_id': 4697439,
-        'competitor_urls': ['https://a.example', 'https://b.example'],
+        'competitor_urls': [],
         'enabled': True,
     }
     assert 100 not in bot.pending_actions
