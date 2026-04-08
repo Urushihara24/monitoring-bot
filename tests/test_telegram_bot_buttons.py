@@ -107,7 +107,7 @@ def test_settings_keyboard_is_not_overloaded():
     assert '📤 Экспорт' not in texts
     assert '📥 Импорт' not in texts
     assert BTN_ADD_URL in texts
-    assert BTN_PRODUCTS in texts
+    assert BTN_PRODUCTS not in texts
     assert BTN_PRODUCT_PREV not in texts
     assert BTN_PRODUCT_NEXT not in texts
     assert BTN_REMOVE_URL in texts
@@ -156,6 +156,7 @@ def test_main_keyboard_is_not_overloaded():
     bot = make_bot()
     texts = keyboard_texts(bot.get_main_keyboard('ggsel'))
     assert '🩺 Диагностика' not in texts
+    assert BTN_PRODUCTS in texts
     assert BTN_PRODUCT_PREV in texts
     assert BTN_PRODUCT_NEXT in texts
     assert BTN_AUTO_ON not in texts
@@ -473,9 +474,13 @@ async def test_switch_active_product_cycles_and_clears_pending():
     assert bot.profile_products['ggsel'] == 1003
     assert 100 not in bot.pending_actions
     update.message.reply_text.assert_awaited_once()
-    args, _kwargs = update.message.reply_text.await_args
+    args, kwargs = update.message.reply_text.await_args
     assert 'Активный товар: 1003 (3/3)' in args[0]
     assert 'Незавершённый ввод сброшен' in args[0]
+    assert 'Открой ⚙ Настройки' in args[0]
+    assert BTN_SETTINGS in keyboard_texts(kwargs['reply_markup'])
+    assert BTN_PRODUCT_PREV in keyboard_texts(kwargs['reply_markup'])
+    bot.send_settings.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -491,8 +496,11 @@ async def test_switch_active_product_with_single_product_keeps_selection():
 
     assert bot.profile_products['ggsel'] == 1001
     update.message.reply_text.assert_awaited_once()
-    args, _kwargs = update.message.reply_text.await_args
+    args, kwargs = update.message.reply_text.await_args
     assert 'Активный товар: 1001 (1/1)' in args[0]
+    assert BTN_SETTINGS in keyboard_texts(kwargs['reply_markup'])
+    assert BTN_PRODUCT_NEXT in keyboard_texts(kwargs['reply_markup'])
+    bot.send_settings.assert_not_called()
 
 
 @pytest.mark.asyncio

@@ -545,7 +545,7 @@ class TelegramBot:
     def get_main_keyboard(self, profile_id: Optional[str] = None):
         return ReplyKeyboardMarkup(
             [
-                [BTN_STATUS],
+                [BTN_STATUS, BTN_PRODUCTS],
                 [BTN_PRODUCT_PREV, BTN_PRODUCT_NEXT],
                 [BTN_PROFILE, BTN_SETTINGS],
             ],
@@ -576,7 +576,6 @@ class TelegramBot:
             [auto_toggle_button],
             [BTN_UP, BTN_DOWN],
             [BTN_INTERVAL, BTN_MODE],
-            [BTN_PRODUCTS],
             [BTN_ADD_URL, BTN_REMOVE_URL],
         ]
         if self._chat_autoreply_supported(profile):
@@ -1501,7 +1500,7 @@ class TelegramBot:
         if not product_ids:
             await update.message.reply_text(
                 '❌ В профиле нет товаров для переключения',
-                reply_markup=self.get_settings_keyboard(profile_id),
+                reply_markup=self.get_main_keyboard(profile_id),
             )
             return
 
@@ -1530,12 +1529,12 @@ class TelegramBot:
                 f'✅ Активный товар: {new_product_id} '
                 f'({new_idx}/{len(product_ids)})\n'
                 'ℹ️ Стратегия и автоцена применяются только к '
-                'активному товару.'
+                'активному товару.\n'
+                'Открой ⚙ Настройки, если нужно изменить параметры.'
                 f'{suffix}'
             ),
-            reply_markup=self.get_settings_keyboard(profile_id),
+            reply_markup=self.get_main_keyboard(profile_id),
         )
-        await self.send_settings(chat_id, update)
 
     async def toggle_mode(self, chat_id: int, user_id: int, update: Update):
         if not update.message:
