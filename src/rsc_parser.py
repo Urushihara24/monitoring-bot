@@ -99,6 +99,18 @@ class RSCParser:
             self.method_fail_count.get(method, 0) + 1
         )
 
+    def _retry_delay_seconds(self, attempt: int, *, plati: bool = False) -> float:
+        """
+        Мягкий exponential backoff с jitter.
+        Для plati делаем немного более длинную паузу между ретраями.
+        """
+        base = 1.0 if plati else 0.7
+        factor = 1.7 if plati else 1.6
+        cap = 8.0 if plati else 6.0
+        delay = base * (factor ** max(0, attempt))
+        jitter = random.uniform(0.0, 0.35)
+        return min(cap, delay + jitter)
+
     def _get_random_user_agent(self) -> str:
         return random.choice(USER_AGENTS)
 
@@ -477,7 +489,12 @@ class RSCParser:
                         if plati_result.success:
                             return plati_result
                         if attempt < self.max_retries:
-                            time.sleep(2 ** attempt)
+                            time.sleep(
+                                self._retry_delay_seconds(
+                                    attempt,
+                                    plati=True,
+                                )
+                            )
                             headers['User-Agent'] = self._get_random_user_agent()
                             continue
                     reason = f'http_{resp.status_code}'
@@ -490,7 +507,12 @@ class RSCParser:
                     )
                 if resp.status_code == 429:
                     if attempt < self.max_retries:
-                        time.sleep(2 ** attempt)
+                        time.sleep(
+                            self._retry_delay_seconds(
+                                attempt,
+                                plati=self._is_plati_domain(url),
+                            )
+                        )
                         headers['User-Agent'] = self._get_random_user_agent()
                         continue
                     return self._blocked_result(
@@ -502,7 +524,12 @@ class RSCParser:
                     )
                 if resp.status_code != 200:
                     if attempt < self.max_retries:
-                        time.sleep(2 ** attempt)
+                        time.sleep(
+                            self._retry_delay_seconds(
+                                attempt,
+                                plati=self._is_plati_domain(url),
+                            )
+                        )
                         headers['User-Agent'] = self._get_random_user_agent()
                         continue
                     return ParseResult(
@@ -542,7 +569,12 @@ class RSCParser:
                 return result
             except Exception as e:
                 if attempt < self.max_retries:
-                    time.sleep(2 ** attempt)
+                    time.sleep(
+                        self._retry_delay_seconds(
+                            attempt,
+                            plati=self._is_plati_domain(url),
+                        )
+                    )
                     headers['User-Agent'] = self._get_random_user_agent()
                     continue
                 return ParseResult(
@@ -641,6 +673,11 @@ class RSCParser:
             qty_candidates.append(min_qty)
         if 1 not in qty_candidates:
             qty_candidates.append(1)
+        # Резервные qty-уровни для случаев, когда сайт отвергает n=1
+        # (или скрывает корректную unit-цену только на типичных порогах).
+        for fallback_qty in (100, 200):
+            if fallback_qty not in qty_candidates:
+                qty_candidates.append(fallback_qty)
 
         headers = {
             'User-Agent': self._get_random_user_agent(),
@@ -649,59 +686,87 @@ class RSCParser:
         }
 
         last_error: Optional[str] = None
+        currency_candidates = ('RUB', 'wmr', '')
         for qty in qty_candidates:
-            api_url = (
-                f'https://plati.market/asp/price_options.asp?'
-                f'p={product_id}&n={qty}&c=RUB&e=&d=false&x=&rnd={random.random()}'
-            )
-            try:
-                response = stealth_requests.get(
-                    api_url,
-                    headers=headers,
-                    timeout=timeout,
+            for currency in currency_candidates:
+                api_url = (
+                    f'https://plati.market/asp/price_options.asp?'
+                    f'p={product_id}&n={qty}&c={currency}&e=&d=false'
+                    f'&x=&rnd={random.random()}'
                 )
-            except Exception as e:
-                last_error = f'Plati fallback exception: {e}'
-                continue
+                for attempt in range(self.max_retries + 1):
+                    try:
+                        response = stealth_requests.get(
+                            api_url,
+                            headers=headers,
+                            timeout=timeout,
+                        )
+                    except Exception as e:
+                        last_error = f'Plati fallback exception: {e}'
+                        if attempt < self.max_retries:
+                            time.sleep(
+                                self._retry_delay_seconds(
+                                    attempt,
+                                    plati=True,
+                                )
+                            )
+                            headers['User-Agent'] = self._get_random_user_agent()
+                            continue
+                        break
 
-            if response.status_code != 200:
-                last_error = f'Plati fallback HTTP {response.status_code}'
-                continue
+                    if response.status_code in (403, 429, 500, 502, 503, 504):
+                        last_error = f'Plati fallback HTTP {response.status_code}'
+                        if attempt < self.max_retries:
+                            time.sleep(
+                                self._retry_delay_seconds(
+                                    attempt,
+                                    plati=True,
+                                )
+                            )
+                            headers['User-Agent'] = self._get_random_user_agent()
+                            continue
+                        break
 
-            try:
-                payload = response.json()
-            except Exception:
-                last_error = 'Plati fallback: invalid JSON'
-                continue
-            if not isinstance(payload, dict):
-                last_error = 'Plati fallback: invalid payload'
-                continue
+                    if response.status_code != 200:
+                        last_error = f'Plati fallback HTTP {response.status_code}'
+                        break
 
-            price = self._coerce_price(payload.get('price'))
-            err_code = str(payload.get('err', '0')).strip()
-            # На части товаров n может быть ниже минимального и err != 0,
-            # но unit-цена в price при этом корректная.
-            if err_code not in ('0', '') and (price is None or price <= 0):
-                last_error = f'Plati fallback: err={err_code}'
-                continue
+                    try:
+                        payload = response.json()
+                    except Exception:
+                        last_error = 'Plati fallback: invalid JSON'
+                        break
+                    if not isinstance(payload, dict):
+                        last_error = 'Plati fallback: invalid payload'
+                        break
 
-            if price is None:
-                amount = self._coerce_price(payload.get('amount'))
-                cnt = self._parse_quantity_value(payload.get('cnt'))
-                if amount is not None and cnt and cnt > 0:
-                    price = round(amount / cnt, 4)
-            if price is None or price <= 0:
-                last_error = 'Plati fallback: поле price отсутствует'
-                continue
+                    price = self._coerce_price(payload.get('price'))
+                    err_code = str(payload.get('err', '0')).strip()
+                    # На части товаров n может быть ниже минимального и err != 0,
+                    # но unit-цена в price при этом корректная.
+                    if err_code not in ('0', '') and (
+                        price is None or price <= 0
+                    ):
+                        last_error = f'Plati fallback: err={err_code}'
+                        break
 
-            return ParseResult(
-                success=True,
-                price=price,
-                url=url,
-                offers=[Offer(price=price)],
-                method=method,
-                status_code=response.status_code,
-            )
+                    if price is None:
+                        amount = self._coerce_price(payload.get('amount'))
+                        cnt = self._parse_quantity_value(payload.get('cnt'))
+                        if amount is not None and cnt and cnt > 0:
+                            price = round(amount / cnt, 4)
+                    if price is None or price <= 0:
+                        last_error = 'Plati fallback: поле price отсутствует'
+                        break
+
+                    return ParseResult(
+                        success=True,
+                        price=price,
+                        url=url,
+                        offers=[Offer(price=price)],
+                        method=method,
+                        status_code=response.status_code,
+                    )
 
         return ParseResult(
             success=False,

@@ -94,6 +94,7 @@ class Scheduler:
         self._running = False
         self._env_cookies_signature: Optional[tuple[str, int, int]] = None
         self._env_cookies_cached_value: Optional[str] = None
+        self._own_product_url_cache: Optional[str] = None
 
     def _runtime(self):
         return storage.get_runtime_config(
@@ -118,11 +119,141 @@ class Scheduler:
             return ''
         return raw.replace('$$', '$')
 
-    def _read_current_price(self) -> Optional[float]:
+    def _resolve_own_product_url(self) -> Optional[str]:
+        """
+        Возвращает URL карточки собственного товара (кешируется).
+        """
+        if self._own_product_url_cache:
+            return self._own_product_url_cache
+        if self.product_id <= 0:
+            return None
+
+        fallback = f'https://ggsel.net/catalog/product/{int(self.product_id)}'
+        url = fallback
+
+        get_product_info = getattr(self.api_client, 'get_product_info', None)
+        if callable(get_product_info):
+            try:
+                info = get_product_info(self.product_id, timeout=10) or {}
+            except Exception as e:
+                logger.warning(
+                    '[%s] Не удалось получить URL карточки товара: %s',
+                    self.profile_name,
+                    e,
+                )
+            else:
+                candidate = str(info.get('url') or '').strip()
+                if candidate:
+                    if candidate.startswith('http://') or candidate.startswith(
+                        'https://'
+                    ):
+                        url = candidate
+                    elif candidate.startswith('/'):
+                        url = f'https://ggsel.net{candidate}'
+                    else:
+                        url = f'https://ggsel.net/{candidate.lstrip("/")}'
+
+        self._own_product_url_cache = url
+        return url
+
+    def _read_ggsel_card_unit_price(self, runtime) -> Optional[float]:
+        """
+        Читает цену собственного GGSEL товара через HTML карточку
+        (unit price за 1 V-Bucks), без fallback на api4.
+        """
+        product_url = self._resolve_own_product_url()
+        if not product_url:
+            return None
+
+        cookies = None
+        if runtime is not None:
+            cookies = getattr(runtime, 'COMPETITOR_COOKIES', None) or None
+
+        result = rsc_parser._parse_with_stealth(  # noqa: SLF001
+            product_url,
+            timeout=12,
+            cookies=cookies,
+        )
+        if (
+            not result.success
+            and cookies
+            and getattr(result, 'cookies_expired', False)
+        ):
+            # Если cookies протухли, для своей карточки пробуем без cookies.
+            result = rsc_parser._parse_with_stealth(  # noqa: SLF001
+                product_url,
+                timeout=12,
+                cookies=None,
+            )
+
+        if result.success and result.price is not None:
+            price = round(float(result.price), 4)
+            logger.info(
+                '[%s] Цена по карточке товара: %.4f RUB (method=%s)',
+                self.profile_name,
+                price,
+                result.method,
+            )
+            return price
+
+        logger.warning(
+            '[%s] Не удалось получить цену из карточки товара: '
+            'url=%s, method=%s, status=%s, reason=%s, error=%s',
+            self.profile_name,
+            product_url,
+            result.method,
+            result.status_code,
+            result.block_reason,
+            result.error,
+        )
+        return None
+
+    def _read_current_price(self, runtime=None) -> Optional[float]:
         """
         Читает текущую цену в приоритете:
-        1) display/public (в т.ч. unit price), 2) seller API.
+        GGSEL: карточка товара (unit) -> seller API.
+        DigiSeller: display/public (unit only).
         """
+        if self.profile_id == 'ggsel':
+            card_price = self._read_ggsel_card_unit_price(runtime)
+            if card_price is not None:
+                return card_price
+
+            get_public_price = getattr(self.api_client, 'get_public_price', None)
+            if callable(get_public_price):
+                try:
+                    public_price = get_public_price(self.product_id)
+                except Exception as e:
+                    logger.error(
+                        '[%s] Ошибка получения публичной unit-цены: %s',
+                        self.profile_name,
+                        e,
+                    )
+                else:
+                    if public_price is not None:
+                        try:
+                            return float(public_price)
+                        except Exception:
+                            pass
+
+            get_my_price = getattr(self.api_client, 'get_my_price', None)
+            if callable(get_my_price):
+                try:
+                    my_price = get_my_price(self.product_id)
+                except Exception as e:
+                    logger.error(
+                        '[%s] Ошибка получения текущей цены по API: %s',
+                        self.profile_name,
+                        e,
+                    )
+                    return None
+                if my_price is not None:
+                    try:
+                        return float(my_price)
+                    except Exception:
+                        return None
+            return None
+
         get_display_price = getattr(self.api_client, 'get_display_price', None)
         if callable(get_display_price):
             try:
@@ -1697,13 +1828,40 @@ class Scheduler:
                     source='runtime',
                     profile_id=self.profile_id,
                 )
+                failed_items = []
                 for idx, parsed in enumerate(competitor_results):
                     if parsed.success:
                         continue
                     source_url = (
                         runtime.COMPETITOR_URLS[idx]
-                        if idx < len(runtime.COMPETITOR_URLS) else parsed.url
+                        if idx < len(runtime.COMPETITOR_URLS)
+                        else parsed.url
                     )
+                    failed_items.append((source_url, parsed))
+
+                if failed_items:
+                    details = []
+                    for source_url, parsed in failed_items:
+                        reason = (
+                            parsed.block_reason
+                            or (
+                                f'http_{parsed.status_code}'
+                                if parsed.status_code else 'parse_failed'
+                            )
+                        )
+                        err = parsed.error or 'unknown'
+                        details.append(
+                            f'{source_url} (reason={reason}, error={err})'
+                        )
+                    logger.warning(
+                        '[%s] Не удалось получить цены конкурентов '
+                        '(fail_streak=%s): %s',
+                        self.profile_name,
+                        fail_streak,
+                        ' | '.join(details),
+                    )
+
+                for source_url, parsed in failed_items:
                     await self._notify_parser_issue_if_needed(
                         runtime=runtime,
                         url=source_url,
@@ -1804,7 +1962,7 @@ class Scheduler:
                 last_competitor_status_code=selected.status_code,
             )
 
-            current_price = self._read_current_price()
+            current_price = self._read_current_price(runtime=runtime)
             if current_price is None:
                 current_price = state.get('last_price')
             if current_price is not None:
@@ -1977,7 +2135,7 @@ class Scheduler:
                 if success:
                     applied_price = decision.price
                     try:
-                        verified_price = self._read_current_price()
+                        verified_price = self._read_current_price(runtime=runtime)
                         if verified_price is not None:
                             applied_price = round(float(verified_price), 4)
                     except Exception as e:

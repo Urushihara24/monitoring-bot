@@ -248,6 +248,52 @@ def test_parse_with_stealth_retries_plati_after_http_403(monkeypatch):
     assert calls['price'] >= 1
 
 
+def test_parse_with_plati_price_api_retries_transient_http(monkeypatch):
+    parser = RSCParser(max_retries=2)
+    calls = {'price': 0}
+
+    class Price403:
+        status_code = 403
+        text = ''
+
+        def json(self):  # pragma: no cover
+            return {}
+
+    class Price200:
+        status_code = 200
+        text = '{"price":"0,33","cnt":"100","amount":"33","err":"0"}'
+
+        def json(self):
+            return {
+                'price': '0,33',
+                'cnt': '100',
+                'amount': '33',
+                'err': '0',
+            }
+
+    def fake_get(url, **_kwargs):
+        if 'price_options.asp' not in url:
+            raise AssertionError('unexpected URL')  # pragma: no cover
+        calls['price'] += 1
+        if calls['price'] < 3:
+            return Price403()
+        return Price200()
+
+    monkeypatch.setattr(rsc_module.stealth_requests, 'get', fake_get)
+    monkeypatch.setattr(rsc_module.time, 'sleep', lambda _s: None)
+
+    result = parser._parse_with_plati_price_api(
+        url='https://plati.market/itm/name/5655506',
+        html='<input type="hidden" name="product_id" value="5655506" />',
+        timeout=3,
+    )
+
+    assert result.success
+    assert result.method == 'plati_price_options'
+    assert result.price == 0.33
+    assert calls['price'] >= 3
+
+
 def test_parse_url_success_uses_stealth(monkeypatch):
     parser = RSCParser(max_retries=0)
     monkeypatch.setattr(

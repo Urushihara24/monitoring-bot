@@ -147,6 +147,143 @@ def test_read_current_price_digiseller_skips_my_price_fallback():
     assert api.my_price_calls == 0
 
 
+def test_read_current_price_ggsel_prefers_card_unit_price(monkeypatch):
+    class ApiClient:
+        def __init__(self):
+            self.my_price_calls = 0
+
+        def get_product_info(self, _product_id, timeout=10):
+            return {'url': 'https://ggsel.net/catalog/product/4697439'}
+
+        def get_my_price(self, _product_id):
+            self.my_price_calls += 1
+            return 0.25
+
+    api = ApiClient()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=DummyTelegramBot(),
+        profile_id='ggsel',
+        profile_name='GGSEL',
+        product_id=4697439,
+        competitor_urls=[],
+    )
+
+    monkeypatch.setattr(
+        scheduler_mod.rsc_parser,
+        '_parse_with_stealth',
+        lambda url, timeout=12, cookies=None: ParseResult(
+            success=True,
+            price=0.2549,
+            error=None,
+            offers=[],
+            rank=None,
+            method='stealth_requests',
+            status_code=200,
+            url=url,
+        ),
+    )
+
+    runtime = SimpleNamespace(COMPETITOR_COOKIES='foo=bar')
+    assert scheduler._read_current_price(runtime=runtime) == 0.2549
+    assert api.my_price_calls == 0
+
+
+def test_read_current_price_ggsel_fallbacks_to_my_price(monkeypatch):
+    class ApiClient:
+        def __init__(self):
+            self.my_price_calls = 0
+
+        def get_product_info(self, _product_id, timeout=10):
+            return {'url': 'https://ggsel.net/catalog/product/4697439'}
+
+        def get_my_price(self, _product_id):
+            self.my_price_calls += 1
+            return 0.2649
+
+    api = ApiClient()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=DummyTelegramBot(),
+        profile_id='ggsel',
+        profile_name='GGSEL',
+        product_id=4697439,
+        competitor_urls=[],
+    )
+
+    monkeypatch.setattr(
+        scheduler_mod.rsc_parser,
+        '_parse_with_stealth',
+        lambda url, timeout=12, cookies=None: ParseResult(
+            success=False,
+            price=None,
+            error='HTTP 403',
+            offers=[],
+            rank=None,
+            method='stealth_requests',
+            status_code=403,
+            url=url,
+            block_reason='http_403',
+        ),
+    )
+
+    runtime = SimpleNamespace(COMPETITOR_COOKIES='foo=bar')
+    assert scheduler._read_current_price(runtime=runtime) == 0.2649
+    assert api.my_price_calls == 1
+
+
+def test_read_current_price_ggsel_fallbacks_to_public_before_my_price(
+    monkeypatch,
+):
+    class ApiClient:
+        def __init__(self):
+            self.my_price_calls = 0
+            self.public_calls = 0
+
+        def get_product_info(self, _product_id, timeout=10):
+            return {'url': 'https://ggsel.net/catalog/product/4697439'}
+
+        def get_public_price(self, _product_id):
+            self.public_calls += 1
+            return 0.3349
+
+        def get_my_price(self, _product_id):
+            self.my_price_calls += 1
+            return 0.33
+
+    api = ApiClient()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=DummyTelegramBot(),
+        profile_id='ggsel',
+        profile_name='GGSEL',
+        product_id=4697439,
+        competitor_urls=[],
+    )
+
+    monkeypatch.setattr(
+        scheduler_mod.rsc_parser,
+        '_parse_with_stealth',
+        lambda url, timeout=12, cookies=None: ParseResult(
+            success=False,
+            price=None,
+            error='HTTP 401',
+            offers=[],
+            rank=None,
+            method='stealth_requests',
+            status_code=401,
+            url=url,
+            block_reason='http_401',
+            cookies_expired=True,
+        ),
+    )
+
+    runtime = SimpleNamespace(COMPETITOR_COOKIES='foo=bar')
+    assert scheduler._read_current_price(runtime=runtime) == 0.3349
+    assert api.public_calls == 1
+    assert api.my_price_calls == 0
+
+
 @pytest.mark.asyncio
 async def test_notify_parser_issue_digiseller_transient_403_suppressed(
     monkeypatch,
