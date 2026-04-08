@@ -1720,11 +1720,18 @@ class Scheduler:
                         first_error.status_code if first_error else None
                     ),
                 )
-                await self._notify_error_throttled(
-                    key='no_competitor_prices',
-                    message='Не удалось получить цены конкурентов',
-                    cooldown_seconds=3600,
-                )
+                if getattr(runtime, 'NOTIFY_PARSER_ISSUES', True):
+                    await self._notify_error_throttled(
+                        key='no_competitor_prices',
+                        message='Не удалось получить цены конкурентов',
+                        cooldown_seconds=3600,
+                    )
+                else:
+                    logger.info(
+                        '[%s] Уведомление no_competitor_prices отключено '
+                        '(NOTIFY_PARSER_ISSUES=false)',
+                        self.profile_name,
+                    )
                 storage.increment_skip_count(profile_id=self.profile_id)
                 return
 

@@ -1178,3 +1178,96 @@ async def test_run_cycle_normalizes_string_state_last_price_fallback(monkeypatch
     await scheduler.run_cycle()
 
     assert captured['current_price'] == 0.2649
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_no_competitor_prices_suppressed_when_parser_notify_off(
+    monkeypatch,
+):
+    api_client = SimpleNamespace(
+        get_my_price=Mock(return_value=0.2649),
+        update_price=Mock(),
+    )
+    scheduler = Scheduler(
+        api_client,
+        DummyTelegramBot(),
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=['https://plati.market/itm/name/5655506'],
+    )
+
+    runtime = make_runtime(
+        NOTIFY_PARSER_ISSUES=False,
+        COMPETITOR_URLS=['https://plati.market/itm/name/5655506'],
+    )
+    state = {
+        'auto_mode': True,
+        'last_competitor_min': 0.33,
+        'last_update': None,
+        'last_price': 0.2649,
+    }
+
+    monkeypatch.setattr(scheduler, '_runtime', lambda: runtime)
+    monkeypatch.setattr(scheduler, '_state', lambda: state)
+    monkeypatch.setattr(
+        scheduler_module,
+        'validate_runtime_config',
+        lambda _runtime: (True, []),
+    )
+    monkeypatch.setattr(
+        scheduler,
+        '_sync_cookies_from_env',
+        AsyncMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        scheduler,
+        '_reload_cookies_from_backup',
+        AsyncMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        scheduler,
+        '_parse_competitor_price',
+        AsyncMock(
+            return_value=ParseResult(
+                success=False,
+                price=None,
+                error='HTTP 403',
+                block_reason='http_403',
+                status_code=403,
+                url='https://plati.market/itm/name/5655506',
+                method='stealth_requests',
+            )
+        ),
+    )
+
+    notify_error = AsyncMock()
+    monkeypatch.setattr(scheduler, '_notify_error_throttled', notify_error)
+    monkeypatch.setattr(scheduler, '_notify_parser_issue_if_needed', AsyncMock())
+
+    skip_calls = []
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'increment_skip_count',
+        lambda **kwargs: skip_calls.append(kwargs),
+    )
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'update_state',
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'set_runtime_setting',
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        scheduler_module.storage,
+        'get_runtime_setting',
+        lambda *_args, **_kwargs: '0',
+    )
+
+    await scheduler.run_cycle()
+
+    notify_error.assert_not_awaited()
+    assert skip_calls, 'skip counter should be incremented'
