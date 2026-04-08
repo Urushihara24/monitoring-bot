@@ -844,6 +844,56 @@ async def test_pending_manage_products_add(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_pending_manage_products_add_inline_pair(monkeypatch):
+    bot = make_bot()
+    bot.pending_actions[100] = ('MANAGE_PRODUCTS', 'ggsel')
+    bot.send_settings = AsyncMock()
+
+    captured = {}
+
+    def fake_upsert_tracked_product(
+        *,
+        profile_id='ggsel',
+        product_id=0,
+        competitor_urls=None,
+        enabled=True,
+    ):
+        captured['profile_id'] = profile_id
+        captured['product_id'] = product_id
+        captured['competitor_urls'] = competitor_urls
+        captured['enabled'] = enabled
+
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'upsert_tracked_product',
+        fake_upsert_tracked_product,
+    )
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'normalize_competitor_urls',
+        lambda urls: [u.strip() for u in urls if u.strip()],
+    )
+    update = make_update('4697439 https://a.example/item')
+
+    await bot.handle_pending_action(
+        100,
+        1,
+        '4697439 https://a.example/item',
+        update,
+    )
+
+    assert captured == {
+        'profile_id': 'ggsel',
+        'product_id': 4697439,
+        'competitor_urls': ['https://a.example/item'],
+        'enabled': True,
+    }
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert 'Пара(ы) добавлены: 1' in args[0]
+
+
+@pytest.mark.asyncio
 async def test_profile_switch_clears_pending_action():
     bot = TelegramBot(
         api_clients={'ggsel': object(), 'digiseller': object()},

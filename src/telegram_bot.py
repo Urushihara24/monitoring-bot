@@ -334,6 +334,21 @@ class TelegramBot:
             )
         return lines
 
+    def _format_tracking_pairs(self, profile_id: str, runtime=None) -> list[str]:
+        tracked_products = self._tracked_products(profile_id, runtime=runtime)
+        if not tracked_products:
+            return ['нет']
+        lines: list[str] = []
+        for item in tracked_products:
+            product_id = int(item.get('product_id') or 0)
+            urls = item.get('competitor_urls', []) or []
+            if not urls:
+                lines.append(f'{product_id} ↔ (конкурент не задан)')
+                continue
+            for url in urls:
+                lines.append(f'{product_id} ↔ {url}')
+        return lines
+
     def _fmt_price(self, value) -> str:
         if value is None:
             return 'N/A'
@@ -838,9 +853,11 @@ class TelegramBot:
                 action='MANAGE_PRODUCTS',
                 prompt=(
                     'Отправь ID товара для добавления/выбора.\n'
+                    'Или сразу пару:\n'
+                    '<product_id> <url_конкурента>\n'
                     'Для списка товаров отправь: list\n'
                     'Пример:\n'
-                    '4697439'
+                    '4697439 https://ggsel.net/catalog/product/102124601'
                 ),
                 update=update,
             )
@@ -909,6 +926,8 @@ class TelegramBot:
         runtime = self._runtime_for_product(profile_id, product_id)
         tracked_lines = self._format_tracked_products(profile_id, runtime=runtime)
         tracked_count = len(tracked_lines) if tracked_lines != ['нет'] else 0
+        pair_lines = self._format_tracking_pairs(profile_id, runtime=runtime)
+        pair_lines = self._format_tracking_pairs(profile_id, runtime=runtime)
 
         competitor_rank = state.get('last_competitor_rank')
         competitor_info = f'#{competitor_rank}' if competitor_rank else 'N/A'
@@ -1000,8 +1019,9 @@ class TelegramBot:
         text = f"""📊 Статус
 
 🧭 Активная площадка: {profile_name}
-🆔 Активный товар: {product_id or 'N/A'}
+🆔 Активный товар (для управления): {product_id or 'N/A'}
 📦 Товаров в мониторинге: {tracked_count}
+🛰 Мониторинг по товарам: ВСЕ ИЗ СПИСКА
 💰 Моя цена: {display_price_str}₽
 🎯 Выставлено ботом: {target_price_str}₽
 📈 Цена конкурента: {competitor_price_str}₽
@@ -1022,6 +1042,8 @@ class TelegramBot:
 
 📦 Список товаров:
 {chr(10).join(tracked_lines)}
+🔗 Пары мониторинга:
+{chr(10).join(pair_lines)}
 """
         await update.message.reply_text(
             text,
@@ -1074,8 +1096,9 @@ class TelegramBot:
         text = f"""⚙️ Настройки
 
 🧭 Активная площадка: {profile_name}
-🆔 Активный товар: {product_id or 'N/A'}
+🆔 Активный товар (для URL-настроек): {product_id or 'N/A'}
 📦 Товаров в мониторинге: {tracked_count}
+🛰 Мониторинг по товарам: ВСЕ ИЗ СПИСКА
 🔔 Автоцена: {'ВКЛ' if state.get('auto_mode', True) else 'ВЫКЛ'}
 🗂 Раздел: {'Расширенные' if is_advanced else 'Быстрые'}
 📉 MIN: {runtime.MIN_PRICE:.4f}₽
@@ -1095,6 +1118,7 @@ class TelegramBot:
 📡 Мониторинг: {monitor_mode}
 🔗 Конкурентов: {len(runtime.COMPETITOR_URLS)}
 📦 Список товаров: {', '.join(tracked_lines)}
+🔗 Пары: {' | '.join(pair_lines)}
 {chat_block}
 """
         await update.message.reply_text(
@@ -1529,8 +1553,30 @@ class TelegramBot:
                 )
                 return
 
+            normalized_urls = []
+            product_token = normalized
+            if ' ' in normalized:
+                product_token, raw_urls_part = normalized.split(' ', 1)
+                raw_urls = [
+                    item for item in raw_urls_part
+                    .replace('\n', ' ')
+                    .split(',') if item.strip()
+                ]
+                if len(raw_urls) == 1 and ' ' in raw_urls[0].strip():
+                    raw_urls = [
+                        item for item in raw_urls[0].split(' ')
+                        if item.strip()
+                    ]
+                normalized_urls = storage.normalize_competitor_urls(raw_urls)
+                if not normalized_urls:
+                    await update.message.reply_text(
+                        '❌ Не найдено валидных URL (http/https)',
+                        reply_markup=self.get_settings_keyboard(profile_id),
+                    )
+                    return
+
             try:
-                product_id = int(float(normalized.replace(',', '.')))
+                product_id = int(float(product_token.replace(',', '.')))
             except ValueError:
                 await update.message.reply_text(
                     '❌ Нужен ID товара (число) или `list`',
@@ -1550,21 +1596,43 @@ class TelegramBot:
                 for item in tracked
             }
             is_new_product = product_id not in tracked_ids
+            existing_urls = []
+            if not is_new_product:
+                for item in tracked:
+                    if int(item.get('product_id') or 0) == product_id:
+                        existing_urls = list(item.get('competitor_urls', []) or [])
+                        break
+            merged_urls = storage.normalize_competitor_urls(
+                existing_urls + normalized_urls
+            )
             if is_new_product:
                 storage.upsert_tracked_product(
                     profile_id=profile_id,
                     product_id=product_id,
-                    competitor_urls=[],
+                    competitor_urls=merged_urls,
+                )
+            elif normalized_urls:
+                storage.upsert_tracked_product(
+                    profile_id=profile_id,
+                    product_id=product_id,
+                    competitor_urls=merged_urls,
                 )
             self.profile_products[profile_id] = product_id
             self.pending_actions.pop(chat_id, None)
 
             action_text = 'добавлен' if is_new_product else 'выбран'
+            pair_hint = (
+                f'\nПара(ы) добавлены: {len(normalized_urls)}'
+                if normalized_urls else ''
+            )
             await update.message.reply_text(
                 (
                     f'✅ Товар {product_id} {action_text}\n'
                     'Теперь нажми `🔗 Добавить URL` и пришли ссылку '
                     'конкурента для этого товара.'
+                    f'{pair_hint}\n'
+                    'ℹ️ Бот мониторит все товары из списка, '
+                    'активный товар нужен только для редактирования.'
                 ),
                 reply_markup=self.get_settings_keyboard(profile_id),
             )
