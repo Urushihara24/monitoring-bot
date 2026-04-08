@@ -927,7 +927,6 @@ class TelegramBot:
         tracked_lines = self._format_tracked_products(profile_id, runtime=runtime)
         tracked_count = len(tracked_lines) if tracked_lines != ['нет'] else 0
         pair_lines = self._format_tracking_pairs(profile_id, runtime=runtime)
-        pair_lines = self._format_tracking_pairs(profile_id, runtime=runtime)
 
         competitor_rank = state.get('last_competitor_rank')
         competitor_info = f'#{competitor_rank}' if competitor_rank else 'N/A'
