@@ -11,11 +11,12 @@ from src.telegram_bot import (
     BTN_CHAT_AUTOREPLY_OFF,
     BTN_CHAT_AUTOREPLY_ON,
     BTN_DOWN,
-    BTN_HISTORY,
     BTN_INTERVAL,
     BTN_MAX,
     BTN_MIN,
     BTN_MODE,
+    BTN_PRODUCT_NEXT,
+    BTN_PRODUCT_PREV,
     BTN_POSITION,
     BTN_PRICE,
     BTN_PRODUCTS,
@@ -105,9 +106,10 @@ def test_settings_keyboard_is_not_overloaded():
     texts = keyboard_texts(bot.get_settings_keyboard())
     assert '📤 Экспорт' not in texts
     assert '📥 Импорт' not in texts
-    assert BTN_HISTORY not in texts
     assert BTN_ADD_URL in texts
     assert BTN_PRODUCTS in texts
+    assert BTN_PRODUCT_PREV not in texts
+    assert BTN_PRODUCT_NEXT not in texts
     assert BTN_REMOVE_URL in texts
     assert BTN_PRICE not in texts
     assert BTN_STEP not in texts
@@ -122,11 +124,14 @@ def test_advanced_settings_keyboard_contains_expert_controls():
     bot = make_bot()
     texts = keyboard_texts(bot.get_settings_keyboard(advanced=True))
     assert BTN_SETTINGS_QUICK in texts
-    assert BTN_HISTORY in texts
     assert BTN_PRICE in texts
     assert BTN_STEP in texts
     assert BTN_MIN in texts
     assert BTN_MAX in texts
+    assert BTN_POSITION in texts
+    assert BTN_PRODUCTS not in texts
+    assert BTN_PRODUCT_PREV not in texts
+    assert BTN_PRODUCT_NEXT not in texts
     assert BTN_AUTO_ON not in texts
     assert BTN_AUTO_OFF not in texts
 
@@ -151,6 +156,8 @@ def test_main_keyboard_is_not_overloaded():
     bot = make_bot()
     texts = keyboard_texts(bot.get_main_keyboard('ggsel'))
     assert '🩺 Диагностика' not in texts
+    assert BTN_PRODUCT_PREV in texts
+    assert BTN_PRODUCT_NEXT in texts
     assert BTN_AUTO_ON not in texts
     assert BTN_AUTO_OFF not in texts
     assert BTN_UP not in texts
@@ -268,6 +275,7 @@ async def test_mode_and_position_buttons_call_toggles():
     bot._state = lambda _profile: {'auto_mode': True}
     bot.toggle_mode = AsyncMock()
     bot.toggle_position_filter = AsyncMock()
+    bot.switch_active_product = AsyncMock()
 
     mode = make_update(BTN_MODE)
     await bot.handle_message(mode, None)
@@ -276,6 +284,22 @@ async def test_mode_and_position_buttons_call_toggles():
     position = make_update(BTN_POSITION)
     await bot.handle_message(position, None)
     bot.toggle_position_filter.assert_awaited_once_with(100, 1, position)
+
+    prev_product = make_update(BTN_PRODUCT_PREV)
+    await bot.handle_message(prev_product, None)
+    bot.switch_active_product.assert_any_await(
+        100,
+        prev_product,
+        step=-1,
+    )
+
+    next_product = make_update(BTN_PRODUCT_NEXT)
+    await bot.handle_message(next_product, None)
+    bot.switch_active_product.assert_any_await(
+        100,
+        next_product,
+        step=1,
+    )
 
 
 @pytest.mark.asyncio
@@ -397,19 +421,14 @@ async def test_set_chat_autoreply_enabled_updates_runtime_setting(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_remove_and_history_buttons_call_handlers():
+async def test_remove_url_button_calls_handler():
     bot = make_bot()
     bot._state = lambda _profile: {'auto_mode': True}
     bot.start_remove_url = AsyncMock()
-    bot.show_settings_history = AsyncMock()
 
     remove_url = make_update(BTN_REMOVE_URL)
     await bot.handle_message(remove_url, None)
     bot.start_remove_url.assert_awaited_once_with(100, remove_url)
-
-    history = make_update(BTN_HISTORY)
-    await bot.handle_message(history, None)
-    bot.show_settings_history.assert_awaited_once_with(100, history)
 
 
 @pytest.mark.asyncio
@@ -437,6 +456,43 @@ async def test_unknown_message_shows_main_keyboard():
     args, kwargs = update.message.reply_text.await_args
     assert args[0] == 'Используй кнопки 👇'
     assert kwargs['reply_markup'] is not None
+
+
+@pytest.mark.asyncio
+async def test_switch_active_product_cycles_and_clears_pending():
+    bot = make_bot()
+    bot._state = lambda _profile: {'auto_mode': True}
+    bot.send_settings = AsyncMock()
+    bot.profile_products['ggsel'] = 1002
+    bot.pending_actions[100] = ('MIN_PRICE', 'ggsel')
+    bot._tracked_product_ids = lambda _profile, runtime=None: [1001, 1002, 1003]
+    update = make_update(BTN_PRODUCT_NEXT)
+
+    await bot.switch_active_product(100, update, step=1)
+
+    assert bot.profile_products['ggsel'] == 1003
+    assert 100 not in bot.pending_actions
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert 'Активный товар: 1003 (3/3)' in args[0]
+    assert 'Незавершённый ввод сброшен' in args[0]
+
+
+@pytest.mark.asyncio
+async def test_switch_active_product_with_single_product_keeps_selection():
+    bot = make_bot()
+    bot._state = lambda _profile: {'auto_mode': True}
+    bot.send_settings = AsyncMock()
+    bot.profile_products['ggsel'] = 1001
+    bot._tracked_product_ids = lambda _profile, runtime=None: [1001]
+    update = make_update(BTN_PRODUCT_PREV)
+
+    await bot.switch_active_product(100, update, step=-1)
+
+    assert bot.profile_products['ggsel'] == 1001
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert 'Активный товар: 1001 (1/1)' in args[0]
 
 
 @pytest.mark.asyncio

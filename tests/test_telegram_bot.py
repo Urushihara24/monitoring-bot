@@ -7,10 +7,11 @@ from src.telegram_bot import (
     BTN_AUTO_ON,
     BTN_BACK,
     BTN_DOWN,
-    BTN_HISTORY,
     BTN_MAX,
     BTN_MIN,
     BTN_MODE,
+    BTN_PRODUCT_NEXT,
+    BTN_PRODUCT_PREV,
     BTN_POSITION,
     BTN_PRICE,
     BTN_PRODUCTS,
@@ -77,7 +78,6 @@ async def test_keyboards_are_reply(bot):
         (BTN_MODE, 'toggle_mode'),
         (BTN_POSITION, 'toggle_position_filter'),
         (BTN_REMOVE_URL, 'start_remove_url'),
-        (BTN_HISTORY, 'show_settings_history'),
     ],
 )
 async def test_buttons_dispatch_to_methods(bot, monkeypatch, button, method_name):
@@ -120,6 +120,26 @@ async def test_auto_buttons_dispatch_toggle(bot, monkeypatch, button):
     await bot.handle_message(DummyUpdate(button), None)
     expected = button == BTN_AUTO_ON
     assert called == [expected]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('button', 'step'),
+    [
+        (BTN_PRODUCT_PREV, -1),
+        (BTN_PRODUCT_NEXT, 1),
+    ],
+)
+async def test_product_switch_buttons_dispatch(bot, monkeypatch, button, step):
+    called = []
+
+    async def _stub(chat_id, update, *, step):
+        assert chat_id == 101
+        called.append(step)
+
+    monkeypatch.setattr(bot, 'switch_active_product', _stub)
+    await bot.handle_message(DummyUpdate(button), None)
+    assert called == [step]
 
 
 @pytest.mark.asyncio

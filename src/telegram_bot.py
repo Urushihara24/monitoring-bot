@@ -51,12 +51,13 @@ BTN_STEP = '➖ Шаг'
 BTN_MIN = '📉 Мин'
 BTN_MAX = '📈 Макс'
 BTN_PRODUCTS = '📦 Товары'
+BTN_PRODUCT_PREV = '⬅ Пред. товар'
+BTN_PRODUCT_NEXT = '➡ След. товар'
 BTN_INTERVAL = '⏱ Интервал'
 BTN_MODE = '🔀 Режим'
 BTN_POSITION = '📍 Позиция'
 BTN_ADD_URL = '🔗 Добавить URL'
 BTN_REMOVE_URL = '🗑 Удалить URL'
-BTN_HISTORY = '🧾 История'
 BTN_CHAT_AUTOREPLY_ON = '💬 Инструкции: ВКЛ'
 BTN_CHAT_AUTOREPLY_OFF = '💬 Инструкции: ВЫКЛ'
 
@@ -347,6 +348,25 @@ class TelegramBot:
             default_urls=getattr(current_runtime, 'COMPETITOR_URLS', []),
         )
 
+    def _tracked_product_ids(self, profile_id: str, runtime=None) -> list[int]:
+        tracked_products = self._tracked_products(profile_id, runtime=runtime)
+        product_ids: list[int] = []
+        for item in tracked_products:
+            product_id = int(item.get('product_id') or 0)
+            if product_id <= 0 or product_id in product_ids:
+                continue
+            product_ids.append(product_id)
+        return product_ids
+
+    def _active_product_slot(self, profile_id: str, runtime=None) -> tuple[int, int]:
+        product_ids = self._tracked_product_ids(profile_id, runtime=runtime)
+        if not product_ids:
+            return (0, 0)
+        active_product_id = self._product_id(profile_id)
+        if active_product_id not in product_ids:
+            return (1, len(product_ids))
+        return (product_ids.index(active_product_id) + 1, len(product_ids))
+
     def _format_tracked_products(self, profile_id: str, runtime=None) -> list[str]:
         tracked_products = self._tracked_products(profile_id, runtime=runtime)
         if not tracked_products:
@@ -526,6 +546,7 @@ class TelegramBot:
         return ReplyKeyboardMarkup(
             [
                 [BTN_STATUS],
+                [BTN_PRODUCT_PREV, BTN_PRODUCT_NEXT],
                 [BTN_PROFILE, BTN_SETTINGS],
             ],
             resize_keyboard=True,
@@ -538,7 +559,7 @@ class TelegramBot:
         advanced: bool = False,
     ):
         profile = profile_id or self.default_profile
-        state = self._state(profile)
+        state = self._state_for_product(profile, self._product_id(profile))
         auto_enabled = bool(state.get('auto_mode', True))
         auto_toggle_button = BTN_AUTO_OFF if auto_enabled else BTN_AUTO_ON
         if advanced:
@@ -546,7 +567,7 @@ class TelegramBot:
                 [BTN_SETTINGS_QUICK],
                 [BTN_PRICE, BTN_STEP],
                 [BTN_MIN, BTN_MAX],
-                [BTN_POSITION, BTN_HISTORY],
+                [BTN_POSITION],
                 [BTN_BACK],
             ]
             return ReplyKeyboardMarkup(rows, resize_keyboard=True)
@@ -555,8 +576,8 @@ class TelegramBot:
             [auto_toggle_button],
             [BTN_UP, BTN_DOWN],
             [BTN_INTERVAL, BTN_MODE],
-            [BTN_PRODUCTS, BTN_ADD_URL],
-            [BTN_REMOVE_URL],
+            [BTN_PRODUCTS],
+            [BTN_ADD_URL, BTN_REMOVE_URL],
         ]
         if self._chat_autoreply_supported(profile):
             chat_enabled = self._chat_autoreply_enabled(profile)
@@ -896,6 +917,12 @@ class TelegramBot:
                 update=update,
             )
             return
+        if text == BTN_PRODUCT_PREV:
+            await self.switch_active_product(chat_id, update, step=-1)
+            return
+        if text == BTN_PRODUCT_NEXT:
+            await self.switch_active_product(chat_id, update, step=1)
+            return
         if text == BTN_MODE:
             await self.toggle_mode(chat_id, user_id, update)
             return
@@ -913,9 +940,6 @@ class TelegramBot:
             return
         if text == BTN_REMOVE_URL:
             await self.start_remove_url(chat_id, update)
-            return
-        if text == BTN_HISTORY:
-            await self.show_settings_history(chat_id, update)
             return
         if text == BTN_BACK:
             self.pending_actions.pop(chat_id, None)
@@ -961,6 +985,14 @@ class TelegramBot:
         tracked_lines = self._format_tracked_products(profile_id, runtime=runtime)
         tracked_count = len(tracked_lines) if tracked_lines != ['нет'] else 0
         pair_lines = self._format_tracking_pairs(profile_id, runtime=runtime)
+        active_product_slot, active_product_total = self._active_product_slot(
+            profile_id,
+            runtime=runtime,
+        )
+        active_product_slot_text = (
+            f'{active_product_slot}/{active_product_total}'
+            if active_product_total else 'N/A'
+        )
 
         competitor_rank = state.get('last_competitor_rank')
         competitor_info = f'#{competitor_rank}' if competitor_rank else 'N/A'
@@ -1053,6 +1085,7 @@ class TelegramBot:
 
 🧭 Активная площадка: {profile_name}
 🆔 Активный товар (для управления): {product_id or 'N/A'}
+🔁 Товар в списке: {active_product_slot_text}
 📦 Товаров в мониторинге: {tracked_count}
 🛰 Мониторинг по товарам: ВСЕ ИЗ СПИСКА
 💰 Моя цена: {display_price_str}₽
@@ -1098,7 +1131,16 @@ class TelegramBot:
         state = self._state_for_product(profile_id, product_id)
         runtime = self._runtime_for_product(profile_id, product_id)
         tracked_lines = self._format_tracked_products(profile_id, runtime=runtime)
+        pair_lines = self._format_tracking_pairs(profile_id, runtime=runtime)
         tracked_count = len(tracked_lines) if tracked_lines != ['нет'] else 0
+        active_product_slot, active_product_total = self._active_product_slot(
+            profile_id,
+            runtime=runtime,
+        )
+        active_product_slot_text = (
+            f'{active_product_slot}/{active_product_total}'
+            if active_product_total else 'N/A'
+        )
         monitor_enabled = bool(runtime.COMPETITOR_URLS)
         monitor_mode = (
             f'АКТИВЕН ({len(runtime.COMPETITOR_URLS)} URL)'
@@ -1126,35 +1168,58 @@ class TelegramBot:
                 f'🕓 Последний запуск: {chat_meta["last_run"]}'
             )
 
-        text = f"""⚙️ Настройки
+        base_lines = [
+            '⚙️ Настройки',
+            '',
+            f'🧭 Активная площадка: {profile_name}',
+            f'🆔 Активный товар (для редактирования): {product_id or "N/A"}',
+            f'🔁 Товар в списке: {active_product_slot_text}',
+            f'📦 Товаров в мониторинге: {tracked_count}',
+            '🛰 Мониторинг по товарам: ВСЕ ИЗ СПИСКА',
+            f'🗂 Раздел: {"Расширенные" if is_advanced else "Быстрые"}',
+            '',
+            f'🔔 Автоцена: {"ВКЛ" if state.get("auto_mode", True) else "ВЫКЛ"}',
+            f'🔹 Режим: {self._mode_label(runtime.MODE)}',
+            f'⏱️ CHECK_INTERVAL: {runtime.CHECK_INTERVAL}s',
+            f'📡 Мониторинг: {monitor_mode}',
+            f'🔗 Конкурентов: {len(runtime.COMPETITOR_URLS)}',
+            '',
+            f'📉 MIN: {runtime.MIN_PRICE:.4f}₽',
+            f'📈 MAX: {runtime.MAX_PRICE:.4f}₽',
+            f'🎯 Желаемая: {runtime.DESIRED_PRICE:.4f}₽',
+            f'↘️ Шаг: {runtime.UNDERCUT_VALUE:.4f}',
+        ]
 
-🧭 Активная площадка: {profile_name}
-🆔 Активный товар (для URL-настроек): {product_id or 'N/A'}
-📦 Товаров в мониторинге: {tracked_count}
-🛰 Мониторинг по товарам: ВСЕ ИЗ СПИСКА
-🔔 Автоцена: {'ВКЛ' if state.get('auto_mode', True) else 'ВЫКЛ'}
-🗂 Раздел: {'Расширенные' if is_advanced else 'Быстрые'}
-📉 MIN: {runtime.MIN_PRICE:.4f}₽
-📈 MAX: {runtime.MAX_PRICE:.4f}₽
-🎯 Желаемая: {runtime.DESIRED_PRICE:.4f}₽
-↘️ Шаг: {runtime.UNDERCUT_VALUE:.4f}
+        if is_advanced:
+            base_lines.extend(
+                [
+                    '',
+                    (
+                        '🔁 Обновлять только при изменении конкурента: '
+                        f'{"Да" if runtime.UPDATE_ONLY_ON_COMPETITOR_CHANGE else "Нет"}'
+                    ),
+                    (
+                        f'📍 Позиция: '
+                        f'{"Вкл" if runtime.POSITION_FILTER_ENABLED else "Выкл"}'
+                    ),
+                    f'⛑️ MAX_DOWN_STEP: {runtime.MAX_DOWN_STEP:.4f}₽',
+                    f'🚀 FAST_REBOUND_DELTA: {runtime.FAST_REBOUND_DELTA:.4f}₽',
+                    f'📦 Список товаров: {", ".join(tracked_lines)}',
+                    f'🔗 Пары: {" | ".join(pair_lines)}',
+                ]
+            )
+        else:
+            base_lines.extend(
+                [
+                    '',
+                    '💡 Для тонких лимитов и доп. параметров: 🧰 Расширенные',
+                ]
+            )
 
-🔹 Режим: {self._mode_label(runtime.MODE)}
-   - Следование: точно как конкурент (4 знака)
-   - Демпинг: витрина - 0.0051 (получается ...49)
-   - Повышение: витрина + 0.0049 (получается ...49)
+        if chat_block:
+            base_lines.extend(['', chat_block.strip()])
 
-⏱️ CHECK_INTERVAL: {runtime.CHECK_INTERVAL}s
-⛑️ MAX_DOWN_STEP: {runtime.MAX_DOWN_STEP:.4f}₽
-🚀 FAST_REBOUND_DELTA: {runtime.FAST_REBOUND_DELTA:.4f}₽
-🔁 Обновлять только при изменении конкурента: {'Да' if runtime.UPDATE_ONLY_ON_COMPETITOR_CHANGE else 'Нет'}
-📍 Позиция: {'Вкл' if runtime.POSITION_FILTER_ENABLED else 'Выкл'}
-📡 Мониторинг: {monitor_mode}
-🔗 Конкурентов: {len(runtime.COMPETITOR_URLS)}
-📦 Список товаров: {', '.join(tracked_lines)}
-🔗 Пары: {' | '.join(pair_lines)}
-{chat_block}
-"""
+        text = '\n'.join(base_lines)
         await update.message.reply_text(
             text,
             reply_markup=self.get_settings_keyboard(
@@ -1421,6 +1486,57 @@ class TelegramBot:
         )
         await self.send_settings(chat_id, update)
 
+    async def switch_active_product(
+        self,
+        chat_id: int,
+        update: Update,
+        *,
+        step: int,
+    ):
+        if not update.message:
+            return
+        profile_id = self._active_profile(chat_id)
+        runtime = self._runtime(profile_id)
+        product_ids = self._tracked_product_ids(profile_id, runtime=runtime)
+        if not product_ids:
+            await update.message.reply_text(
+                '❌ В профиле нет товаров для переключения',
+                reply_markup=self.get_settings_keyboard(profile_id),
+            )
+            return
+
+        current_product_id = self._product_id(profile_id)
+        if current_product_id not in product_ids:
+            current_idx = 0
+        else:
+            current_idx = product_ids.index(current_product_id)
+        if len(product_ids) == 1:
+            new_product_id = product_ids[0]
+        else:
+            direction = -1 if step < 0 else 1
+            new_product_id = product_ids[
+                (current_idx + direction) % len(product_ids)
+            ]
+
+        had_pending = chat_id in self.pending_actions
+        if had_pending:
+            self.pending_actions.pop(chat_id, None)
+        self.profile_products[profile_id] = new_product_id
+
+        new_idx = product_ids.index(new_product_id) + 1
+        suffix = '\n⚠️ Незавершённый ввод сброшен.' if had_pending else ''
+        await update.message.reply_text(
+            (
+                f'✅ Активный товар: {new_product_id} '
+                f'({new_idx}/{len(product_ids)})\n'
+                'ℹ️ Стратегия и автоцена применяются только к '
+                'активному товару.'
+                f'{suffix}'
+            ),
+            reply_markup=self.get_settings_keyboard(profile_id),
+        )
+        await self.send_settings(chat_id, update)
+
     async def toggle_mode(self, chat_id: int, user_id: int, update: Update):
         if not update.message:
             return
@@ -1499,29 +1615,6 @@ class TelegramBot:
             return
         self._set_pending_action(chat_id, 'REMOVE_URL', profile_id)
         lines = ['Удали номер URL:'] + [f'{i}. {u}' for i, u in enumerate(urls, 1)]
-        await update.message.reply_text(
-            '\n'.join(lines),
-            reply_markup=self.get_settings_keyboard(profile_id),
-        )
-
-    async def show_settings_history(self, chat_id: int, update: Update):
-        if not update.message:
-            return
-        profile_id = self._active_profile(chat_id)
-        rows = storage.get_settings_history(limit=15, profile_id=profile_id)
-        if not rows:
-            await update.message.reply_text(
-                'История пуста',
-                reply_markup=self.get_settings_keyboard(profile_id),
-            )
-            return
-        lines = [f'История ({self._profile_name(profile_id)}):'] + [
-            (
-                f"{r['timestamp']} | {r['key']}: "
-                f"{r['old_value']} → {r['new_value']}"
-            )
-            for r in rows
-        ]
         await update.message.reply_text(
             '\n'.join(lines),
             reply_markup=self.get_settings_keyboard(profile_id),
