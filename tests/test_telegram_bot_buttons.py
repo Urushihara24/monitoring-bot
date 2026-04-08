@@ -797,6 +797,11 @@ async def test_pending_manage_products_add(monkeypatch):
     bot = make_bot()
     bot.pending_actions[100] = ('MANAGE_PRODUCTS', 'ggsel')
     bot.send_settings = AsyncMock()
+    monkeypatch.setattr(
+        bot,
+        '_tracked_products',
+        lambda _profile_id, runtime=None: [],
+    )
 
     captured = {}
 
@@ -848,6 +853,11 @@ async def test_pending_manage_products_add_inline_pair(monkeypatch):
     bot = make_bot()
     bot.pending_actions[100] = ('MANAGE_PRODUCTS', 'ggsel')
     bot.send_settings = AsyncMock()
+    monkeypatch.setattr(
+        bot,
+        '_tracked_products',
+        lambda _profile_id, runtime=None: [],
+    )
 
     captured = {}
 
