@@ -136,23 +136,49 @@ def _build_profiles(logger: logging.Logger):
         elif not config.GGSEL_API_KEY and not config.GGSEL_ACCESS_TOKEN:
             logger.warning('[GGSEL] Профиль включен, но не задан API key/token')
         else:
-            profiles.append(
-                {
-                    'id': 'ggsel',
-                    'name': 'GGSEL',
-                    'product_id': config.GGSEL_PRODUCT_ID,
-                    'competitor_urls': ggsel_urls,
-                    'require_api_on_start': config.GGSEL_REQUIRE_API_ON_START,
-                    'client': GGSELClient(
-                        api_key=config.GGSEL_API_KEY,
-                        api_secret=config.GGSEL_API_SECRET,
-                        seller_id=config.GGSEL_SELLER_ID,
-                        base_url=config.GGSEL_BASE_URL,
-                        lang=config.GGSEL_LANG,
-                        access_token=config.GGSEL_ACCESS_TOKEN,
-                    ),
-                }
+            ggsel_tracked_products = storage.list_tracked_products(
+                profile_id='ggsel',
+                default_product_id=config.GGSEL_PRODUCT_ID,
+                default_urls=ggsel_urls,
             )
+            if not ggsel_tracked_products:
+                logger.warning(
+                    '[GGSEL] Нет товаров в tracked_products '
+                    '(и fallback GGSEL_PRODUCT_ID пуст)'
+                )
+                ggsel_tracked_products = []
+            primary = (
+                next(
+                    (
+                        item for item in ggsel_tracked_products
+                        if item['product_id'] == config.GGSEL_PRODUCT_ID
+                    ),
+                    None,
+                ) or (ggsel_tracked_products[0] if ggsel_tracked_products else None)
+            )
+            if not primary:
+                logger.warning('[GGSEL] Нет валидного товара для запуска профиля')
+            else:
+                primary_product_id = int(primary['product_id'])
+                primary_urls = list(primary.get('competitor_urls', []))
+                profiles.append(
+                    {
+                        'id': 'ggsel',
+                        'name': 'GGSEL',
+                        'product_id': primary_product_id,
+                        'competitor_urls': primary_urls,
+                        'tracked_products': ggsel_tracked_products,
+                        'require_api_on_start': config.GGSEL_REQUIRE_API_ON_START,
+                        'client': GGSELClient(
+                            api_key=config.GGSEL_API_KEY,
+                            api_secret=config.GGSEL_API_SECRET,
+                            seller_id=config.GGSEL_SELLER_ID,
+                            base_url=config.GGSEL_BASE_URL,
+                            lang=config.GGSEL_LANG,
+                            access_token=config.GGSEL_ACCESS_TOKEN,
+                        ),
+                    }
+                )
 
     if config.DIGISELLER_ENABLED:
         digi_urls = storage.get_competitor_urls(
@@ -172,26 +198,54 @@ def _build_profiles(logger: logging.Logger):
                 '[DIGISELLER] Профиль включен, но не задан API key/token'
             )
         else:
-            profiles.append(
-                {
-                    'id': 'digiseller',
-                    'name': 'DIGISELLER',
-                    'product_id': config.DIGISELLER_PRODUCT_ID,
-                    'competitor_urls': digi_urls,
-                    'require_api_on_start': (
-                        config.DIGISELLER_REQUIRE_API_ON_START
-                    ),
-                    'client': DigiSellerClient(
-                        api_key=config.DIGISELLER_API_KEY,
-                        api_secret=config.DIGISELLER_API_SECRET,
-                        seller_id=config.DIGISELLER_SELLER_ID,
-                        base_url=config.DIGISELLER_BASE_URL,
-                        lang=config.DIGISELLER_LANG,
-                        access_token=config.DIGISELLER_ACCESS_TOKEN,
-                        default_product_id=config.DIGISELLER_PRODUCT_ID,
-                    ),
-                }
+            digi_tracked_products = storage.list_tracked_products(
+                profile_id='digiseller',
+                default_product_id=config.DIGISELLER_PRODUCT_ID,
+                default_urls=digi_urls,
             )
+            if not digi_tracked_products:
+                logger.warning(
+                    '[DIGISELLER] Нет товаров в tracked_products '
+                    '(и fallback DIGISELLER_PRODUCT_ID пуст)'
+                )
+                digi_tracked_products = []
+            primary = (
+                next(
+                    (
+                        item for item in digi_tracked_products
+                        if item['product_id'] == config.DIGISELLER_PRODUCT_ID
+                    ),
+                    None,
+                ) or (digi_tracked_products[0] if digi_tracked_products else None)
+            )
+            if not primary:
+                logger.warning(
+                    '[DIGISELLER] Нет валидного товара для запуска профиля'
+                )
+            else:
+                primary_product_id = int(primary['product_id'])
+                primary_urls = list(primary.get('competitor_urls', []))
+                profiles.append(
+                    {
+                        'id': 'digiseller',
+                        'name': 'DIGISELLER',
+                        'product_id': primary_product_id,
+                        'competitor_urls': primary_urls,
+                        'tracked_products': digi_tracked_products,
+                        'require_api_on_start': (
+                            config.DIGISELLER_REQUIRE_API_ON_START
+                        ),
+                        'client': DigiSellerClient(
+                            api_key=config.DIGISELLER_API_KEY,
+                            api_secret=config.DIGISELLER_API_SECRET,
+                            seller_id=config.DIGISELLER_SELLER_ID,
+                            base_url=config.DIGISELLER_BASE_URL,
+                            lang=config.DIGISELLER_LANG,
+                            access_token=config.DIGISELLER_ACCESS_TOKEN,
+                            default_product_id=config.DIGISELLER_PRODUCT_ID,
+                        ),
+                    }
+                )
 
     return profiles
 
@@ -218,11 +272,18 @@ async def main():
 
     logger.info('Активных профилей: %s', len(profiles))
     for p in profiles:
+        tracked_products = p.get('tracked_products', [])
+        tracked_count = len(tracked_products)
+        tracked_competitors = sum(
+            len(item.get('competitor_urls', []))
+            for item in tracked_products
+        )
         logger.info(
-            '[%s] Товар=%s, Конкурентов=%s',
+            '[%s] Основной товар=%s, Товаров=%s, Конкурентов=%s',
             p['name'],
             p['product_id'],
-            len(p['competitor_urls']),
+            tracked_count,
+            tracked_competitors,
         )
 
     api_clients = {p['id']: p['client'] for p in profiles}
@@ -292,15 +353,28 @@ async def main():
                 )
                 return
 
-        # runtime init для competitor_urls.
-        if storage.get_runtime_setting(
-            'competitor_urls',
-            profile_id=pid,
-        ) is None and profile['competitor_urls']:
-            storage.set_competitor_urls(
-                profile['competitor_urls'],
-                profile_id=pid,
+        # runtime init для competitor_urls per product scheduler key.
+        tracked_products = profile.get('tracked_products', [])
+        primary_product_id = int(profile.get('product_id') or 0)
+        for tracked in tracked_products:
+            tracked_product_id = int(tracked.get('product_id') or 0)
+            if tracked_product_id <= 0:
+                continue
+            tracked_urls = list(tracked.get('competitor_urls', []))
+            runtime_profile_id = (
+                pid
+                if tracked_product_id == primary_product_id
+                else f'{pid}:{tracked_product_id}'
             )
+            if storage.get_runtime_setting(
+                'competitor_urls',
+                profile_id=runtime_profile_id,
+                inherit_parent=False,
+            ) is None and tracked_urls:
+                storage.set_competitor_urls(
+                    tracked_urls,
+                    profile_id=runtime_profile_id,
+                )
 
         profile_defaults = build_profile_runtime_defaults(config, pid)
         seeded = seed_profile_runtime_defaults(
@@ -316,29 +390,64 @@ async def main():
                 value,
             )
 
-    schedulers = [
-        Scheduler(
-            profile['client'],
-            telegram_bot,
-            profile_id=profile['id'],
-            profile_name=profile['name'],
-            product_id=profile['product_id'],
-            competitor_urls=profile['competitor_urls'],
-        )
-        for profile in profiles
-    ]
+    schedulers = []
+    for profile in profiles:
+        pid = profile['id']
+        pname = profile['name']
+        primary_product_id = int(profile.get('product_id') or 0)
+        tracked_products = profile.get('tracked_products', [])
+        if not tracked_products and primary_product_id > 0:
+            tracked_products = [
+                {
+                    'product_id': primary_product_id,
+                    'competitor_urls': profile.get('competitor_urls', []),
+                }
+            ]
+        for tracked in tracked_products:
+            tracked_product_id = int(tracked.get('product_id') or 0)
+            if tracked_product_id <= 0:
+                continue
+            runtime_profile_id = (
+                pid
+                if tracked_product_id == primary_product_id
+                else f'{pid}:{tracked_product_id}'
+            )
+            sched_profile_name = (
+                pname
+                if runtime_profile_id == pid
+                else f'{pname} [{tracked_product_id}]'
+            )
+            schedulers.append(
+                Scheduler(
+                    profile['client'],
+                    telegram_bot,
+                    profile_id=runtime_profile_id,
+                    base_profile_id=pid,
+                    profile_name=sched_profile_name,
+                    product_id=tracked_product_id,
+                    competitor_urls=tracked.get('competitor_urls', []),
+                    chat_autoreply_enabled=(runtime_profile_id == pid),
+                )
+            )
 
     setup_signal_handlers()
 
     await telegram_bot.start()
     logger.info('Telegram бот запущен')
     for profile in profiles:
+        tracked_products = profile.get('tracked_products', [])
+        tracked_count = len(tracked_products)
+        tracked_competitors = sum(
+            len(item.get('competitor_urls', []))
+            for item in tracked_products
+        )
         await telegram_bot.notify(
             (
                 f"🚀 *Auto-Pricing Bot запущен*\n\n"
                 f"Профиль: `{profile['name']}`\n"
-                f"Товар: `{profile['product_id']}`\n"
-                f"Конкурентов: `{len(profile['competitor_urls'])}`"
+                f"Основной товар: `{profile['product_id']}`\n"
+                f"Товаров: `{tracked_count}`\n"
+                f"Конкурентов: `{tracked_competitors}`"
             )
         )
 

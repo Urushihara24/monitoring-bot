@@ -104,6 +104,20 @@ class Storage:
 
             conn.execute(
                 '''
+                CREATE TABLE IF NOT EXISTS tracked_products (
+                    profile_id TEXT NOT NULL,
+                    product_id INTEGER NOT NULL,
+                    competitor_urls TEXT,
+                    enabled INTEGER DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (profile_id, product_id)
+                )
+                '''
+            )
+
+            conn.execute(
+                '''
                 CREATE TABLE IF NOT EXISTS settings_history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     profile_id TEXT NOT NULL,
@@ -459,6 +473,12 @@ class Storage:
     def _normalize_profile(self, profile_id: Optional[str]) -> str:
         return (profile_id or DEFAULT_PROFILE).strip().lower()
 
+    def _parent_profile(self, profile_id: str) -> Optional[str]:
+        if ':' not in profile_id:
+            return None
+        parent = profile_id.split(':', 1)[0].strip().lower()
+        return parent or None
+
     def _parse_dt(self, value):
         if not value:
             return None
@@ -701,6 +721,8 @@ class Storage:
         key: str,
         default: Optional[str] = None,
         profile_id: str = DEFAULT_PROFILE,
+        *,
+        inherit_parent: bool = True,
     ) -> Optional[str]:
         profile = self._normalize_profile(profile_id)
         with sqlite3.connect(str(self.db_path)) as conn:
@@ -712,9 +734,21 @@ class Storage:
                 ''',
                 (profile, key),
             ).fetchone()
-            if not row:
-                return default
-            return row['value']
+            if row:
+                return row['value']
+            if inherit_parent:
+                parent = self._parent_profile(profile)
+                if parent:
+                    parent_row = conn.execute(
+                        '''
+                        SELECT value FROM runtime_settings
+                        WHERE profile_id = ? AND key = ?
+                        ''',
+                        (parent, key),
+                    ).fetchone()
+                    if parent_row:
+                        return parent_row['value']
+            return default
 
     def set_runtime_setting(
         self,
@@ -885,6 +919,7 @@ class Storage:
         raw = self.get_runtime_setting(
             'competitor_urls',
             profile_id=profile_id,
+            inherit_parent=False,
         )
         if raw is None or not raw.strip():
             return self._normalize_competitor_urls(default_urls or [])
@@ -906,6 +941,120 @@ class Storage:
             source=source,
             profile_id=profile_id,
         )
+
+    def list_tracked_products(
+        self,
+        *,
+        profile_id: str = DEFAULT_PROFILE,
+        default_product_id: int = 0,
+        default_urls: Optional[list] = None,
+    ) -> list[dict]:
+        profile = self._normalize_profile(profile_id)
+        with sqlite3.connect(str(self.db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                '''
+                SELECT product_id, competitor_urls, enabled
+                FROM tracked_products
+                WHERE profile_id = ? AND enabled = 1
+                ORDER BY created_at ASC, product_id ASC
+                ''',
+                (profile,),
+            ).fetchall()
+
+        tracked: list[dict] = []
+        for row in rows:
+            product_id = int(row['product_id'] or 0)
+            if product_id <= 0:
+                continue
+            raw_urls = (row['competitor_urls'] or '').strip()
+            urls = self._normalize_competitor_urls(
+                raw_urls.split(',') if raw_urls else []
+            )
+            tracked.append(
+                {
+                    'product_id': product_id,
+                    'competitor_urls': urls,
+                    'enabled': bool(row['enabled']),
+                }
+            )
+
+        if tracked:
+            return tracked
+
+        fallback_product_id = int(default_product_id or 0)
+        if fallback_product_id <= 0:
+            return []
+
+        fallback_urls = self._normalize_competitor_urls(default_urls or [])
+        return [
+            {
+                'product_id': fallback_product_id,
+                'competitor_urls': fallback_urls,
+                'enabled': True,
+            }
+        ]
+
+    def upsert_tracked_product(
+        self,
+        *,
+        profile_id: str = DEFAULT_PROFILE,
+        product_id: int,
+        competitor_urls: list,
+        enabled: bool = True,
+    ):
+        profile = self._normalize_profile(profile_id)
+        normalized_product_id = int(product_id or 0)
+        if normalized_product_id <= 0:
+            return
+        normalized_urls = self._normalize_competitor_urls(competitor_urls or [])
+        payload_urls = ','.join(normalized_urls)
+        with sqlite3.connect(str(self.db_path)) as conn:
+            conn.execute(
+                '''
+                INSERT INTO tracked_products (
+                    profile_id,
+                    product_id,
+                    competitor_urls,
+                    enabled,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(profile_id, product_id)
+                DO UPDATE SET
+                    competitor_urls = excluded.competitor_urls,
+                    enabled = excluded.enabled,
+                    updated_at = CURRENT_TIMESTAMP
+                ''',
+                (
+                    profile,
+                    normalized_product_id,
+                    payload_urls,
+                    1 if enabled else 0,
+                ),
+            )
+            conn.commit()
+
+    def remove_tracked_product(
+        self,
+        *,
+        profile_id: str = DEFAULT_PROFILE,
+        product_id: int,
+    ) -> bool:
+        profile = self._normalize_profile(profile_id)
+        normalized_product_id = int(product_id or 0)
+        if normalized_product_id <= 0:
+            return False
+        with sqlite3.connect(str(self.db_path)) as conn:
+            cursor = conn.execute(
+                '''
+                DELETE FROM tracked_products
+                WHERE profile_id = ? AND product_id = ?
+                ''',
+                (profile, normalized_product_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
 
     def get_runtime_config(
         self,

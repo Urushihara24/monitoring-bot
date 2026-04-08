@@ -50,7 +50,7 @@ BTN_PRICE = '🎯 Цена'
 BTN_STEP = '➖ Шаг'
 BTN_MIN = '📉 Мин'
 BTN_MAX = '📈 Макс'
-BTN_PRODUCT = '📦 Товар'
+BTN_PRODUCTS = '📦 Товары'
 BTN_INTERVAL = '⏱ Интервал'
 BTN_MODE = '🔀 Режим'
 BTN_POSITION = '📍 Позиция'
@@ -269,18 +269,41 @@ class TelegramBot:
         return self.api_clients.get(profile_id)
 
     def _product_id(self, profile_id: str) -> int:
-        runtime_value = storage.get_runtime_setting(
-            'PRODUCT_ID',
-            profile_id=profile_id,
-        )
-        if runtime_value is not None:
-            try:
-                runtime_product_id = int(float(str(runtime_value).strip()))
-                if runtime_product_id > 0:
-                    return runtime_product_id
-            except (TypeError, ValueError):
-                pass
         return int(self.profile_products.get(profile_id, 0))
+
+    def _runtime_profile_id_for_product(
+        self,
+        profile_id: str,
+        product_id: int,
+    ) -> str:
+        base_product_id = int(self.profile_products.get(profile_id, 0))
+        normalized_product_id = int(product_id or 0)
+        if normalized_product_id <= 0 or normalized_product_id == base_product_id:
+            return profile_id
+        return f'{profile_id}:{normalized_product_id}'
+
+    def _tracked_products(self, profile_id: str, runtime=None) -> list[dict]:
+        current_runtime = runtime or self._runtime(profile_id)
+        return storage.list_tracked_products(
+            profile_id=profile_id,
+            default_product_id=self._product_id(profile_id),
+            default_urls=getattr(current_runtime, 'COMPETITOR_URLS', []),
+        )
+
+    def _format_tracked_products(self, profile_id: str, runtime=None) -> list[str]:
+        tracked_products = self._tracked_products(profile_id, runtime=runtime)
+        if not tracked_products:
+            return ['нет']
+        lines = []
+        primary_product_id = self._product_id(profile_id)
+        for item in tracked_products:
+            product_id = int(item.get('product_id') or 0)
+            competitor_urls = item.get('competitor_urls', []) or []
+            marker = ' (основной)' if product_id == primary_product_id else ''
+            lines.append(
+                f'{product_id}{marker}: {len(competitor_urls)} URL'
+            )
+        return lines
 
     def _fmt_price(self, value) -> str:
         if value is None:
@@ -454,7 +477,7 @@ class TelegramBot:
             [auto_toggle_button],
             [BTN_UP, BTN_DOWN],
             [BTN_INTERVAL, BTN_MODE],
-            [BTN_PRODUCT, BTN_ADD_URL],
+            [BTN_PRODUCTS, BTN_ADD_URL],
             [BTN_REMOVE_URL],
         ]
         if self._chat_autoreply_supported(profile):
@@ -779,12 +802,19 @@ class TelegramBot:
                 update=update,
             )
             return
-        if text == BTN_PRODUCT:
+        if text == BTN_PRODUCTS:
             await self._prompt_pending_action(
                 chat_id=chat_id,
                 profile_id=profile_id,
-                action='PRODUCT_ID',
-                prompt='Введи ID товара (целое число, например 4697439):',
+                action='MANAGE_PRODUCTS',
+                prompt=(
+                    'Управление товарами:\n'
+                    'add <product_id> <url1,url2,...>\n'
+                    'del <product_id>\n'
+                    'list\n'
+                    'Пример:\n'
+                    'add 4697439 https://ggsel.net/catalog/product/123'
+                ),
                 update=update,
             )
             return
@@ -845,6 +875,8 @@ class TelegramBot:
         profile_name = self._profile_name(profile_id)
         state = self._state(profile_id)
         runtime = self._runtime(profile_id)
+        tracked_lines = self._format_tracked_products(profile_id, runtime=runtime)
+        tracked_count = len(tracked_lines) if tracked_lines != ['нет'] else 0
 
         competitor_rank = state.get('last_competitor_rank')
         competitor_info = f'#{competitor_rank}' if competitor_rank else 'N/A'
@@ -933,7 +965,8 @@ class TelegramBot:
         text = f"""📊 Статус
 
 🧭 Активная площадка: {profile_name}
-🆔 Товар: {product_id or 'N/A'}
+🆔 Основной товар: {product_id or 'N/A'}
+📦 Товаров в мониторинге: {tracked_count}
 💰 Моя цена: {display_price_str}₽
 🎯 Выставлено ботом: {target_price_str}₽
 📈 Цена конкурента: {competitor_price_str}₽
@@ -951,6 +984,9 @@ class TelegramBot:
 
 📊 Обновлений: {state.get('update_count', 0)}
 ⏭️ Пропусков: {state.get('skip_count', 0)}
+
+📦 Список товаров:
+{chr(10).join(tracked_lines)}
 """
         await update.message.reply_text(
             text,
@@ -967,6 +1003,8 @@ class TelegramBot:
         state = self._state(profile_id)
         runtime = self._runtime(profile_id)
         product_id = self._product_id(profile_id)
+        tracked_lines = self._format_tracked_products(profile_id, runtime=runtime)
+        tracked_count = len(tracked_lines) if tracked_lines != ['нет'] else 0
         monitor_enabled = bool(runtime.COMPETITOR_URLS)
         monitor_mode = (
             f'АКТИВЕН ({len(runtime.COMPETITOR_URLS)} URL)'
@@ -993,7 +1031,8 @@ class TelegramBot:
         text = f"""⚙️ Настройки
 
 🧭 Активная площадка: {profile_name}
-🆔 Товар: {product_id or 'N/A'}
+🆔 Основной товар: {product_id or 'N/A'}
+📦 Товаров в мониторинге: {tracked_count}
 🔔 Автоцена: {'ВКЛ' if state.get('auto_mode', True) else 'ВЫКЛ'}
 🗂 Раздел: {'Расширенные' if is_advanced else 'Быстрые'}
 📉 MIN: {runtime.MIN_PRICE:.4f}₽
@@ -1012,6 +1051,7 @@ class TelegramBot:
 📍 Позиция: {'Вкл' if runtime.POSITION_FILTER_ENABLED else 'Выкл'}
 📡 Мониторинг: {monitor_mode}
 🔗 Конкурентов: {len(runtime.COMPETITOR_URLS)}
+📦 Список товаров: {', '.join(tracked_lines)}
 {chat_block}
 """
         await update.message.reply_text(
@@ -1311,9 +1351,13 @@ class TelegramBot:
         if not update.message:
             return
         profile_id = self._active_profile(chat_id)
+        runtime_profile_id = self._runtime_profile_id_for_product(
+            profile_id,
+            self._product_id(profile_id),
+        )
         urls = storage.get_competitor_urls(
             self.profile_default_urls.get(profile_id, []),
-            profile_id=profile_id,
+            profile_id=runtime_profile_id,
         )
         if not urls:
             await update.message.reply_text(
@@ -1407,35 +1451,139 @@ class TelegramBot:
             await self.send_settings(chat_id, update)
             return
 
-        if action == 'PRODUCT_ID':
-            try:
-                value = int(float(text.replace(',', '.')))
-            except ValueError:
+        if action == 'MANAGE_PRODUCTS':
+            normalized = text.strip()
+            if not normalized:
                 await update.message.reply_text(
-                    '❌ Введи целое число',
+                    '❌ Введи команду: add/del/list',
                     reply_markup=self.get_settings_keyboard(profile_id),
                 )
                 return
-            if value <= 0:
+            lower = normalized.lower()
+            if lower in {'list', 'список'}:
+                lines = self._format_tracked_products(
+                    profile_id,
+                    runtime=runtime,
+                )
                 await update.message.reply_text(
-                    '❌ ID товара должен быть > 0',
+                    '📦 Товары в мониторинге:\n' + '\n'.join(lines),
                     reply_markup=self.get_settings_keyboard(profile_id),
                 )
                 return
-            storage.set_runtime_setting(
-                'PRODUCT_ID',
-                str(value),
-                user_id=user_id,
-                source='telegram',
-                profile_id=profile_id,
-            )
-            self.profile_products[profile_id] = value
-            self.pending_actions.pop(chat_id, None)
+
+            parts = normalized.split(maxsplit=2)
+            if len(parts) < 2:
+                await update.message.reply_text(
+                    '❌ Формат: add <product_id> <url1,url2> или del <product_id>',
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+            command = parts[0].lower()
+            if command in {'add', '+'}:
+                if len(parts) < 3:
+                    await update.message.reply_text(
+                        '❌ Для add нужен хотя бы один URL конкурента',
+                        reply_markup=self.get_settings_keyboard(profile_id),
+                    )
+                    return
+                try:
+                    product_id = int(float(parts[1].replace(',', '.')))
+                except ValueError:
+                    await update.message.reply_text(
+                        '❌ product_id должен быть целым числом',
+                        reply_markup=self.get_settings_keyboard(profile_id),
+                    )
+                    return
+                if product_id <= 0:
+                    await update.message.reply_text(
+                        '❌ product_id должен быть > 0',
+                        reply_markup=self.get_settings_keyboard(profile_id),
+                    )
+                    return
+                raw_urls = [
+                    item for item in parts[2]
+                    .replace('\n', ' ')
+                    .split(',') if item.strip()
+                ]
+                if len(raw_urls) == 1 and ' ' in raw_urls[0].strip():
+                    raw_urls = [
+                        item for item in raw_urls[0].split(' ')
+                        if item.strip()
+                    ]
+                normalized_urls = storage.normalize_competitor_urls(raw_urls)
+                if not normalized_urls:
+                    await update.message.reply_text(
+                        '❌ Не найдено валидных URL (http/https)',
+                        reply_markup=self.get_settings_keyboard(profile_id),
+                    )
+                    return
+
+                storage.upsert_tracked_product(
+                    profile_id=profile_id,
+                    product_id=product_id,
+                    competitor_urls=normalized_urls,
+                )
+                if self._product_id(profile_id) <= 0:
+                    self.profile_products[profile_id] = product_id
+                self.pending_actions.pop(chat_id, None)
+                await update.message.reply_text(
+                    (
+                        f'✅ Товар {product_id} добавлен '
+                        f'({len(normalized_urls)} URL)\n'
+                        'ℹ️ Новый товар начнёт мониториться после перезапуска '
+                        'бота/контейнера.'
+                    ),
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                await self.send_settings(chat_id, update)
+                return
+
+            if command in {'del', '-'}:
+                try:
+                    product_id = int(float(parts[1].replace(',', '.')))
+                except ValueError:
+                    await update.message.reply_text(
+                        '❌ product_id должен быть целым числом',
+                        reply_markup=self.get_settings_keyboard(profile_id),
+                    )
+                    return
+                removed = storage.remove_tracked_product(
+                    profile_id=profile_id,
+                    product_id=product_id,
+                )
+                if not removed:
+                    await update.message.reply_text(
+                        '❌ Такой товар не найден в мониторинге',
+                        reply_markup=self.get_settings_keyboard(profile_id),
+                    )
+                    return
+
+                tracked = self._tracked_products(profile_id, runtime=runtime)
+                primary = self._product_id(profile_id)
+                if primary == product_id:
+                    if tracked:
+                        self.profile_products[profile_id] = int(
+                            tracked[0]['product_id']
+                        )
+                    else:
+                        self.profile_products[profile_id] = 0
+
+                self.pending_actions.pop(chat_id, None)
+                await update.message.reply_text(
+                    (
+                        f'✅ Товар {product_id} удалён из мониторинга\n'
+                        'ℹ️ Изменение полностью применится после перезапуска '
+                        'бота/контейнера.'
+                    ),
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                await self.send_settings(chat_id, update)
+                return
+
             await update.message.reply_text(
-                f'✅ PRODUCT_ID = {value}',
+                '❌ Неизвестная команда. Используй add/del/list',
                 reply_markup=self.get_settings_keyboard(profile_id),
             )
-            await self.send_settings(chat_id, update)
             return
 
         if action == 'CHECK_INTERVAL':
@@ -1483,9 +1631,13 @@ class TelegramBot:
                 )
                 return
             candidate_url = candidate_urls[0]
+            runtime_profile_id = self._runtime_profile_id_for_product(
+                profile_id,
+                self._product_id(profile_id),
+            )
             urls = storage.get_competitor_urls(
                 self.profile_default_urls.get(profile_id, []),
-                profile_id=profile_id,
+                profile_id=runtime_profile_id,
             )
             normalized_before = storage.normalize_competitor_urls(urls)
             normalized_after = storage.normalize_competitor_urls(
@@ -1501,7 +1653,12 @@ class TelegramBot:
                 normalized_after,
                 user_id=user_id,
                 source='telegram',
+                profile_id=runtime_profile_id,
+            )
+            storage.upsert_tracked_product(
                 profile_id=profile_id,
+                product_id=self._product_id(profile_id),
+                competitor_urls=normalized_after,
             )
             self.pending_actions.pop(chat_id, None)
             await update.message.reply_text(
@@ -1520,9 +1677,13 @@ class TelegramBot:
                     reply_markup=self.get_settings_keyboard(profile_id),
                 )
                 return
+            runtime_profile_id = self._runtime_profile_id_for_product(
+                profile_id,
+                self._product_id(profile_id),
+            )
             urls = storage.get_competitor_urls(
                 self.profile_default_urls.get(profile_id, []),
-                profile_id=profile_id,
+                profile_id=runtime_profile_id,
             )
             if 0 <= idx < len(urls):
                 removed = urls.pop(idx)
@@ -1530,7 +1691,12 @@ class TelegramBot:
                     urls,
                     user_id=user_id,
                     source='telegram',
+                    profile_id=runtime_profile_id,
+                )
+                storage.upsert_tracked_product(
                     profile_id=profile_id,
+                    product_id=self._product_id(profile_id),
+                    competitor_urls=urls,
                 )
                 self.pending_actions.pop(chat_id, None)
                 await update.message.reply_text(

@@ -67,6 +67,17 @@ def test_build_profiles_returns_both_profiles(monkeypatch):
         'get_competitor_urls',
         fake_get_competitor_urls,
     )
+    monkeypatch.setattr(
+        main_module.storage,
+        'list_tracked_products',
+        lambda **kwargs: [
+            {
+                'product_id': kwargs['default_product_id'],
+                'competitor_urls': kwargs.get('default_urls', []),
+                'enabled': True,
+            }
+        ],
+    )
 
     profiles = _build_profiles(logging.getLogger('test-main'))
     assert len(profiles) == 2
@@ -99,6 +110,17 @@ def test_build_profiles_skips_digiseller_without_credentials(monkeypatch):
         'get_competitor_urls',
         lambda default_urls, profile_id='ggsel': default_urls,
     )
+    monkeypatch.setattr(
+        main_module.storage,
+        'list_tracked_products',
+        lambda **kwargs: [
+            {
+                'product_id': kwargs['default_product_id'],
+                'competitor_urls': kwargs.get('default_urls', []),
+                'enabled': True,
+            }
+        ],
+    )
 
     profiles = _build_profiles(logging.getLogger('test-main'))
     ids = [profile['id'] for profile in profiles]
@@ -116,6 +138,21 @@ def test_build_profiles_skips_digiseller_without_product_id(monkeypatch):
         'get_competitor_urls',
         lambda default_urls, profile_id='ggsel': default_urls,
     )
+    monkeypatch.setattr(
+        main_module.storage,
+        'list_tracked_products',
+        lambda **kwargs: (
+            [
+                {
+                    'product_id': kwargs['default_product_id'],
+                    'competitor_urls': kwargs.get('default_urls', []),
+                    'enabled': True,
+                }
+            ]
+            if kwargs.get('default_product_id')
+            else []
+        ),
+    )
 
     profiles = _build_profiles(logging.getLogger('test-main'))
     ids = [profile['id'] for profile in profiles]
@@ -132,6 +169,21 @@ def test_build_profiles_skips_ggsel_without_product_id(monkeypatch):
         main_module.storage,
         'get_competitor_urls',
         lambda default_urls, profile_id='ggsel': default_urls,
+    )
+    monkeypatch.setattr(
+        main_module.storage,
+        'list_tracked_products',
+        lambda **kwargs: (
+            [
+                {
+                    'product_id': kwargs['default_product_id'],
+                    'competitor_urls': kwargs.get('default_urls', []),
+                    'enabled': True,
+                }
+            ]
+            if kwargs.get('default_product_id')
+            else []
+        ),
     )
 
     profiles = _build_profiles(logging.getLogger('test-main'))
@@ -158,6 +210,17 @@ def test_build_profiles_prefers_ggsel_profile_urls(monkeypatch):
         main_module.storage,
         'get_competitor_urls',
         lambda default_urls, profile_id='ggsel': default_urls,
+    )
+    monkeypatch.setattr(
+        main_module.storage,
+        'list_tracked_products',
+        lambda **kwargs: [
+            {
+                'product_id': kwargs['default_product_id'],
+                'competitor_urls': kwargs.get('default_urls', []),
+                'enabled': True,
+            }
+        ],
     )
 
     profiles = _build_profiles(logging.getLogger('test-main'))

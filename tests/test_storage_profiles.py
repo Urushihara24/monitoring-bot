@@ -34,6 +34,35 @@ def test_runtime_setting_isolation(tmp_path):
     )
 
 
+def test_runtime_setting_inherits_parent_profile(tmp_path):
+    db = tmp_path / 'state.db'
+    storage = Storage(db_path=str(db))
+
+    storage.set_runtime_setting('CHECK_INTERVAL', '45', profile_id='ggsel')
+
+    assert (
+        storage.get_runtime_setting(
+            'CHECK_INTERVAL',
+            profile_id='ggsel:4697439',
+        ) == '45'
+    )
+
+
+def test_competitor_urls_not_inherited_from_parent(tmp_path):
+    db = tmp_path / 'state.db'
+    storage = Storage(db_path=str(db))
+
+    storage.set_competitor_urls(
+        ['https://root.example/item'],
+        profile_id='ggsel',
+    )
+    child_urls = storage.get_competitor_urls(
+        ['https://child.example/item'],
+        profile_id='ggsel:4697439',
+    )
+    assert child_urls == ['https://child.example/item']
+
+
 def test_runtime_settings_list_and_delete_by_prefix(tmp_path):
     db = tmp_path / 'state.db'
     storage = Storage(db_path=str(db))
@@ -164,6 +193,54 @@ def test_competitor_urls_profile_specific_are_deduplicated(tmp_path):
     ]
     assert storage.get_competitor_urls([], profile_id='digiseller') == [
         'https://b.example/item-2'
+    ]
+
+
+def test_tracked_products_upsert_list_and_remove(tmp_path):
+    db = tmp_path / 'state.db'
+    storage = Storage(db_path=str(db))
+
+    storage.upsert_tracked_product(
+        profile_id='ggsel',
+        product_id=4697439,
+        competitor_urls=['https://a.example/item'],
+    )
+    storage.upsert_tracked_product(
+        profile_id='ggsel',
+        product_id=4697440,
+        competitor_urls=[
+            'https://b.example/item',
+            'https://b.example/item/',
+        ],
+    )
+
+    tracked = storage.list_tracked_products(profile_id='ggsel')
+    assert [item['product_id'] for item in tracked] == [4697439, 4697440]
+    assert tracked[1]['competitor_urls'] == ['https://b.example/item']
+
+    assert storage.remove_tracked_product(
+        profile_id='ggsel',
+        product_id=4697439,
+    )
+    tracked_after = storage.list_tracked_products(profile_id='ggsel')
+    assert [item['product_id'] for item in tracked_after] == [4697440]
+
+
+def test_tracked_products_fallback_to_default_product(tmp_path):
+    db = tmp_path / 'state.db'
+    storage = Storage(db_path=str(db))
+
+    tracked = storage.list_tracked_products(
+        profile_id='digiseller',
+        default_product_id=5077639,
+        default_urls=['https://plati.market/itm/name/5077639'],
+    )
+    assert tracked == [
+        {
+            'product_id': 5077639,
+            'competitor_urls': ['https://plati.market/itm/name/5077639'],
+            'enabled': True,
+        }
     ]
 
 

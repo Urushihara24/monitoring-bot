@@ -18,7 +18,7 @@ from src.telegram_bot import (
     BTN_MODE,
     BTN_POSITION,
     BTN_PRICE,
-    BTN_PRODUCT,
+    BTN_PRODUCTS,
     BTN_PROFILE,
     BTN_REMOVE_URL,
     BTN_SETTINGS,
@@ -107,7 +107,7 @@ def test_settings_keyboard_is_not_overloaded():
     assert '📥 Импорт' not in texts
     assert BTN_HISTORY not in texts
     assert BTN_ADD_URL in texts
-    assert BTN_PRODUCT in texts
+    assert BTN_PRODUCTS in texts
     assert BTN_REMOVE_URL in texts
     assert BTN_PRICE not in texts
     assert BTN_STEP not in texts
@@ -242,7 +242,7 @@ async def test_profile_button_opens_profile_keyboard():
         (BTN_STEP, 'UNDERCUT_VALUE'),
         (BTN_MIN, 'MIN_PRICE'),
         (BTN_MAX, 'MAX_PRICE'),
-        (BTN_PRODUCT, 'PRODUCT_ID'),
+        (BTN_PRODUCTS, 'MANAGE_PRODUCTS'),
         (BTN_INTERVAL, 'CHECK_INTERVAL'),
         (BTN_ADD_URL, 'ADD_URL'),
     ],
@@ -793,47 +793,54 @@ async def test_pending_price_action_formats_to_4dp(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_pending_product_id_action_updates_runtime(monkeypatch):
+async def test_pending_manage_products_add(monkeypatch):
     bot = make_bot()
-    bot.pending_actions[100] = ('PRODUCT_ID', 'ggsel')
+    bot.pending_actions[100] = ('MANAGE_PRODUCTS', 'ggsel')
     bot.send_settings = AsyncMock()
 
     captured = {}
 
-    def fake_set_runtime_setting(
-        key,
-        value,
-        user_id=None,
-        source='system',
+    def fake_upsert_tracked_product(
+        *,
         profile_id='ggsel',
+        product_id=0,
+        competitor_urls=None,
+        enabled=True,
     ):
-        captured['key'] = key
-        captured['value'] = value
-        captured['user_id'] = user_id
-        captured['source'] = source
         captured['profile_id'] = profile_id
+        captured['product_id'] = product_id
+        captured['competitor_urls'] = competitor_urls
+        captured['enabled'] = enabled
 
     monkeypatch.setattr(
         telegram_module.storage,
-        'set_runtime_setting',
-        fake_set_runtime_setting,
+        'upsert_tracked_product',
+        fake_upsert_tracked_product,
     )
-    update = make_update('4697439')
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'normalize_competitor_urls',
+        lambda urls: [u.strip() for u in urls if u.strip()],
+    )
+    update = make_update('add 4697439 https://a.example,https://b.example')
 
-    await bot.handle_pending_action(100, 1, '4697439', update)
+    await bot.handle_pending_action(
+        100,
+        1,
+        'add 4697439 https://a.example,https://b.example',
+        update,
+    )
 
     assert captured == {
-        'key': 'PRODUCT_ID',
-        'value': '4697439',
-        'user_id': 1,
-        'source': 'telegram',
         'profile_id': 'ggsel',
+        'product_id': 4697439,
+        'competitor_urls': ['https://a.example', 'https://b.example'],
+        'enabled': True,
     }
-    assert bot.profile_products['ggsel'] == 4697439
     assert 100 not in bot.pending_actions
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
-    assert args[0] == '✅ PRODUCT_ID = 4697439'
+    assert 'Товар 4697439 добавлен' in args[0]
 
 
 @pytest.mark.asyncio

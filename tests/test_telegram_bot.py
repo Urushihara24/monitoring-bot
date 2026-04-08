@@ -13,7 +13,7 @@ from src.telegram_bot import (
     BTN_MODE,
     BTN_POSITION,
     BTN_PRICE,
-    BTN_PRODUCT,
+    BTN_PRODUCTS,
     BTN_REMOVE_URL,
     BTN_SETTINGS,
     BTN_STATUS,
@@ -130,7 +130,7 @@ async def test_auto_buttons_dispatch_toggle(bot, monkeypatch, button):
         (BTN_STEP, 'UNDERCUT_VALUE'),
         (BTN_MIN, 'MIN_PRICE'),
         (BTN_MAX, 'MAX_PRICE'),
-        (BTN_PRODUCT, 'PRODUCT_ID'),
+        (BTN_PRODUCTS, 'MANAGE_PRODUCTS'),
         (BTN_ADD_URL, 'ADD_URL'),
     ],
 )
