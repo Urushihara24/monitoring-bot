@@ -21,6 +21,7 @@ from telegram import (
     Update,
 )
 from telegram.constants import ParseMode
+from telegram.error import NetworkError, TimedOut
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -938,6 +939,21 @@ class TelegramBot:
         self.app.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
         )
+        self.app.add_error_handler(self.handle_app_error)
+
+    async def handle_app_error(
+        self,
+        update: object,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+        err = getattr(context, 'error', None)
+        if isinstance(err, TimedOut):
+            logger.warning('Telegram timeout: %s', err)
+            return
+        if isinstance(err, NetworkError):
+            logger.warning('Telegram network error: %s', err)
+            return
+        logger.error('Unhandled telegram exception: %s', err, exc_info=err)
 
     def _check_access(self, user_id: int) -> bool:
         if user_id not in self.admin_ids:

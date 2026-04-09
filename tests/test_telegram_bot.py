@@ -1,5 +1,8 @@
+import logging
+
 import pytest
 from telegram import ReplyKeyboardMarkup
+from telegram.error import TimedOut
 
 from src.telegram_bot import (
     BTN_AUTO_OFF,
@@ -159,3 +162,24 @@ async def test_access_denied(bot):
     await bot.handle_message(upd, None)
     assert upd.message.replies
     assert 'Нет доступа' in upd.message.replies[-1][0]
+
+
+@pytest.mark.asyncio
+async def test_handle_app_error_timeout_logs_warning(bot, caplog):
+    caplog.set_level(logging.WARNING)
+    context = type('Ctx', (), {'error': TimedOut('connect timeout')})()
+
+    await bot.handle_app_error(None, context)
+
+    assert any('Telegram timeout' in r.message for r in caplog.records)
+    assert not any(r.levelname == 'ERROR' for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_handle_app_error_unknown_logs_error(bot, caplog):
+    caplog.set_level(logging.ERROR)
+    context = type('Ctx', (), {'error': ValueError('boom')})()
+
+    await bot.handle_app_error(None, context)
+
+    assert any('Unhandled telegram exception' in r.message for r in caplog.records)
