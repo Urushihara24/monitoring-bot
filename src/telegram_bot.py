@@ -1408,7 +1408,6 @@ class TelegramBot:
         runtime = self._runtime_for_product(profile_id, product_id)
         tracked_lines = self._format_tracked_products(profile_id, runtime=runtime)
         tracked_count = len(tracked_lines) if tracked_lines != ['нет'] else 0
-        pair_lines = self._format_tracking_pairs(profile_id, runtime=runtime)
         active_product_slot, active_product_total = self._active_product_slot(
             profile_id,
             runtime=runtime,
@@ -1418,8 +1417,6 @@ class TelegramBot:
             if active_product_total else 'N/A'
         )
 
-        competitor_rank = state.get('last_competitor_rank')
-        competitor_info = f'#{competitor_rank}' if competitor_rank else 'N/A'
         monitor_enabled = bool(runtime.COMPETITOR_URLS)
         monitor_mode = (
             f'АКТИВЕН ({len(runtime.COMPETITOR_URLS)} URL)'
@@ -1503,21 +1500,17 @@ class TelegramBot:
                 f'{"Да" if chat_meta["only_empty_chat"] else "Нет"}\n'
                 f'📦 Товары: {chat_meta["products"]}\n'
                 f'📨 Отправлено: {chat_meta["sent_count"]}\n'
-                f'🧷 Дубликаты: {chat_meta["duplicate_count"]}\n'
                 f'🕓 Последняя отправка: {chat_meta["last_sent"]}'
             )
 
         text = f"""📊 Статус
 
-🧭 Активная площадка: {profile_name}
-🆔 Активный товар (для управления): {product_id or 'N/A'}
-🔁 Товар в списке: {active_product_slot_text}
+🧭 Площадка: {profile_name}
+🆔 Активный товар: {product_id or 'N/A'} ({active_product_slot_text})
 📦 Товаров в мониторинге: {tracked_count}
-🛰 Мониторинг по товарам: ВСЕ ИЗ СПИСКА
 💰 Моя цена: {display_price_str}₽
 🎯 Выставлено ботом: {target_price_str}₽
 📈 Цена конкурента: {competitor_price_str}₽
-🔍 Позиция: {competitor_info}
 🔗 URL: {competitor_url}
 🧪 Метод парсинга: {parse_method}
 🕓 Последний парс: {parse_at_str}
@@ -1528,14 +1521,6 @@ class TelegramBot:
 🎯 Режим: {self._mode_label(runtime.MODE)}
 🕐 Обновление: {update_str}
 ⏲️ Интервал: {runtime.CHECK_INTERVAL}s
-
-📊 Обновлений: {state.get('update_count', 0)}
-⏭️ Пропусков: {state.get('skip_count', 0)}
-
-📦 Список товаров:
-{chr(10).join(tracked_lines)}
-🔗 Пары мониторинга:
-{chr(10).join(pair_lines)}
 """
         await update.message.reply_text(
             text,

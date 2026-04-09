@@ -796,7 +796,6 @@ async def test_status_shows_digiseller_chat_autoreply_block(monkeypatch):
     assert '📭 Только пустой чат: Да' in args[0]
     assert '📦 Товары: 5077639, 5104800' in args[0]
     assert '📨 Отправлено: 7' in args[0]
-    assert '🧷 Дубликаты: 3' in args[0]
     assert '🕓 Последняя отправка:' in args[0]
     assert '10:01:00Z' not in args[0]
 
