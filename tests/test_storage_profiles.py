@@ -463,8 +463,7 @@ def test_migrates_legacy_runtime_settings_without_profile_id(tmp_path):
 
 def test_migrates_legacy_history_and_alert_tables(tmp_path):
     db = tmp_path / 'legacy_misc.db'
-    recent = datetime.now() - timedelta(minutes=10)
-    recent_str = recent.strftime('%Y-%m-%d %H:%M:%S')
+    legacy_str = '2000-01-01 00:00:00'
     with sqlite3.connect(str(db)) as conn:
         conn.execute(
             '''
@@ -492,7 +491,7 @@ def test_migrates_legacy_history_and_alert_tables(tmp_path):
                 'STEP_UP',
                 1,
                 'test',
-                recent_str,
+                legacy_str,
             ),
         )
         conn.execute(
@@ -505,7 +504,7 @@ def test_migrates_legacy_history_and_alert_tables(tmp_path):
         )
         conn.execute(
             "INSERT INTO alert_state (key, last_sent) VALUES (?, ?)",
-            ('x', recent_str),
+            ('x', legacy_str),
         )
         conn.commit()
 
@@ -514,7 +513,7 @@ def test_migrates_legacy_history_and_alert_tables(tmp_path):
     rows = storage.get_settings_history(limit=10, profile_id='ggsel')
     assert rows
     assert rows[0]['key'] == 'MODE'
-    # После миграции legacy алерт должен блокировать повторную отправку.
+    # После миграции legacy алерт блокируется как "только что отправленный".
     assert storage.should_send_alert('x', cooldown_seconds=3600, profile_id='ggsel') is False
 
 

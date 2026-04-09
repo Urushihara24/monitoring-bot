@@ -398,13 +398,14 @@ class Storage:
         )
         legacy_columns = self._table_columns(conn, 'alert_state_legacy')
         if {'key', 'last_sent'}.issubset(legacy_columns):
+            migrated_at = datetime.now().isoformat()
             conn.execute(
                 '''
                 INSERT OR REPLACE INTO alert_state (profile_id, key, last_sent)
-                SELECT ?, key, last_sent
+                SELECT ?, key, ?
                 FROM alert_state_legacy
                 ''',
-                (DEFAULT_PROFILE,),
+                (DEFAULT_PROFILE, migrated_at),
             )
         conn.execute('DROP TABLE alert_state_legacy')
 
