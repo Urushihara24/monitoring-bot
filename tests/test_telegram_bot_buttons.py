@@ -476,9 +476,11 @@ async def test_chat_rules_button_opens_editor(monkeypatch):
     assert bot.pending_actions[100] == ('CHAT_RULES', 'ggsel')
     assert bot.chat_rules_context[100]['product_id'] == 1
     assert len(bot.chat_rules_context[100]['items']) == 2
-    update.message.reply_text.assert_awaited_once()
-    args, _kwargs = update.message.reply_text.await_args
-    assert '📝 Правила авто-инструкций' in args[0]
+    assert update.message.reply_text.await_count == 2
+    first_args, _first_kwargs = update.message.reply_text.await_args_list[0]
+    second_args, _second_kwargs = update.message.reply_text.await_args_list[1]
+    assert '📝 Правила авто-инструкций' in first_args[0]
+    assert 'Включение/выключение теперь кнопками' in second_args[0]
 
 
 @pytest.mark.asyncio

@@ -14,6 +14,8 @@ from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
 from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
     Update,
@@ -21,6 +23,7 @@ from telegram import (
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -707,8 +710,10 @@ class TelegramBot:
             f'Профиль: {self._profile_name(profile_id)}',
             f'Товар: {product_id}',
             '',
-            'Если есть хотя бы одно правило, отправка идёт только по '
-            'настроенным вариантам.',
+            'Нажимай кнопки под этим сообщением, чтобы включать/выключать '
+            'варианты.',
+            'Если включено хотя бы одно правило, отправка идёт только по '
+            'включённым вариантам.',
             '',
         ]
         if not items:
@@ -741,17 +746,53 @@ class TelegramBot:
                 f'Включено: {enabled_count}/{len(items)}, '
                 f'кастомных текстов: {custom_count}',
                 '',
-                'Команды:',
-                '- list',
-                '- on <номер>',
-                '- off <номер>',
+                'Для кастомного текста:',
                 '- text <номер> <текст>',
                 '- clear <номер>',
-                '- reset',
-                '- done',
+                'Завершить редактирование: done',
             ]
         )
         return '\n'.join(lines)
+
+    def _trim_rule_button_text(
+        self,
+        value: str,
+        *,
+        limit: int = 34,
+    ) -> str:
+        text = self._rule_clean_text(value)
+        if len(text) <= limit:
+            return text
+        return text[: max(0, limit - 3)].rstrip() + '...'
+
+    def _chat_rules_inline_keyboard(
+        self,
+        *,
+        items: list[dict[str, str]],
+        rules: dict[str, dict[str, Any]],
+    ) -> InlineKeyboardMarkup:
+        rows: list[list[InlineKeyboardButton]] = []
+        for idx, item in enumerate(items, start=1):
+            entry = rules.get(item['key']) or {}
+            enabled = bool(entry.get('enabled', False))
+            status = '✅' if enabled else '🚫'
+            label = self._trim_rule_button_text(item.get('value') or item.get('label') or '')
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=f'{idx}. {status} {label}',
+                        callback_data=f'cr:t:{idx}',
+                    )
+                ]
+            )
+        rows.append(
+            [
+                InlineKeyboardButton('🔄 Обновить', callback_data='cr:r'),
+                InlineKeyboardButton('♻️ Сброс', callback_data='cr:x'),
+                InlineKeyboardButton('✅ Готово', callback_data='cr:d'),
+            ]
+        )
+        return InlineKeyboardMarkup(rows)
 
     # ================================
     # Keyboards
@@ -826,6 +867,7 @@ class TelegramBot:
         self.app.add_handler(CommandHandler('status', self.cmd_status))
         self.app.add_handler(CommandHandler('diag', self.cmd_diag))
         self.app.add_handler(CommandHandler('smoke', self.cmd_smoke))
+        self.app.add_handler(CallbackQueryHandler(self.handle_callback_query))
         self.app.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
         )
@@ -1179,6 +1221,145 @@ class TelegramBot:
             'Используй кнопки 👇',
             reply_markup=self.get_main_keyboard(profile_id),
         )
+
+    async def _refresh_chat_rules_message(self, chat_id: int, query):
+        context = self.chat_rules_context.get(chat_id) or {}
+        profile_id = str(context.get('profile_id') or '').strip().lower()
+        product_id = int(context.get('product_id') or 0)
+        items = context.get('items')
+        if not profile_id or product_id <= 0 or not isinstance(items, list):
+            await query.answer('Сессия правил устарела. Открой заново.', show_alert=True)
+            return False
+
+        rules = self._chat_rules_load(
+            profile_id=profile_id,
+            product_id=product_id,
+        )
+        overview = self._format_chat_rules_overview(
+            profile_id=profile_id,
+            product_id=product_id,
+            items=items,
+            rules=rules,
+        )
+        keyboard = self._chat_rules_inline_keyboard(items=items, rules=rules)
+        try:
+            await query.edit_message_text(
+                overview,
+                reply_markup=keyboard,
+            )
+        except Exception:
+            if query.message:
+                await query.message.reply_text(
+                    overview,
+                    reply_markup=keyboard,
+                )
+        return True
+
+    async def handle_callback_query(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+        query = update.callback_query
+        if not query or not update.effective_user or not update.effective_chat:
+            return
+        if not self._check_access(update.effective_user.id):
+            await query.answer('Нет доступа', show_alert=True)
+            return
+
+        data = (query.data or '').strip()
+        if not data.startswith('cr:'):
+            await query.answer()
+            return
+
+        chat_id = update.effective_chat.id
+        if chat_id not in self.pending_actions:
+            await query.answer('Открой редактор правил заново', show_alert=True)
+            return
+        pending_action, pending_profile = self._get_pending_action(chat_id)
+        current_profile = self._active_profile(chat_id)
+        if pending_action != 'CHAT_RULES' or pending_profile != current_profile:
+            await query.answer('Открой редактор правил заново', show_alert=True)
+            return
+
+        context_payload = self.chat_rules_context.get(chat_id) or {}
+        product_id = int(context_payload.get('product_id') or 0)
+        items = context_payload.get('items')
+        if product_id <= 0 or not isinstance(items, list):
+            await query.answer('Сессия правил устарела', show_alert=True)
+            return
+
+        parts = data.split(':')
+        action = parts[1] if len(parts) > 1 else ''
+
+        if action == 'd':
+            self.pending_actions.pop(chat_id, None)
+            self._clear_chat_rules_context(chat_id)
+            await query.answer('Готово')
+            if query.message:
+                await query.message.reply_text(
+                    '✅ Редактор правил закрыт',
+                    reply_markup=self.get_settings_keyboard(current_profile),
+                )
+            return
+
+        if action == 'x':
+            self._chat_rules_save(
+                profile_id=current_profile,
+                product_id=product_id,
+                rules={},
+                user_id=update.effective_user.id,
+            )
+            await query.answer('Правила сброшены')
+            await self._refresh_chat_rules_message(chat_id, query)
+            return
+
+        if action == 'r':
+            await query.answer('Обновлено')
+            await self._refresh_chat_rules_message(chat_id, query)
+            return
+
+        if action == 't':
+            if len(parts) < 3:
+                await query.answer('Некорректная кнопка', show_alert=True)
+                return
+            try:
+                index = int(parts[2])
+            except Exception:
+                await query.answer('Некорректный номер', show_alert=True)
+                return
+            if index <= 0 or index > len(items):
+                await query.answer('Правило не найдено', show_alert=True)
+                return
+            item = items[index - 1]
+            key = str(item.get('key') or '').strip().lower()
+            if not key:
+                await query.answer('Ошибка правила', show_alert=True)
+                return
+            rules = self._chat_rules_load(
+                profile_id=current_profile,
+                product_id=product_id,
+            )
+            entry = rules.get(key) or {}
+            enabled = not bool(entry.get('enabled', False))
+            entry = {
+                'enabled': enabled,
+                'text': str(entry.get('text') or '').strip(),
+                'option': str(entry.get('option') or item.get('option') or '').strip(),
+                'value': str(entry.get('value') or item.get('value') or '').strip(),
+            }
+            rules[key] = entry
+            self._chat_rules_save(
+                profile_id=current_profile,
+                product_id=product_id,
+                rules=rules,
+                user_id=update.effective_user.id,
+            )
+            await query.answer('Включено' if enabled else 'Выключено')
+            await self._refresh_chat_rules_message(chat_id, query)
+            return
+
+        await query.answer()
 
     # ================================
     # Status and diagnostics
@@ -1777,12 +1958,20 @@ class TelegramBot:
             'product_info': best_info,
         }
         self._set_pending_action(chat_id, 'CHAT_RULES', profile_id)
+        keyboard = self._chat_rules_inline_keyboard(items=best_items, rules=rules)
         await update.message.reply_text(
             self._format_chat_rules_overview(
                 profile_id=profile_id,
                 product_id=product_id,
                 items=best_items,
                 rules=rules,
+            ),
+            reply_markup=keyboard,
+        )
+        await update.message.reply_text(
+            (
+                'ℹ️ Включение/выключение теперь кнопками.\n'
+                'Для своего текста используй: text <номер> <текст>'
             ),
             reply_markup=self.get_settings_keyboard(profile_id),
         )
@@ -2028,6 +2217,13 @@ class TelegramBot:
                         items=items,
                         rules=rules,
                     ),
+                    reply_markup=self._chat_rules_inline_keyboard(
+                        items=items,
+                        rules=rules,
+                    ),
+                )
+                await update.message.reply_text(
+                    'ℹ️ Кнопками можно быстро включать/выключать правила.',
                     reply_markup=self.get_settings_keyboard(profile_id),
                 )
                 return
@@ -2045,6 +2241,13 @@ class TelegramBot:
                         items=items,
                         rules={},
                     ),
+                    reply_markup=self._chat_rules_inline_keyboard(
+                        items=items,
+                        rules={},
+                    ),
+                )
+                await update.message.reply_text(
+                    '✅ Все правила сброшены',
                     reply_markup=self.get_settings_keyboard(profile_id),
                 )
                 return
@@ -2122,6 +2325,13 @@ class TelegramBot:
                     items=items,
                     rules=rules,
                 ),
+                reply_markup=self._chat_rules_inline_keyboard(
+                    items=items,
+                    rules=rules,
+                ),
+            )
+            await update.message.reply_text(
+                'ℹ️ Вкл/выкл удобнее делать кнопками под списком.',
                 reply_markup=self.get_settings_keyboard(profile_id),
             )
             return
