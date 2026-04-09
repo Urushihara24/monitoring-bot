@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import logging
 import re
 from datetime import datetime, timedelta
@@ -1023,6 +1024,157 @@ class Scheduler:
             return ''
         return ''
 
+    def _chat_rules_get(self, product_id: int) -> dict[str, dict[str, Any]]:
+        if int(product_id or 0) <= 0:
+            return {}
+        raw = storage.get_runtime_setting(
+            chat_keys.rules_key(product_id),
+            profile_id=self.base_profile_id,
+        )
+        payload = (raw or '').strip()
+        if not payload:
+            return {}
+        try:
+            data = json.loads(payload)
+        except Exception:
+            logger.warning(
+                '[%s] Некорректный JSON правил авто-инструкций '
+                '(product_id=%s)',
+                self.profile_name,
+                product_id,
+            )
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        rules = data.get('rules')
+        if not isinstance(rules, dict):
+            return {}
+        normalized: dict[str, dict[str, Any]] = {}
+        for key, value in rules.items():
+            if not isinstance(key, str) or not isinstance(value, dict):
+                continue
+            normalized_key = key.strip().lower()
+            if not normalized_key:
+                continue
+            normalized[normalized_key] = {
+                'enabled': bool(value.get('enabled', True)),
+                'text': self._sanitize_message(value.get('text') or ''),
+            }
+        return normalized
+
+    def _iter_selected_option_contexts(self, payload: Any):
+        for option in self._iter_order_option_dicts(payload):
+            option_name = self._sanitize_message(
+                option.get('name')
+                or option.get('title')
+                or option.get('label')
+                or option.get('question')
+            )
+            selected_value = self._sanitize_message(
+                self._option_selected_text(option)
+            )
+            if not option_name or not selected_value:
+                continue
+            rule_key = chat_keys.option_rule_key(option_name, selected_value)
+            if not rule_key or rule_key.endswith('::'):
+                continue
+            yield {
+                'key': rule_key,
+                'option_name': option_name,
+                'selected_value': selected_value,
+                'option': option,
+            }
+
+    def _pick_instruction_for_option(
+        self,
+        option: dict[str, Any],
+        *,
+        mode: str,
+        locale: str,
+    ) -> str:
+        variant = self._resolve_selected_option_variant(option)
+        if variant:
+            text = self._pick_instruction_text(
+                variant,
+                mode=mode,
+                locale=locale,
+            )
+            if text:
+                return text
+        return self._pick_instruction_text(
+            option,
+            mode=mode,
+            locale=locale,
+        )
+
+    def _iter_product_rule_variants(self, payload: Any):
+        for option in self._iter_order_option_dicts(payload):
+            option_name = self._sanitize_message(
+                option.get('name')
+                or option.get('title')
+                or option.get('label')
+                or option.get('question')
+            )
+            if not option_name:
+                continue
+            variants = (
+                option.get('variants')
+                or option.get('values')
+                or option.get('options')
+            )
+            if not isinstance(variants, list):
+                continue
+            for variant in variants:
+                if not isinstance(variant, dict):
+                    continue
+                variant_text = self._sanitize_message(
+                    variant.get('text')
+                    or variant.get('label')
+                    or variant.get('name')
+                    or variant.get('title')
+                    or variant.get('value')
+                )
+                if not variant_text:
+                    continue
+                yield {
+                    'key': chat_keys.option_rule_key(option_name, variant_text),
+                    'option': option,
+                    'variant': variant,
+                }
+
+    def _pick_instruction_for_rule_key(
+        self,
+        payload: Any,
+        *,
+        rule_key: str,
+        mode: str,
+        locale: str,
+    ) -> str:
+        target = str(rule_key or '').strip().lower()
+        if not target:
+            return ''
+        for context in self._iter_product_rule_variants(payload):
+            if context.get('key') != target:
+                continue
+            variant = context.get('variant') or {}
+            option = context.get('option') or {}
+            text = self._pick_instruction_text(
+                variant,
+                mode=mode,
+                locale=locale,
+            )
+            if text:
+                return text
+            text = self._pick_instruction_text(
+                option,
+                mode=mode,
+                locale=locale,
+            )
+            if text:
+                return text
+            return ''
+        return ''
+
     def _is_friend_option(
         self,
         option: dict[str, Any],
@@ -1503,6 +1655,7 @@ class Scheduler:
             sent_count = 0
             processed_orders: set[int] = set()
             product_info_cache: Dict[tuple[int, str], dict[str, Any]] = {}
+            product_rules_cache: Dict[int, dict[str, dict[str, Any]]] = {}
             chats_product_filter = target_products or None
             for page in range(1, max_pages + 1):
                 chats = self.api_client.list_chats(
@@ -1601,63 +1754,165 @@ class Scheduler:
                         }
                     ) or _MODE_ALREADY
 
-                    template = self._resolve_chat_template(
-                        locale=locale,
-                        mode=mode,
-                    )
-                    message = self._sanitize_message(template)
-                    message_source = 'template'
-                    if not message:
-                        message = self._pick_selected_option_instruction(
-                            {
-                                'order': order_info,
-                                'chat': chat,
-                            },
-                            mode=mode,
-                            locale=locale,
-                        )
-                        if message:
-                            message_source = 'order_selected_option'
-                    if not message:
-                        message = self._pick_instruction_text(
-                            order_info,
-                            mode=mode,
-                            locale=locale,
-                        )
-                        if message:
-                            message_source = 'order_info'
-                    if not message:
-                        for info_lang in self._product_info_locales_to_try(locale):
-                            cache_key = (int(product_id), info_lang)
-                            product_info = product_info_cache.get(cache_key)
-                            if product_info is None:
-                                product_info = self.api_client.get_product_info(
-                                    product_id,
-                                    timeout=10,
-                                    lang=info_lang,
-                                ) or {}
-                                product_info_cache[cache_key] = product_info
-                            info_locale = (
-                                'en' if info_lang.lower().startswith('en') else 'ru'
+                    message = ''
+                    message_source = ''
+                    rules = product_rules_cache.get(product_id)
+                    if rules is None:
+                        rules = self._chat_rules_get(product_id)
+                        product_rules_cache[product_id] = rules
+
+                    selected_options_payload = {
+                        'order': order_info,
+                        'chat': chat,
+                    }
+                    if rules:
+                        matched_rule = None
+                        matched_context: Optional[dict[str, Any]] = None
+                        for context in self._iter_selected_option_contexts(
+                            selected_options_payload
+                        ):
+                            rule = rules.get(context['key'])
+                            if rule is None:
+                                continue
+                            matched_rule = rule
+                            matched_context = context
+                            break
+
+                        if matched_rule is None or matched_context is None:
+                            logger.info(
+                                '[%s] Пропуск order_id=%s: нет совпадения по '
+                                'настроенным правилам параметров '
+                                '(product_id=%s)',
+                                self.profile_name,
+                                order_id,
+                                product_id,
                             )
+                            continue
+
+                        if not bool(matched_rule.get('enabled', True)):
+                            logger.info(
+                                '[%s] Пропуск order_id=%s: правило отключено '
+                                '(product_id=%s, option=%s, value=%s)',
+                                self.profile_name,
+                                order_id,
+                                product_id,
+                                matched_context.get('option_name'),
+                                matched_context.get('selected_value'),
+                            )
+                            continue
+
+                        custom_message = self._sanitize_message(
+                            matched_rule.get('text') or ''
+                        )
+                        if custom_message:
+                            message = custom_message
+                            message_source = 'rule_custom'
+                        else:
+                            message = self._pick_instruction_for_option(
+                                matched_context['option'],
+                                mode=mode,
+                                locale=locale,
+                            )
+                            if message:
+                                message_source = 'rule_option'
+                            else:
+                                for info_lang in self._product_info_locales_to_try(
+                                    locale
+                                ):
+                                    cache_key = (int(product_id), info_lang)
+                                    product_info = product_info_cache.get(cache_key)
+                                    if product_info is None:
+                                        product_info = self.api_client.get_product_info(
+                                            product_id,
+                                            timeout=10,
+                                            lang=info_lang,
+                                        ) or {}
+                                        product_info_cache[cache_key] = product_info
+                                    info_locale = (
+                                        'en'
+                                        if info_lang.lower().startswith('en')
+                                        else 'ru'
+                                    )
+                                    message = self._pick_instruction_for_rule_key(
+                                        product_info,
+                                        rule_key=matched_context['key'],
+                                        mode=mode,
+                                        locale=info_locale,
+                                    )
+                                    if message:
+                                        message_source = (
+                                            f'rule_product_option[{info_lang}]'
+                                        )
+                                        break
+                                if not message:
+                                    logger.info(
+                                        '[%s] Пропуск order_id=%s: по выбранному '
+                                        'параметру нет текста инструкции '
+                                        '(product_id=%s, option=%s, value=%s)',
+                                        self.profile_name,
+                                        order_id,
+                                        product_id,
+                                        matched_context.get('option_name'),
+                                        matched_context.get('selected_value'),
+                                    )
+                                    continue
+                    else:
+                        template = self._resolve_chat_template(
+                            locale=locale,
+                            mode=mode,
+                        )
+                        message = self._sanitize_message(template)
+                        message_source = 'template'
+                        if not message:
                             message = self._pick_selected_option_instruction(
-                                product_info,
+                                selected_options_payload,
                                 mode=mode,
-                                locale=info_locale,
+                                locale=locale,
                             )
                             if message:
-                                message_source = (
-                                    f'product_selected_option[{info_lang}]'
-                                )
-                                break
+                                message_source = 'order_selected_option'
+                        if not message:
                             message = self._pick_instruction_text(
-                                product_info,
+                                order_info,
                                 mode=mode,
-                                locale=info_locale,
+                                locale=locale,
                             )
                             if message:
-                                message_source = f'product_info[{info_lang}]'
-                                break
+                                message_source = 'order_info'
+                        if not message:
+                            for info_lang in self._product_info_locales_to_try(locale):
+                                cache_key = (int(product_id), info_lang)
+                                product_info = product_info_cache.get(cache_key)
+                                if product_info is None:
+                                    product_info = self.api_client.get_product_info(
+                                        product_id,
+                                        timeout=10,
+                                        lang=info_lang,
+                                    ) or {}
+                                    product_info_cache[cache_key] = product_info
+                                info_locale = (
+                                    'en'
+                                    if info_lang.lower().startswith('en')
+                                    else 'ru'
+                                )
+                                message = self._pick_selected_option_instruction(
+                                    product_info,
+                                    mode=mode,
+                                    locale=info_locale,
+                                )
+                                if message:
+                                    message_source = (
+                                        f'product_selected_option[{info_lang}]'
+                                    )
+                                    break
+                                message = self._pick_instruction_text(
+                                    product_info,
+                                    mode=mode,
+                                    locale=info_locale,
+                                )
+                                if message:
+                                    message_source = f'product_info[{info_lang}]'
+                                    break
 
                     if not message:
                         logger.warning(

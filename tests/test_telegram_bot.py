@@ -6,6 +6,7 @@ from src.telegram_bot import (
     BTN_AUTO_OFF,
     BTN_AUTO_ON,
     BTN_BACK,
+    BTN_CHAT_RULES,
     BTN_DOWN,
     BTN_MAX,
     BTN_MIN,
@@ -78,6 +79,7 @@ async def test_keyboards_are_reply(bot):
         (BTN_MODE, 'toggle_mode'),
         (BTN_POSITION, 'toggle_position_filter'),
         (BTN_REMOVE_URL, 'start_remove_url'),
+        (BTN_CHAT_RULES, 'start_chat_rules'),
     ],
 )
 async def test_buttons_dispatch_to_methods(bot, monkeypatch, button, method_name):

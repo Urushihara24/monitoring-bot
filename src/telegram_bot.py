@@ -6,10 +6,12 @@ Telegram бот с Reply Keyboard.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
 import unicodedata
 from datetime import datetime
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from telegram import (
     ReplyKeyboardMarkup,
@@ -60,6 +62,7 @@ BTN_ADD_URL = '🔗 Добавить URL'
 BTN_REMOVE_URL = '🗑 Удалить URL'
 BTN_CHAT_AUTOREPLY_ON = '💬 Инструкции: ВКЛ'
 BTN_CHAT_AUTOREPLY_OFF = '💬 Инструкции: ВЫКЛ'
+BTN_CHAT_RULES = '📝 Правила инстр.'
 
 _MODE_SEQUENCE = [
     'FOLLOW',
@@ -96,6 +99,7 @@ class TelegramBot:
         self.pending_actions: Dict[int, Tuple[str, str]] = {}
         self.chat_profile: Dict[int, str] = {}
         self.chat_settings_mode: Dict[int, str] = {}
+        self.chat_rules_context: Dict[int, Dict[str, Any]] = {}
 
         if api_clients is None:
             api_clients = {DEFAULT_PROFILE: api_client} if api_client else {}
@@ -198,7 +202,12 @@ class TelegramBot:
         profile_id: str,
     ):
         """Сохраняет pending-действие с привязкой к активному профилю."""
+        if action != 'CHAT_RULES':
+            self._clear_chat_rules_context(chat_id)
         self.pending_actions[chat_id] = (action, profile_id)
+
+    def _clear_chat_rules_context(self, chat_id: int):
+        self.chat_rules_context.pop(chat_id, None)
 
     async def _prompt_pending_action(
         self,
@@ -536,6 +545,214 @@ class TelegramBot:
             'last_error': (last_error or '').strip() or 'N/A',
         }
 
+    def _chat_rules_storage_key(self, product_id: int) -> str:
+        return chat_keys.rules_key(product_id)
+
+    def _chat_rules_load(
+        self,
+        *,
+        profile_id: str,
+        product_id: int,
+    ) -> dict[str, dict[str, Any]]:
+        if int(product_id or 0) <= 0:
+            return {}
+        raw = storage.get_runtime_setting(
+            self._chat_rules_storage_key(product_id),
+            profile_id=profile_id,
+        )
+        payload = (raw or '').strip()
+        if not payload:
+            return {}
+        try:
+            data = json.loads(payload)
+        except Exception:
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        rules = data.get('rules')
+        if not isinstance(rules, dict):
+            return {}
+        normalized: dict[str, dict[str, Any]] = {}
+        for key, value in rules.items():
+            if not isinstance(key, str) or not isinstance(value, dict):
+                continue
+            normalized_key = key.strip().lower()
+            if not normalized_key:
+                continue
+            normalized[normalized_key] = {
+                'enabled': bool(value.get('enabled', True)),
+                'text': str(value.get('text') or '').strip(),
+                'option': str(value.get('option') or '').strip(),
+                'value': str(value.get('value') or '').strip(),
+            }
+        return normalized
+
+    def _chat_rules_save(
+        self,
+        *,
+        profile_id: str,
+        product_id: int,
+        rules: dict[str, dict[str, Any]],
+        user_id: int,
+    ):
+        normalized: dict[str, dict[str, Any]] = {}
+        for key, value in (rules or {}).items():
+            if not isinstance(key, str) or not isinstance(value, dict):
+                continue
+            normalized_key = key.strip().lower()
+            if not normalized_key:
+                continue
+            normalized[normalized_key] = {
+                'enabled': bool(value.get('enabled', True)),
+                'text': str(value.get('text') or '').strip(),
+                'option': str(value.get('option') or '').strip(),
+                'value': str(value.get('value') or '').strip(),
+            }
+        if normalized:
+            payload = json.dumps(
+                {'version': 1, 'rules': normalized},
+                ensure_ascii=False,
+            )
+        else:
+            payload = ''
+        storage.set_runtime_setting(
+            self._chat_rules_storage_key(product_id),
+            payload,
+            user_id=user_id,
+            source='telegram',
+            profile_id=profile_id,
+        )
+
+    def _rule_clean_text(self, value: Any) -> str:
+        text = str(value or '').strip()
+        text = re.sub(r'\s+', ' ', text)
+        return text
+
+    def _rule_choice_text(self, value: Any) -> str:
+        if value is None:
+            return ''
+        if isinstance(value, bool):
+            return 'true' if value else 'false'
+        if isinstance(value, (int, float)):
+            as_float = float(value)
+            return str(int(as_float)) if as_float.is_integer() else str(as_float)
+        if isinstance(value, dict):
+            for key in ('text', 'label', 'name', 'title', 'value'):
+                if key in value:
+                    inner = self._rule_choice_text(value.get(key))
+                    if inner:
+                        return inner
+            return ''
+        return self._rule_clean_text(value)
+
+    def _iter_product_option_variants(self, payload: Any):
+        if isinstance(payload, dict):
+            variants = (
+                payload.get('variants')
+                or payload.get('values')
+                or payload.get('options')
+            )
+            option_name = self._rule_clean_text(
+                payload.get('name')
+                or payload.get('title')
+                or payload.get('label')
+                or payload.get('question')
+            )
+            if isinstance(variants, list) and option_name:
+                for item in variants:
+                    variant_text = self._rule_choice_text(item)
+                    if variant_text:
+                        yield option_name, variant_text
+            for nested in payload.values():
+                yield from self._iter_product_option_variants(nested)
+            return
+        if isinstance(payload, list):
+            for item in payload:
+                yield from self._iter_product_option_variants(item)
+
+    def _build_chat_rules_items(
+        self,
+        product_info: dict[str, Any],
+    ) -> list[dict[str, str]]:
+        items: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for option_name, variant_text in self._iter_product_option_variants(
+            product_info
+        ):
+            key = chat_keys.option_rule_key(option_name, variant_text)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            items.append(
+                {
+                    'key': key,
+                    'option': option_name,
+                    'value': variant_text,
+                    'label': f'{option_name} -> {variant_text}',
+                }
+            )
+        return items
+
+    def _format_chat_rules_overview(
+        self,
+        *,
+        profile_id: str,
+        product_id: int,
+        items: list[dict[str, str]],
+        rules: dict[str, dict[str, Any]],
+    ) -> str:
+        lines = [
+            '📝 Правила авто-инструкций',
+            '',
+            f'Профиль: {self._profile_name(profile_id)}',
+            f'Товар: {product_id}',
+            '',
+            'Если есть хотя бы одно правило, отправка идёт только по '
+            'настроенным вариантам.',
+            '',
+        ]
+        if not items:
+            lines.append('❌ В товаре не найдены параметры с вариантами.')
+            return '\n'.join(lines)
+
+        enabled_count = 0
+        custom_count = 0
+        for idx, item in enumerate(items, start=1):
+            entry = rules.get(item['key']) or {}
+            enabled = bool(entry.get('enabled', False))
+            has_custom = bool((entry.get('text') or '').strip())
+            if enabled:
+                enabled_count += 1
+            if has_custom:
+                custom_count += 1
+            status = '✅' if enabled else '🚫'
+            custom = '✍️' if has_custom else '—'
+            lines.append(
+                f'{idx}. {status} {item["label"]} | текст: {custom}'
+            )
+            if has_custom:
+                preview = self._rule_clean_text(entry.get('text'))
+                if len(preview) > 120:
+                    preview = preview[:117].rstrip() + '...'
+                lines.append(f'   ↳ {preview}')
+        lines.extend(
+            [
+                '',
+                f'Включено: {enabled_count}/{len(items)}, '
+                f'кастомных текстов: {custom_count}',
+                '',
+                'Команды:',
+                '- list',
+                '- on <номер>',
+                '- off <номер>',
+                '- text <номер> <текст>',
+                '- clear <номер>',
+                '- reset',
+                '- done',
+            ]
+        )
+        return '\n'.join(lines)
+
     # ================================
     # Keyboards
     # ================================
@@ -584,7 +801,7 @@ class TelegramBot:
                 BTN_CHAT_AUTOREPLY_OFF
                 if chat_enabled else BTN_CHAT_AUTOREPLY_ON
             )
-            rows.append([chat_toggle_button])
+            rows.append([chat_toggle_button, BTN_CHAT_RULES])
         rows.append([BTN_SETTINGS_ADVANCED])
         rows.append([BTN_BACK])
         return ReplyKeyboardMarkup(rows, resize_keyboard=True)
@@ -831,6 +1048,9 @@ class TelegramBot:
                 enabled=False,
             )
             return
+        if text == BTN_CHAT_RULES:
+            await self.start_chat_rules(chat_id, update)
+            return
         # Выбор профиля
         for pid in self.available_profiles:
             if text == self._profile_button(pid):
@@ -839,6 +1059,7 @@ class TelegramBot:
                 self._set_settings_mode(chat_id, 'quick')
                 if had_pending:
                     self.pending_actions.pop(chat_id, None)
+                self._clear_chat_rules_context(chat_id)
                 suffix = (
                     '\n⚠️ Незавершённый ввод сброшен.'
                     if had_pending else ''
@@ -942,6 +1163,7 @@ class TelegramBot:
             return
         if text == BTN_BACK:
             self.pending_actions.pop(chat_id, None)
+            self._clear_chat_rules_context(chat_id)
             self._set_settings_mode(chat_id, 'quick')
             await update.message.reply_text(
                 '📋 Главное меню',
@@ -1485,6 +1707,86 @@ class TelegramBot:
         )
         await self.send_settings(chat_id, update)
 
+    async def start_chat_rules(self, chat_id: int, update: Update):
+        if not update.message:
+            return
+        profile_id = self._active_profile(chat_id)
+        product_id = self._product_id(profile_id)
+        if product_id <= 0:
+            await update.message.reply_text(
+                '❌ Для активного профиля не задан product_id',
+                reply_markup=self.get_settings_keyboard(profile_id),
+            )
+            return
+        if not self._chat_autoreply_supported(profile_id):
+            await update.message.reply_text(
+                '❌ Для этого профиля авто-инструкции недоступны',
+                reply_markup=self.get_settings_keyboard(profile_id),
+            )
+            return
+
+        client = self._api_client(profile_id)
+        get_product_info = getattr(client, 'get_product_info', None) if client else None
+        if not callable(get_product_info):
+            await update.message.reply_text(
+                '❌ API клиента для инструкций нет',
+                reply_markup=self.get_settings_keyboard(profile_id),
+            )
+            return
+
+        best_items: list[dict[str, str]] = []
+        best_info: dict[str, Any] = {}
+        for lang in ('ru-RU', 'en-US'):
+            try:
+                info = await asyncio.to_thread(
+                    get_product_info,
+                    product_id,
+                    timeout=10,
+                    lang=lang,
+                ) or {}
+            except Exception:
+                info = {}
+            if not isinstance(info, dict):
+                info = {}
+            items = self._build_chat_rules_items(info)
+            if len(items) > len(best_items):
+                best_items = items
+                best_info = info
+
+        if not best_info:
+            try:
+                fallback_info = await asyncio.to_thread(
+                    get_product_info,
+                    product_id,
+                    timeout=10,
+                ) or {}
+            except Exception:
+                fallback_info = {}
+            if isinstance(fallback_info, dict):
+                best_info = fallback_info
+                best_items = self._build_chat_rules_items(fallback_info)
+
+        rules = self._chat_rules_load(
+            profile_id=profile_id,
+            product_id=product_id,
+        )
+        self.chat_rules_context[chat_id] = {
+            'profile_id': profile_id,
+            'product_id': product_id,
+            'items': best_items,
+            'product_info': best_info,
+        }
+        self._set_pending_action(chat_id, 'CHAT_RULES', profile_id)
+        await update.message.reply_text(
+            self._format_chat_rules_overview(
+                profile_id=profile_id,
+                product_id=product_id,
+                items=best_items,
+                rules=rules,
+            ),
+            reply_markup=self.get_settings_keyboard(profile_id),
+        )
+
     async def switch_active_product(
         self,
         chat_id: int,
@@ -1520,6 +1822,7 @@ class TelegramBot:
         had_pending = chat_id in self.pending_actions
         if had_pending:
             self.pending_actions.pop(chat_id, None)
+            self._clear_chat_rules_context(chat_id)
         self.profile_products[profile_id] = new_product_id
 
         new_idx = product_ids.index(new_product_id) + 1
@@ -1681,6 +1984,146 @@ class TelegramBot:
                 reply_markup=self.get_settings_keyboard(profile_id),
             )
             await self.send_settings(chat_id, update)
+            return
+
+        if action == 'CHAT_RULES':
+            context = self.chat_rules_context.get(chat_id) or {}
+            ctx_profile = str(context.get('profile_id') or '').strip().lower()
+            ctx_product = int(context.get('product_id') or 0)
+            if ctx_profile != profile_id or ctx_product != product_id:
+                self.pending_actions.pop(chat_id, None)
+                self._clear_chat_rules_context(chat_id)
+                await update.message.reply_text(
+                    (
+                        '⚠️ Контекст правил сброшен: активный '
+                        'профиль или товар изменился.'
+                    ),
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+
+            items = context.get('items')
+            if not isinstance(items, list):
+                items = []
+            rules = self._chat_rules_load(
+                profile_id=profile_id,
+                product_id=product_id,
+            )
+
+            normalized = text.strip()
+            lower = normalized.lower()
+            if lower in {'done', 'готово', 'выход', 'exit'}:
+                self.pending_actions.pop(chat_id, None)
+                self._clear_chat_rules_context(chat_id)
+                await update.message.reply_text(
+                    '✅ Редактор правил закрыт',
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+            if lower in {'list', 'ls', 'список', 'help', '?'}:
+                await update.message.reply_text(
+                    self._format_chat_rules_overview(
+                        profile_id=profile_id,
+                        product_id=product_id,
+                        items=items,
+                        rules=rules,
+                    ),
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+            if lower in {'reset', 'сброс'}:
+                self._chat_rules_save(
+                    profile_id=profile_id,
+                    product_id=product_id,
+                    rules={},
+                    user_id=user_id,
+                )
+                await update.message.reply_text(
+                    self._format_chat_rules_overview(
+                        profile_id=profile_id,
+                        product_id=product_id,
+                        items=items,
+                        rules={},
+                    ),
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+
+            match = re.match(
+                r'^(on|off|clear|text)\s+(\d+)(?:\s+(.+))?$',
+                normalized,
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+            if not match:
+                await update.message.reply_text(
+                    (
+                        '❌ Команда не распознана.\n'
+                        'Используй: list | on N | off N | text N <текст> | '
+                        'clear N | reset | done'
+                    ),
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+
+            command = match.group(1).lower()
+            index = int(match.group(2))
+            payload = (match.group(3) or '').strip()
+            if index <= 0 or index > len(items):
+                await update.message.reply_text(
+                    f'❌ Номер должен быть в диапазоне 1..{len(items)}',
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+
+            item = items[index - 1]
+            key = str(item.get('key') or '').strip().lower()
+            if not key:
+                await update.message.reply_text(
+                    '❌ Не удалось обработать выбранный пункт',
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+
+            entry = rules.get(key) or {}
+            entry = {
+                'enabled': bool(entry.get('enabled', False)),
+                'text': str(entry.get('text') or '').strip(),
+                'option': str(entry.get('option') or item.get('option') or '').strip(),
+                'value': str(entry.get('value') or item.get('value') or '').strip(),
+            }
+
+            if command == 'on':
+                entry['enabled'] = True
+            elif command == 'off':
+                entry['enabled'] = False
+            elif command == 'clear':
+                entry['text'] = ''
+            elif command == 'text':
+                if not payload:
+                    await update.message.reply_text(
+                        '❌ Укажи текст: text <номер> <сообщение>',
+                        reply_markup=self.get_settings_keyboard(profile_id),
+                    )
+                    return
+                entry['text'] = payload
+                entry['enabled'] = True
+
+            rules[key] = entry
+            self._chat_rules_save(
+                profile_id=profile_id,
+                product_id=product_id,
+                rules=rules,
+                user_id=user_id,
+            )
+            await update.message.reply_text(
+                self._format_chat_rules_overview(
+                    profile_id=profile_id,
+                    product_id=product_id,
+                    items=items,
+                    rules=rules,
+                ),
+                reply_markup=self.get_settings_keyboard(profile_id),
+            )
             return
 
         if action == 'MANAGE_PRODUCTS':

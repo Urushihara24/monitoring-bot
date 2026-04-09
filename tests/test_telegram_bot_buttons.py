@@ -1,8 +1,10 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
+from src import chat_autoreply as chat_keys
 from src.telegram_bot import (
     BTN_ADD_URL,
     BTN_AUTO_OFF,
@@ -10,6 +12,7 @@ from src.telegram_bot import (
     BTN_BACK,
     BTN_CHAT_AUTOREPLY_OFF,
     BTN_CHAT_AUTOREPLY_ON,
+    BTN_CHAT_RULES,
     BTN_DOWN,
     BTN_INTERVAL,
     BTN_MAX,
@@ -150,6 +153,7 @@ def test_settings_keyboard_shows_chat_toggle_for_supported_profile():
     texts = keyboard_texts(bot.get_settings_keyboard('ggsel'))
     assert BTN_CHAT_AUTOREPLY_ON in texts
     assert BTN_CHAT_AUTOREPLY_OFF not in texts
+    assert BTN_CHAT_RULES in texts
 
 
 def test_main_keyboard_is_not_overloaded():
@@ -179,6 +183,7 @@ async def test_main_buttons_route_to_handlers():
     bot.handle_price_change = AsyncMock()
     bot.set_auto_enabled = AsyncMock()
     bot.set_chat_autoreply_enabled = AsyncMock()
+    bot.start_chat_rules = AsyncMock()
     bot.send_settings = AsyncMock()
 
     status = make_update(BTN_STATUS)
@@ -226,6 +231,10 @@ async def test_main_buttons_route_to_handlers():
     bot.set_chat_autoreply_enabled.assert_any_await(
         100, 1, chat_off, enabled=False
     )
+
+    chat_rules = make_update(BTN_CHAT_RULES)
+    await bot.handle_message(chat_rules, None)
+    bot.start_chat_rules.assert_awaited_once_with(100, chat_rules)
 
 
 @pytest.mark.asyncio
@@ -419,6 +428,119 @@ async def test_set_chat_autoreply_enabled_updates_runtime_setting(monkeypatch):
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert args[0] == '💬 Авто-инструкции: ВКЛ'
+
+
+@pytest.mark.asyncio
+async def test_chat_rules_button_opens_editor(monkeypatch):
+    class ProductWithOptionsClient(ChatCapableClient):
+        def get_product_info(self, _product_id, timeout=10, lang=None):
+            return {
+                'options': [
+                    {
+                        'name': 'Наши аккаунты в друзьях',
+                        'variants': [
+                            {'id': 1, 'text': 'Нет. Добавлю после оплаты.'},
+                            {'id': 2, 'text': 'Да. Проверил(а), в друзьях'},
+                        ],
+                    }
+                ]
+            }
+
+    bot = TelegramBot(
+        api_clients={'ggsel': ProductWithOptionsClient()},
+        profile_products={'ggsel': 1},
+        profile_default_urls={'ggsel': []},
+        profile_labels={'ggsel': 'GGSEL'},
+    )
+    bot.admin_ids = {1}
+    bot.chat_profile[100] = 'ggsel'
+    store = {}
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'get_runtime_setting',
+        lambda key, profile_id='ggsel', **_kwargs: store.get(
+            (profile_id, key)
+        ),
+    )
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_runtime_setting',
+        lambda key, value, user_id=None, source='system', profile_id='ggsel': (
+            store.__setitem__((profile_id, key), value)
+        ),
+    )
+    update = make_update(BTN_CHAT_RULES)
+
+    await bot.handle_message(update, None)
+
+    assert bot.pending_actions[100] == ('CHAT_RULES', 'ggsel')
+    assert bot.chat_rules_context[100]['product_id'] == 1
+    assert len(bot.chat_rules_context[100]['items']) == 2
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert '📝 Правила авто-инструкций' in args[0]
+
+
+@pytest.mark.asyncio
+async def test_chat_rules_pending_commands_save_rule(monkeypatch):
+    class ProductWithOptionsClient(ChatCapableClient):
+        def get_product_info(self, _product_id, timeout=10, lang=None):
+            return {
+                'options': [
+                    {
+                        'name': 'Наши аккаунты в друзьях',
+                        'variants': [
+                            {'id': 1, 'text': 'Нет. Добавлю после оплаты.'},
+                        ],
+                    }
+                ]
+            }
+
+    bot = TelegramBot(
+        api_clients={'ggsel': ProductWithOptionsClient()},
+        profile_products={'ggsel': 1},
+        profile_default_urls={'ggsel': []},
+        profile_labels={'ggsel': 'GGSEL'},
+    )
+    bot.admin_ids = {1}
+    bot.chat_profile[100] = 'ggsel'
+    store = {}
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'get_runtime_setting',
+        lambda key, profile_id='ggsel', **_kwargs: store.get(
+            (profile_id, key)
+        ),
+    )
+
+    def fake_set_runtime_setting(
+        key,
+        value,
+        user_id=None,
+        source='system',
+        profile_id='ggsel',
+    ):
+        store[(profile_id, key)] = value
+
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_runtime_setting',
+        fake_set_runtime_setting,
+    )
+
+    await bot.handle_message(make_update(BTN_CHAT_RULES), None)
+    await bot.handle_message(make_update('on 1'), None)
+
+    payload = store[('ggsel', chat_keys.rules_key(1))]
+    data = json.loads(payload)
+    assert data['rules']
+    only_key = next(iter(data['rules']))
+    assert data['rules'][only_key]['enabled'] is True
+
+    await bot.handle_message(make_update('text 1 Тестовая инструкция'), None)
+    payload = store[('ggsel', chat_keys.rules_key(1))]
+    data = json.loads(payload)
+    assert data['rules'][only_key]['text'] == 'Тестовая инструкция'
 
 
 @pytest.mark.asyncio
