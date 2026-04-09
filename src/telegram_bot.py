@@ -65,6 +65,8 @@ BTN_ADD_URL = '🔗 Добавить URL'
 BTN_REMOVE_URL = '🗑 Удалить URL'
 BTN_CHAT_AUTOREPLY_ON = '💬 Инструкции: ВКЛ'
 BTN_CHAT_AUTOREPLY_OFF = '💬 Инструкции: ВЫКЛ'
+BTN_CHAT_EMPTY_ONLY_ON = '📭 Только пустой чат: ВКЛ'
+BTN_CHAT_EMPTY_ONLY_OFF = '📨 Только пустой чат: ВЫКЛ'
 BTN_CHAT_RULES = '📝 Правила инстр.'
 
 _MODE_SEQUENCE = [
@@ -478,6 +480,16 @@ class TelegramBot:
             return normalized in ('1', 'true', 'yes', 'on')
         return bool(self._chat_cfg(profile_id, 'ENABLED', False))
 
+    def _chat_autoreply_only_empty_chat(self, profile_id: str) -> bool:
+        runtime_raw = storage.get_runtime_setting(
+            'CHAT_AUTOREPLY_ONLY_EMPTY_CHAT',
+            profile_id=profile_id,
+        )
+        if runtime_raw is not None:
+            normalized = str(runtime_raw).strip().lower()
+            return normalized in ('1', 'true', 'yes', 'on')
+        return bool(self._chat_cfg(profile_id, 'ONLY_EMPTY_CHAT', True))
+
     def _chat_autoreply_meta(self, profile_id: str) -> Optional[dict]:
         if not self._chat_autoreply_supported(profile_id):
             return None
@@ -544,6 +556,7 @@ class TelegramBot:
 
         return {
             'enabled': enabled,
+            'only_empty_chat': self._chat_autoreply_only_empty_chat(profile_id),
             'dedupe': dedupe,
             'lookback': lookback,
             'interval_seconds': interval_seconds,
@@ -833,9 +846,10 @@ class TelegramBot:
                 f'Включено: {enabled_count}/{len(items)}, '
                 f'кастомных текстов: {custom_count}',
                 '',
-                'Для кастомного текста:',
+                'Кастомный текст опционален:',
                 '- text <номер> <текст>',
                 '- clear <номер>',
+                'Если текст пустой, берётся инструкция из товара.',
                 'Завершить редактирование: done',
             ]
         )
@@ -929,7 +943,16 @@ class TelegramBot:
                 BTN_CHAT_AUTOREPLY_OFF
                 if chat_enabled else BTN_CHAT_AUTOREPLY_ON
             )
-            rows.append([chat_toggle_button, BTN_CHAT_RULES])
+            empty_chat_only_enabled = self._chat_autoreply_only_empty_chat(
+                profile
+            )
+            empty_chat_button = (
+                BTN_CHAT_EMPTY_ONLY_OFF
+                if empty_chat_only_enabled
+                else BTN_CHAT_EMPTY_ONLY_ON
+            )
+            rows.append([chat_toggle_button, empty_chat_button])
+            rows.append([BTN_CHAT_RULES])
         rows.append([BTN_SETTINGS_ADVANCED])
         rows.append([BTN_BACK])
         return ReplyKeyboardMarkup(rows, resize_keyboard=True)
@@ -1171,6 +1194,22 @@ class TelegramBot:
             return
         if text == BTN_CHAT_AUTOREPLY_OFF:
             await self.set_chat_autoreply_enabled(
+                chat_id,
+                user_id,
+                update,
+                enabled=False,
+            )
+            return
+        if text == BTN_CHAT_EMPTY_ONLY_ON:
+            await self.set_chat_autoreply_only_empty_chat(
+                chat_id,
+                user_id,
+                update,
+                enabled=True,
+            )
+            return
+        if text == BTN_CHAT_EMPTY_ONLY_OFF:
+            await self.set_chat_autoreply_only_empty_chat(
                 chat_id,
                 user_id,
                 update,
@@ -1564,6 +1603,8 @@ class TelegramBot:
                 '\n'
                 f'💬 Авто-инструкции: '
                 f'{"ВКЛ" if chat_meta["enabled"] else "ВЫКЛ"}\n'
+                f'📭 Только пустой чат: '
+                f'{"Да" if chat_meta["only_empty_chat"] else "Нет"}\n'
                 f'📦 Товары: {chat_meta["products"]}\n'
                 f'📨 Отправлено: {chat_meta["sent_count"]}\n'
                 f'🧷 Дубликаты: {chat_meta["duplicate_count"]}\n'
@@ -1647,6 +1688,8 @@ class TelegramBot:
                 '\n'
                 f'💬 Авто-инструкции: '
                 f'{"ВКЛ" if chat_meta["enabled"] else "ВЫКЛ"}\n'
+                f'📭 Только пустой чат: '
+                f'{"Да" if chat_meta["only_empty_chat"] else "Нет"}\n'
                 f'📦 Товары инструкций: {chat_meta["products"]}\n'
                 f'📨 Отправлено всего: {chat_meta["sent_count"]}\n'
                 f'🧷 Дубликатов пропущено: {chat_meta["duplicate_count"]}\n'
@@ -1975,6 +2018,40 @@ class TelegramBot:
         )
         await self.send_settings(chat_id, update)
 
+    async def set_chat_autoreply_only_empty_chat(
+        self,
+        chat_id: int,
+        user_id: int,
+        update: Update,
+        *,
+        enabled: bool,
+    ):
+        if not update.message:
+            return
+        profile_id = self._active_profile(chat_id)
+        if not self._chat_autoreply_supported(profile_id):
+            await update.message.reply_text(
+                '❌ Для этого профиля авто-инструкции недоступны',
+                reply_markup=self.get_settings_keyboard(profile_id),
+            )
+            return
+
+        storage.set_runtime_setting(
+            'CHAT_AUTOREPLY_ONLY_EMPTY_CHAT',
+            'true' if enabled else 'false',
+            user_id=user_id,
+            source='telegram',
+            profile_id=profile_id,
+        )
+        await update.message.reply_text(
+            (
+                '📭 Отправка только в пустой чат: '
+                f'{"ВКЛ" if enabled else "ВЫКЛ"}'
+            ),
+            reply_markup=self.get_settings_keyboard(profile_id),
+        )
+        await self.send_settings(chat_id, update)
+
     async def start_chat_rules(self, chat_id: int, update: Update):
         if not update.message:
             return
@@ -2069,7 +2146,8 @@ class TelegramBot:
         await update.message.reply_text(
             (
                 'ℹ️ Включение/выключение теперь кнопками.\n'
-                'Для своего текста используй: text <номер> <текст>'
+                'Кастомный текст опционален: text <номер> <текст>\n'
+                'Если текст не задан, отправится инструкция из карточки товара.'
             ),
             reply_markup=self.get_settings_keyboard(profile_id),
         )

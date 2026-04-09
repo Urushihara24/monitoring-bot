@@ -12,6 +12,8 @@ from src.telegram_bot import (
     BTN_BACK,
     BTN_CHAT_AUTOREPLY_OFF,
     BTN_CHAT_AUTOREPLY_ON,
+    BTN_CHAT_EMPTY_ONLY_OFF,
+    BTN_CHAT_EMPTY_ONLY_ON,
     BTN_CHAT_RULES,
     BTN_DOWN,
     BTN_INTERVAL,
@@ -187,6 +189,8 @@ def test_settings_keyboard_shows_chat_toggle_for_supported_profile():
     texts = keyboard_texts(bot.get_settings_keyboard('ggsel'))
     assert BTN_CHAT_AUTOREPLY_ON in texts
     assert BTN_CHAT_AUTOREPLY_OFF not in texts
+    assert BTN_CHAT_EMPTY_ONLY_OFF in texts
+    assert BTN_CHAT_EMPTY_ONLY_ON not in texts
     assert BTN_CHAT_RULES in texts
 
 
@@ -217,6 +221,7 @@ async def test_main_buttons_route_to_handlers():
     bot.handle_price_change = AsyncMock()
     bot.set_auto_enabled = AsyncMock()
     bot.set_chat_autoreply_enabled = AsyncMock()
+    bot.set_chat_autoreply_only_empty_chat = AsyncMock()
     bot.start_chat_rules = AsyncMock()
     bot.send_settings = AsyncMock()
 
@@ -264,6 +269,18 @@ async def test_main_buttons_route_to_handlers():
     await bot.handle_message(chat_off, None)
     bot.set_chat_autoreply_enabled.assert_any_await(
         100, 1, chat_off, enabled=False
+    )
+
+    chat_empty_on = make_update(BTN_CHAT_EMPTY_ONLY_ON)
+    await bot.handle_message(chat_empty_on, None)
+    bot.set_chat_autoreply_only_empty_chat.assert_any_await(
+        100, 1, chat_empty_on, enabled=True
+    )
+
+    chat_empty_off = make_update(BTN_CHAT_EMPTY_ONLY_OFF)
+    await bot.handle_message(chat_empty_off, None)
+    bot.set_chat_autoreply_only_empty_chat.assert_any_await(
+        100, 1, chat_empty_off, enabled=False
     )
 
     chat_rules = make_update(BTN_CHAT_RULES)
@@ -462,6 +479,56 @@ async def test_set_chat_autoreply_enabled_updates_runtime_setting(monkeypatch):
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert args[0] == '💬 Авто-инструкции: ВКЛ'
+
+
+@pytest.mark.asyncio
+async def test_set_chat_autoreply_only_empty_chat_updates_runtime_setting(
+    monkeypatch,
+):
+    bot = TelegramBot(
+        api_clients={'ggsel': ChatCapableClient()},
+        profile_products={'ggsel': 1},
+        profile_default_urls={'ggsel': []},
+        profile_labels={'ggsel': 'GGSEL'},
+    )
+    bot.admin_ids = {1}
+    bot.chat_profile[100] = 'ggsel'
+    bot.send_settings = AsyncMock()
+
+    captured = {}
+
+    def fake_set_runtime_setting(
+        key,
+        value,
+        user_id=None,
+        source='system',
+        profile_id='ggsel',
+    ):
+        captured['key'] = key
+        captured['value'] = value
+        captured['user_id'] = user_id
+        captured['source'] = source
+        captured['profile_id'] = profile_id
+
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_runtime_setting',
+        fake_set_runtime_setting,
+    )
+    update = make_update(BTN_CHAT_EMPTY_ONLY_ON)
+
+    await bot.set_chat_autoreply_only_empty_chat(100, 1, update, enabled=True)
+
+    assert captured == {
+        'key': 'CHAT_AUTOREPLY_ONLY_EMPTY_CHAT',
+        'value': 'true',
+        'user_id': 1,
+        'source': 'telegram',
+        'profile_id': 'ggsel',
+    }
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert args[0] == '📭 Отправка только в пустой чат: ВКЛ'
 
 
 @pytest.mark.asyncio
@@ -801,6 +868,7 @@ async def test_status_shows_digiseller_chat_autoreply_block(monkeypatch):
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert '💬 Авто-инструкции: ВКЛ' in args[0]
+    assert '📭 Только пустой чат: Да' in args[0]
     assert '📦 Товары: 5077639, 5104800' in args[0]
     assert '📨 Отправлено: 7' in args[0]
     assert '🧷 Дубликаты: 3' in args[0]
@@ -870,6 +938,7 @@ async def test_status_shows_ggsel_chat_autoreply_block(monkeypatch):
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert '💬 Авто-инструкции: ВКЛ' in args[0]
+    assert '📭 Только пустой чат: Да' in args[0]
     assert '📦 Товары: 4697439' in args[0]
     assert '📨 Отправлено: 4' in args[0]
 

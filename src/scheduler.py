@@ -738,6 +738,22 @@ class Scheduler:
             )
         return self._chat_autoreply_default_enabled()
 
+    def _chat_autoreply_only_empty_chat(self) -> bool:
+        if self._chat_profile_prefix() is None:
+            return True
+        runtime_raw = storage.get_runtime_setting(
+            'CHAT_AUTOREPLY_ONLY_EMPTY_CHAT',
+            profile_id=self.base_profile_id,
+        )
+        if runtime_raw is not None:
+            return str(runtime_raw).strip().lower() in (
+                '1',
+                'true',
+                'yes',
+                'on',
+            )
+        return bool(self._chat_cfg('ONLY_EMPTY_CHAT', True))
+
     def _iter_text_values(self, payload: Any):
         queue = [payload]
         while queue:
@@ -1620,15 +1636,39 @@ class Scheduler:
         text = self._sanitize_message(raw).lower()
         return re.sub(r'\s+', ' ', text).strip()
 
-    def _is_message_already_sent(self, order_id: int, message: str) -> bool:
+    def _list_recent_messages(
+        self,
+        order_id: int,
+        *,
+        lookback: int,
+    ) -> Optional[list[dict[str, Any]]]:
+        if not hasattr(self.api_client, 'list_messages'):
+            return None
+        try:
+            messages = self.api_client.list_messages(
+                order_id,
+                count=lookback,
+                timeout=10,
+            )
+        except Exception:
+            return None
+        if not isinstance(messages, list):
+            return None
+        return [item for item in messages if isinstance(item, dict)]
+
+    def _is_message_already_sent(
+        self,
+        order_id: int,
+        message: str,
+        *,
+        preloaded_messages: Optional[list[dict[str, Any]]] = None,
+    ) -> bool:
         if not bool(
             self._chat_cfg(
                 'DEDUPE_BY_MESSAGES',
                 True,
             )
         ):
-            return False
-        if not hasattr(self.api_client, 'list_messages'):
             return False
         lookback = max(
             1,
@@ -1642,15 +1682,10 @@ class Scheduler:
                 ),
             ),
         )
-        try:
-            messages = self.api_client.list_messages(
-                order_id,
-                count=lookback,
-                timeout=10,
-            )
-        except Exception:
-            return False
-        if not isinstance(messages, list) or not messages:
+        messages = preloaded_messages
+        if messages is None:
+            messages = self._list_recent_messages(order_id, lookback=lookback)
+        if not messages:
             return False
         expected = self._normalize_compare_text(message)
         if not expected:
@@ -1791,6 +1826,40 @@ class Scheduler:
                     processed_orders.add(order_id)
                     if self._is_autoreply_sent(order_id):
                         continue
+
+                    lookback_messages = max(
+                        1,
+                        min(
+                            200,
+                            int(
+                                self._chat_cfg(
+                                    'LOOKBACK_MESSAGES',
+                                    30,
+                                )
+                            ),
+                        ),
+                    )
+                    cached_messages: Optional[list[dict[str, Any]]] = None
+                    if self._chat_autoreply_only_empty_chat():
+                        cached_messages = self._list_recent_messages(
+                            order_id,
+                            lookback=lookback_messages,
+                        )
+                        if cached_messages is None:
+                            logger.warning(
+                                '[%s] Пропуск order_id=%s: не удалось '
+                                'проверить пустоту чата',
+                                self.profile_name,
+                                order_id,
+                            )
+                            continue
+                        if cached_messages:
+                            logger.info(
+                                '[%s] Пропуск order_id=%s: чат уже не пуст',
+                                self.profile_name,
+                                order_id,
+                            )
+                            continue
 
                     chat_product = self._extract_product_id(
                         chat,
@@ -2042,7 +2111,11 @@ class Scheduler:
                         )
                         continue
 
-                    if self._is_message_already_sent(order_id, message):
+                    if self._is_message_already_sent(
+                        order_id,
+                        message,
+                        preloaded_messages=cached_messages,
+                    ):
                         self._mark_autoreply_sent(order_id)
                         self._chat_meta_inc(
                             chat_keys.KEY_DUPLICATE_COUNT,
