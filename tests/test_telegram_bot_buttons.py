@@ -604,17 +604,13 @@ async def test_chat_rules_pending_commands_save_rule(monkeypatch):
     )
 
     await bot.handle_message(make_update(BTN_CHAT_RULES), None)
-    await bot.handle_message(make_update('on 1'), None)
+    await bot.handle_message(make_update('text 1 Тестовая инструкция'), None)
 
     payload = store[('ggsel', chat_keys.rules_key(1))]
     data = json.loads(payload)
     assert data['rules']
     only_key = next(iter(data['rules']))
     assert data['rules'][only_key]['enabled'] is True
-
-    await bot.handle_message(make_update('text 1 Тестовая инструкция'), None)
-    payload = store[('ggsel', chat_keys.rules_key(1))]
-    data = json.loads(payload)
     assert data['rules'][only_key]['text'] == 'Тестовая инструкция'
 
 
@@ -1412,153 +1408,6 @@ async def test_pending_action_is_not_applied_to_other_profile(monkeypatch):
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert 'активный профиль был изменён' in args[0]
-
-
-@pytest.mark.asyncio
-async def test_add_url_duplicate_shows_info_and_keeps_pending(monkeypatch):
-    bot = make_bot()
-    bot.pending_actions[100] = ('ADD_URL', 'ggsel')
-    bot._runtime = lambda _profile: make_runtime(['https://example.com/item'])
-
-    monkeypatch.setattr(
-        telegram_module.storage,
-        'get_competitor_urls',
-        lambda *_args, **_kwargs: ['https://example.com/item'],
-    )
-    monkeypatch.setattr(
-        telegram_module.storage,
-        'normalize_competitor_urls',
-        lambda urls: list(dict.fromkeys(u.strip().rstrip('/') for u in urls)),
-    )
-    set_calls = []
-    monkeypatch.setattr(
-        telegram_module.storage,
-        'set_competitor_urls',
-        lambda *args, **kwargs: set_calls.append((args, kwargs)),
-    )
-    update = make_update('https://example.com/item/')
-
-    await bot.handle_pending_action(100, 1, 'https://example.com/item/', update)
-
-    assert set_calls == []
-    assert bot.pending_actions.get(100) == ('ADD_URL', 'ggsel')
-    update.message.reply_text.assert_awaited_once()
-    args, _kwargs = update.message.reply_text.await_args
-    assert 'URL уже есть в списке' in args[0]
-
-
-@pytest.mark.asyncio
-async def test_add_url_saves_normalized_value(monkeypatch):
-    bot = make_bot()
-    bot.pending_actions[100] = ('ADD_URL', 'ggsel')
-    bot._runtime = lambda _profile: make_runtime(['https://example.com/item'])
-    bot.send_settings = AsyncMock()
-
-    monkeypatch.setattr(
-        telegram_module.storage,
-        'get_competitor_urls',
-        lambda *_args, **_kwargs: ['https://example.com/item'],
-    )
-
-    def fake_normalize(urls):
-        normalized = []
-        seen = set()
-        for value in urls:
-            item = value.strip().lower().rstrip('/')
-            if item in seen:
-                continue
-            seen.add(item)
-            normalized.append(item)
-        return normalized
-
-    monkeypatch.setattr(
-        telegram_module.storage,
-        'normalize_competitor_urls',
-        fake_normalize,
-    )
-    saved = {}
-
-    def fake_set_competitor_urls(urls, **kwargs):
-        saved['urls'] = urls
-        saved['kwargs'] = kwargs
-
-    monkeypatch.setattr(
-        telegram_module.storage,
-        'set_competitor_urls',
-        fake_set_competitor_urls,
-    )
-    update = make_update('HTTPS://EXAMPLE.COM/new-item/')
-
-    await bot.handle_pending_action(100, 1, 'HTTPS://EXAMPLE.COM/new-item/', update)
-
-    assert saved['urls'] == [
-        'https://example.com/item',
-        'https://example.com/new-item',
-    ]
-    assert saved['kwargs']['profile_id'] == 'ggsel'
-    assert 100 not in bot.pending_actions
-    update.message.reply_text.assert_awaited_once()
-    args, _kwargs = update.message.reply_text.await_args
-    assert args[0] == '✅ URL добавлен: https://example.com/new-item'
-
-
-@pytest.mark.asyncio
-async def test_add_url_invalid_value_shows_error_and_keeps_pending(monkeypatch):
-    bot = make_bot()
-    bot.pending_actions[100] = ('ADD_URL', 'ggsel')
-    bot._runtime = lambda _profile: make_runtime(['https://example.com/item'])
-
-    monkeypatch.setattr(
-        telegram_module.storage,
-        'normalize_competitor_urls',
-        lambda urls: [],
-    )
-    set_calls = []
-    monkeypatch.setattr(
-        telegram_module.storage,
-        'set_competitor_urls',
-        lambda *args, **kwargs: set_calls.append((args, kwargs)),
-    )
-    update = make_update('example.com/no-scheme')
-
-    await bot.handle_pending_action(100, 1, 'example.com/no-scheme', update)
-
-    assert set_calls == []
-    assert bot.pending_actions.get(100) == ('ADD_URL', 'ggsel')
-    update.message.reply_text.assert_awaited_once()
-    args, _kwargs = update.message.reply_text.await_args
-    assert args[0] == '❌ Нужен валидный URL (http/https)'
-
-
-@pytest.mark.asyncio
-async def test_remove_url_invalid_index_shows_error_and_keeps_pending(monkeypatch):
-    bot = make_bot()
-    bot.pending_actions[100] = ('REMOVE_URL', 'ggsel')
-    bot._runtime = lambda _profile: make_runtime(['https://example.com/item'])
-
-    monkeypatch.setattr(
-        telegram_module.storage,
-        'get_competitor_urls',
-        lambda *_args, **_kwargs: [
-            'https://example.com/1',
-            'https://example.com/2',
-        ],
-    )
-    set_calls = []
-    monkeypatch.setattr(
-        telegram_module.storage,
-        'set_competitor_urls',
-        lambda *args, **kwargs: set_calls.append((args, kwargs)),
-    )
-    update = make_update('99')
-
-    await bot.handle_pending_action(100, 1, '99', update)
-
-    assert set_calls == []
-    assert bot.pending_actions.get(100) == ('REMOVE_URL', 'ggsel')
-    update.message.reply_text.assert_awaited_once()
-    args, _kwargs = update.message.reply_text.await_args
-    assert args[0] == '❌ Неверный номер URL'
 
 
 @pytest.mark.asyncio

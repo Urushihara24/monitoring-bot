@@ -817,11 +817,11 @@ class TelegramBot:
                 f'Включено: {enabled_count}/{len(items)}, '
                 f'кастомных текстов: {custom_count}',
                 '',
-                'Кастомный текст опционален:',
-                '- text <номер> <текст>',
-                '- clear <номер>',
+                'Кнопки под сообщением: вкл/выкл, сброс, готово.',
+                'Кастомный текст (опционально): text <номер> <текст>',
+                'Очистить кастомный текст: clear <номер>',
                 'Если текст пустой, берётся инструкция из товара.',
-                'Завершить редактирование: done',
+                'Закрыть редактор: done',
             ]
         )
         return '\n'.join(lines)
@@ -2106,62 +2106,6 @@ class TelegramBot:
         )
         await self.send_settings(chat_id, update)
 
-    async def toggle_position_filter(self, chat_id: int, user_id: int, update: Update):
-        if not update.message:
-            return
-        profile_id = self._active_profile(chat_id)
-        product_id = self._product_id(profile_id)
-        runtime_profile_id = self._runtime_profile_id_for_product(
-            profile_id,
-            product_id,
-        )
-        runtime = self._runtime_for_product(profile_id, product_id)
-        new_value = not runtime.POSITION_FILTER_ENABLED
-        storage.set_runtime_setting(
-            'POSITION_FILTER_ENABLED',
-            'true' if new_value else 'false',
-            user_id=user_id,
-            source='telegram',
-            profile_id=runtime_profile_id,
-        )
-        await update.message.reply_text(
-            (
-                f'✅ Позиция ({self._profile_name(profile_id)} / {product_id}): '
-                f'{"Вкл" if new_value else "Выкл"}'
-            ),
-            reply_markup=self.get_settings_keyboard(profile_id),
-        )
-        await self.send_settings(chat_id, update)
-
-    async def start_remove_url(self, chat_id: int, update: Update):
-        if not update.message:
-            return
-        profile_id = self._active_profile(chat_id)
-        runtime_profile_id = self._runtime_profile_id_for_product(
-            profile_id,
-            self._product_id(profile_id),
-        )
-        default_urls = (
-            self.profile_default_urls.get(profile_id, [])
-            if runtime_profile_id == profile_id else []
-        )
-        urls = storage.get_competitor_urls(
-            default_urls,
-            profile_id=runtime_profile_id,
-        )
-        if not urls:
-            await update.message.reply_text(
-                'Список пуст',
-                reply_markup=self.get_settings_keyboard(profile_id),
-            )
-            return
-        self._set_pending_action(chat_id, 'REMOVE_URL', profile_id)
-        lines = ['Удали номер URL:'] + [f'{i}. {u}' for i, u in enumerate(urls, 1)]
-        await update.message.reply_text(
-            '\n'.join(lines),
-            reply_markup=self.get_settings_keyboard(profile_id),
-        )
-
     async def handle_pending_action(
         self,
         chat_id: int,
@@ -2260,24 +2204,6 @@ class TelegramBot:
                     reply_markup=self.get_settings_keyboard(profile_id),
                 )
                 return
-            if lower in {'list', 'ls', 'список', 'help', '?'}:
-                await update.message.reply_text(
-                    self._format_chat_rules_overview(
-                        profile_id=profile_id,
-                        product_id=product_id,
-                        items=items,
-                        rules=rules,
-                    ),
-                    reply_markup=self._chat_rules_inline_keyboard(
-                        items=items,
-                        rules=rules,
-                    ),
-                )
-                await update.message.reply_text(
-                    'ℹ️ Кнопками можно быстро включать/выключать правила.',
-                    reply_markup=self.get_settings_keyboard(profile_id),
-                )
-                return
             if lower in {'reset', 'сброс'}:
                 self._chat_rules_save(
                     profile_id=profile_id,
@@ -2304,7 +2230,7 @@ class TelegramBot:
                 return
 
             match = re.match(
-                r'^(on|off|clear|text)\s+(\d+)(?:\s+(.+))?$',
+                r'^(clear|text)\s+(\d+)(?:\s+(.+))?$',
                 normalized,
                 flags=re.IGNORECASE | re.DOTALL,
             )
@@ -2312,8 +2238,7 @@ class TelegramBot:
                 await update.message.reply_text(
                     (
                         '❌ Команда не распознана.\n'
-                        'Используй: list | on N | off N | text N <текст> | '
-                        'clear N | reset | done'
+                        'Используй: text N <текст> | clear N | reset | done'
                     ),
                     reply_markup=self.get_settings_keyboard(profile_id),
                 )
@@ -2346,11 +2271,7 @@ class TelegramBot:
                 'value': str(entry.get('value') or item.get('value') or '').strip(),
             }
 
-            if command == 'on':
-                entry['enabled'] = True
-            elif command == 'off':
-                entry['enabled'] = False
-            elif command == 'clear':
+            if command == 'clear':
                 entry['text'] = ''
             elif command == 'text':
                 if not payload:
@@ -2558,142 +2479,6 @@ class TelegramBot:
                 reply_markup=self.get_settings_keyboard(profile_id),
             )
             await self.send_settings(chat_id, update)
-            return
-
-        if action == 'CHECK_INTERVAL':
-            try:
-                value = int(float(text.replace(',', '.')))
-            except ValueError:
-                await update.message.reply_text(
-                    '❌ Введи целое число секунд',
-                    reply_markup=self.get_settings_keyboard(profile_id),
-                )
-                return
-            if value < runtime.FAST_CHECK_INTERVAL_MIN or (
-                value > runtime.FAST_CHECK_INTERVAL_MAX
-            ):
-                await update.message.reply_text(
-                    (
-                        '❌ Интервал должен быть в диапазоне '
-                        f'{runtime.FAST_CHECK_INTERVAL_MIN}..'
-                        f'{runtime.FAST_CHECK_INTERVAL_MAX} секунд'
-                    ),
-                    reply_markup=self.get_settings_keyboard(profile_id),
-                )
-                return
-            storage.set_runtime_setting(
-                'CHECK_INTERVAL',
-                str(value),
-                user_id=user_id,
-                source='telegram',
-                profile_id=runtime_profile_id,
-            )
-            self.pending_actions.pop(chat_id, None)
-            await update.message.reply_text(
-                (
-                    f'✅ CHECK_INTERVAL ({self._profile_name(profile_id)} / '
-                    f'{product_id}) = {value}s'
-                ),
-                reply_markup=self.get_settings_keyboard(profile_id),
-            )
-            await self.send_settings(chat_id, update)
-            return
-
-        if action == 'ADD_URL':
-            candidate_urls = storage.normalize_competitor_urls([text])
-            if not candidate_urls:
-                await update.message.reply_text(
-                    '❌ Нужен валидный URL (http/https)',
-                    reply_markup=self.get_settings_keyboard(profile_id),
-                )
-                return
-            candidate_url = candidate_urls[0]
-            runtime_profile_id = self._runtime_profile_id_for_product(
-                profile_id,
-                self._product_id(profile_id),
-            )
-            default_urls = (
-                self.profile_default_urls.get(profile_id, [])
-                if runtime_profile_id == profile_id else []
-            )
-            urls = storage.get_competitor_urls(
-                default_urls,
-                profile_id=runtime_profile_id,
-            )
-            normalized_before = storage.normalize_competitor_urls(urls)
-            normalized_after = storage.normalize_competitor_urls(
-                normalized_before + [candidate_url]
-            )
-            if normalized_after == normalized_before:
-                await update.message.reply_text(
-                    'ℹ️ URL уже есть в списке. Отправь другой URL или нажми Назад.',
-                    reply_markup=self.get_settings_keyboard(profile_id),
-                )
-                return
-            storage.set_competitor_urls(
-                normalized_after,
-                user_id=user_id,
-                source='telegram',
-                profile_id=runtime_profile_id,
-            )
-            storage.upsert_tracked_product(
-                profile_id=profile_id,
-                product_id=self._product_id(profile_id),
-                competitor_urls=normalized_after,
-            )
-            self.pending_actions.pop(chat_id, None)
-            await update.message.reply_text(
-                f'✅ URL добавлен: {normalized_after[-1]}',
-                reply_markup=self.get_settings_keyboard(profile_id),
-            )
-            await self.send_settings(chat_id, update)
-            return
-
-        if action == 'REMOVE_URL':
-            try:
-                idx = int(text) - 1
-            except ValueError:
-                await update.message.reply_text(
-                    '❌ Введи номер',
-                    reply_markup=self.get_settings_keyboard(profile_id),
-                )
-                return
-            runtime_profile_id = self._runtime_profile_id_for_product(
-                profile_id,
-                self._product_id(profile_id),
-            )
-            default_urls = (
-                self.profile_default_urls.get(profile_id, [])
-                if runtime_profile_id == profile_id else []
-            )
-            urls = storage.get_competitor_urls(
-                default_urls,
-                profile_id=runtime_profile_id,
-            )
-            if 0 <= idx < len(urls):
-                removed = urls.pop(idx)
-                storage.set_competitor_urls(
-                    urls,
-                    user_id=user_id,
-                    source='telegram',
-                    profile_id=runtime_profile_id,
-                )
-                storage.upsert_tracked_product(
-                    profile_id=profile_id,
-                    product_id=self._product_id(profile_id),
-                    competitor_urls=urls,
-                )
-                self.pending_actions.pop(chat_id, None)
-                await update.message.reply_text(
-                    f'✅ Удалён: {removed}',
-                    reply_markup=self.get_settings_keyboard(profile_id),
-                )
-                await self.send_settings(chat_id, update)
-                return
-            await update.message.reply_text(
-                '❌ Неверный номер URL',
-                reply_markup=self.get_settings_keyboard(profile_id),
-            )
             return
 
         logger.warning(
