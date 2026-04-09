@@ -6,16 +6,14 @@ from src.telegram_bot import (
     BTN_AUTO_ON,
     BTN_BACK,
     BTN_CHAT_RULES,
-    BTN_MAX,
-    BTN_MIN,
     BTN_MODE,
     BTN_PRODUCT_NEXT,
     BTN_PRODUCT_PREV,
+    BTN_PRODUCT_REMOVE,
     BTN_PRICE,
     BTN_PRODUCTS,
     BTN_SETTINGS,
     BTN_STATUS,
-    BTN_STEP,
     TelegramBot,
 )
 
@@ -126,10 +124,8 @@ async def test_product_switch_buttons_dispatch(bot, monkeypatch, button, step):
     ('button', 'expected_action'),
     [
         (BTN_PRICE, 'DESIRED_PRICE'),
-        (BTN_STEP, 'UNDERCUT_VALUE'),
-        (BTN_MIN, 'MIN_PRICE'),
-        (BTN_MAX, 'MAX_PRICE'),
         (BTN_PRODUCTS, 'MANAGE_PRODUCTS'),
+        (BTN_PRODUCT_REMOVE, 'REMOVE_PRODUCT'),
     ],
 )
 async def test_buttons_set_pending_actions(bot, button, expected_action):

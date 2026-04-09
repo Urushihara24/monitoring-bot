@@ -48,10 +48,8 @@ BTN_BACK = '🔙 Назад'
 
 # Настройки
 BTN_PRICE = '🎯 Цена'
-BTN_STEP = '➖ Шаг'
-BTN_MIN = '📉 Мин'
-BTN_MAX = '📈 Макс'
 BTN_PRODUCTS = '📦 Товары'
+BTN_PRODUCT_REMOVE = '🗑 Удалить товар'
 BTN_PRODUCT_PREV = '⬅ Пред. товар'
 BTN_PRODUCT_NEXT = '➡ След. товар'
 BTN_MODE = '🔀 Режим'
@@ -894,9 +892,8 @@ class TelegramBot:
         auto_toggle_button = BTN_AUTO_OFF if auto_enabled else BTN_AUTO_ON
         rows = [
             [auto_toggle_button],
-            [BTN_PRICE, BTN_STEP],
-            [BTN_MIN, BTN_MAX],
-            [BTN_MODE, BTN_PRODUCTS],
+            [BTN_PRICE, BTN_MODE],
+            [BTN_PRODUCTS, BTN_PRODUCT_REMOVE],
         ]
         if self._chat_autoreply_supported(profile):
             chat_enabled = self._chat_autoreply_enabled(profile)
@@ -1192,33 +1189,6 @@ class TelegramBot:
                 update=update,
             )
             return
-        if text == BTN_STEP:
-            await self._prompt_pending_action(
-                chat_id=chat_id,
-                profile_id=profile_id,
-                action='UNDERCUT_VALUE',
-                prompt='Введи шаг снижения (например 0.0051):',
-                update=update,
-            )
-            return
-        if text == BTN_MIN:
-            await self._prompt_pending_action(
-                chat_id=chat_id,
-                profile_id=profile_id,
-                action='MIN_PRICE',
-                prompt='Введи минимальную цену:',
-                update=update,
-            )
-            return
-        if text == BTN_MAX:
-            await self._prompt_pending_action(
-                chat_id=chat_id,
-                profile_id=profile_id,
-                action='MAX_PRICE',
-                prompt='Введи максимальную цену:',
-                update=update,
-            )
-            return
         if text == BTN_PRODUCTS:
             await self._prompt_pending_action(
                 chat_id=chat_id,
@@ -1231,6 +1201,18 @@ class TelegramBot:
                     'Для списка товаров отправь: list\n'
                     'Пример:\n'
                     '4697439 https://ggsel.net/catalog/product/102124601'
+                ),
+                update=update,
+            )
+            return
+        if text == BTN_PRODUCT_REMOVE:
+            await self._prompt_pending_action(
+                chat_id=chat_id,
+                profile_id=profile_id,
+                action='REMOVE_PRODUCT',
+                prompt=(
+                    'Отправь ID товара для удаления.\n'
+                    'Или отправь `active`, чтобы удалить активный товар.'
                 ),
                 update=update,
             )
@@ -2506,6 +2488,73 @@ class TelegramBot:
                     'ℹ️ Бот мониторит все товары из списка, '
                     'активный товар нужен только для редактирования.'
                 ),
+                reply_markup=self.get_settings_keyboard(profile_id),
+            )
+            await self.send_settings(chat_id, update)
+            return
+
+        if action == 'REMOVE_PRODUCT':
+            normalized = text.strip()
+            if not normalized:
+                await update.message.reply_text(
+                    '❌ Отправь ID товара или `active`',
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+
+            if normalized.lower() in {'active', 'активный', 'текущий'}:
+                target_product_id = self._product_id(profile_id)
+            else:
+                try:
+                    target_product_id = int(
+                        float(normalized.replace(',', '.'))
+                    )
+                except ValueError:
+                    await update.message.reply_text(
+                        '❌ Нужен ID товара (число) или `active`',
+                        reply_markup=self.get_settings_keyboard(profile_id),
+                    )
+                    return
+
+            if target_product_id <= 0:
+                await update.message.reply_text(
+                    '❌ ID товара должен быть > 0',
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+
+            tracked_ids = self._tracked_product_ids(profile_id, runtime=runtime)
+            if target_product_id not in tracked_ids:
+                await update.message.reply_text(
+                    '❌ Такого товара нет в списке профиля',
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+            if len(tracked_ids) <= 1:
+                await update.message.reply_text(
+                    '❌ Нельзя удалить последний товар профиля',
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+
+            removed = storage.remove_tracked_product(
+                profile_id=profile_id,
+                product_id=target_product_id,
+            )
+            if not removed:
+                await update.message.reply_text(
+                    '❌ Не удалось удалить товар',
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+
+            if self._product_id(profile_id) == target_product_id:
+                remaining_ids = self._tracked_product_ids(profile_id)
+                if remaining_ids:
+                    self.profile_products[profile_id] = remaining_ids[0]
+            self.pending_actions.pop(chat_id, None)
+            await update.message.reply_text(
+                f'✅ Товар удалён: {target_product_id}',
                 reply_markup=self.get_settings_keyboard(profile_id),
             )
             await self.send_settings(chat_id, update)
