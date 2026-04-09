@@ -257,7 +257,8 @@ docker compose logs -f
 - в `📊 Статус` показываются:
   - активный товар
   - позиция активного товара в списке (`1/N`)
-  - список товаров и пары `мой товар ↔ URL конкурента`
+  - ключевые цены (моя/выставленная/конкурента)
+  - текущий URL/метод/время последнего парса
 
 ### Настройки (кнопка `⚙ Настройки`)
 Доступные кнопки:
@@ -324,7 +325,7 @@ python3 scripts/smoke_profiles_api.py
 Read-only smoke (без write probe):
 
 ```bash
-python3 scripts/smoke_profiles_api.py --profile all --read-only --verify-read
+python3 scripts/smoke_profiles_api.py --profile all --verify-read
 ```
 
 Проверить только DigiSeller:
