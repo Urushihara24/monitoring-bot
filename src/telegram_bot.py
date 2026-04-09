@@ -40,15 +40,11 @@ logger = logging.getLogger(__name__)
 
 # Главное меню
 BTN_STATUS = '📊 Статус'
-BTN_UP = '⬆ +0.01₽'
-BTN_DOWN = '⬇ -0.01₽'
 BTN_AUTO_ON = '🔔 Авто: ВКЛ'
 BTN_AUTO_OFF = '🔕 Авто: ВЫКЛ'
 BTN_PROFILE = '🧩 Профиль'
 BTN_SETTINGS = '⚙ Настройки'
 BTN_BACK = '🔙 Назад'
-BTN_SETTINGS_ADVANCED = '🧰 Расширенные'
-BTN_SETTINGS_QUICK = '⚡ Быстрые'
 
 # Настройки
 BTN_PRICE = '🎯 Цена'
@@ -58,11 +54,7 @@ BTN_MAX = '📈 Макс'
 BTN_PRODUCTS = '📦 Товары'
 BTN_PRODUCT_PREV = '⬅ Пред. товар'
 BTN_PRODUCT_NEXT = '➡ След. товар'
-BTN_INTERVAL = '⏱ Интервал'
 BTN_MODE = '🔀 Режим'
-BTN_POSITION = '📍 Позиция'
-BTN_ADD_URL = '🔗 Добавить URL'
-BTN_REMOVE_URL = '🗑 Удалить URL'
 BTN_CHAT_AUTOREPLY_ON = '💬 Инструкции: ВКЛ'
 BTN_CHAT_AUTOREPLY_OFF = '💬 Инструкции: ВЫКЛ'
 BTN_CHAT_EMPTY_ONLY_ON = '📭 Только пустой чат: ВКЛ'
@@ -111,7 +103,6 @@ class TelegramBot:
         self._app: Optional[Application] = None
         self.pending_actions: Dict[int, Tuple[str, str]] = {}
         self.chat_profile: Dict[int, str] = {}
-        self.chat_settings_mode: Dict[int, str] = {}
         self.chat_rules_context: Dict[int, Dict[str, Any]] = {}
 
         if api_clients is None:
@@ -194,20 +185,6 @@ class TelegramBot:
         if profile in self.available_profiles:
             self.chat_profile[chat_id] = profile
 
-    def _settings_mode(self, chat_id: Optional[int]) -> str:
-        if chat_id is None:
-            return 'quick'
-        mode = self.chat_settings_mode.get(chat_id, 'quick')
-        if mode not in {'quick', 'advanced'}:
-            return 'quick'
-        return mode
-
-    def _set_settings_mode(self, chat_id: int, mode: str):
-        normalized = (mode or '').strip().lower()
-        self.chat_settings_mode[chat_id] = (
-            normalized if normalized in {'quick', 'advanced'} else 'quick'
-        )
-
     def _set_pending_action(
         self,
         chat_id: int,
@@ -234,13 +211,9 @@ class TelegramBot:
         if not update.message:
             return
         self._set_pending_action(chat_id, action, profile_id)
-        is_advanced = self._settings_mode(chat_id) == 'advanced'
         await update.message.reply_text(
             prompt,
-            reply_markup=self.get_settings_keyboard(
-                profile_id,
-                advanced=is_advanced,
-            ),
+            reply_markup=self.get_settings_keyboard(profile_id),
         )
 
     def _get_pending_action(self, chat_id: int) -> Tuple[Optional[str], str]:
@@ -914,28 +887,16 @@ class TelegramBot:
     def get_settings_keyboard(
         self,
         profile_id: Optional[str] = None,
-        *,
-        advanced: bool = False,
     ):
         profile = profile_id or self.default_profile
         state = self._state_for_product(profile, self._product_id(profile))
         auto_enabled = bool(state.get('auto_mode', True))
         auto_toggle_button = BTN_AUTO_OFF if auto_enabled else BTN_AUTO_ON
-        if advanced:
-            rows = [
-                [BTN_SETTINGS_QUICK],
-                [BTN_PRICE, BTN_STEP],
-                [BTN_MIN, BTN_MAX],
-                [BTN_POSITION],
-                [BTN_BACK],
-            ]
-            return ReplyKeyboardMarkup(rows, resize_keyboard=True)
-
         rows = [
             [auto_toggle_button],
-            [BTN_UP, BTN_DOWN],
-            [BTN_INTERVAL, BTN_MODE],
-            [BTN_ADD_URL, BTN_REMOVE_URL],
+            [BTN_PRICE, BTN_STEP],
+            [BTN_MIN, BTN_MAX],
+            [BTN_MODE, BTN_PRODUCTS],
         ]
         if self._chat_autoreply_supported(profile):
             chat_enabled = self._chat_autoreply_enabled(profile)
@@ -953,7 +914,6 @@ class TelegramBot:
             )
             rows.append([chat_toggle_button, empty_chat_button])
             rows.append([BTN_CHAT_RULES])
-        rows.append([BTN_SETTINGS_ADVANCED])
         rows.append([BTN_BACK])
         return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
@@ -1154,12 +1114,6 @@ class TelegramBot:
         if text == BTN_STATUS:
             await self.send_status(chat_id, update)
             return
-        if text == BTN_UP:
-            await self.handle_price_change(chat_id, 0.01, update)
-            return
-        if text == BTN_DOWN:
-            await self.handle_price_change(chat_id, -0.01, update)
-            return
         if text == BTN_AUTO_ON:
             await self.set_auto_enabled(update, enabled=True)
             return
@@ -1173,15 +1127,6 @@ class TelegramBot:
             )
             return
         if text == BTN_SETTINGS:
-            self._set_settings_mode(chat_id, 'quick')
-            await self.send_settings(chat_id, update)
-            return
-        if text == BTN_SETTINGS_ADVANCED:
-            self._set_settings_mode(chat_id, 'advanced')
-            await self.send_settings(chat_id, update)
-            return
-        if text == BTN_SETTINGS_QUICK:
-            self._set_settings_mode(chat_id, 'quick')
             await self.send_settings(chat_id, update)
             return
         if text == BTN_CHAT_AUTOREPLY_ON:
@@ -1224,7 +1169,6 @@ class TelegramBot:
             if text == self._profile_button(pid):
                 had_pending = chat_id in self.pending_actions
                 self._set_profile(chat_id, pid)
-                self._set_settings_mode(chat_id, 'quick')
                 if had_pending:
                     self.pending_actions.pop(chat_id, None)
                 self._clear_chat_rules_context(chat_id)
@@ -1275,20 +1219,6 @@ class TelegramBot:
                 update=update,
             )
             return
-        if text == BTN_INTERVAL:
-            runtime = self._runtime(profile_id)
-            await self._prompt_pending_action(
-                chat_id=chat_id,
-                profile_id=profile_id,
-                action='CHECK_INTERVAL',
-                prompt=(
-                    'Введи интервал проверки в секундах '
-                    f'({runtime.FAST_CHECK_INTERVAL_MIN}..'
-                    f'{runtime.FAST_CHECK_INTERVAL_MAX}):'
-                ),
-                update=update,
-            )
-            return
         if text == BTN_PRODUCTS:
             await self._prompt_pending_action(
                 chat_id=chat_id,
@@ -1314,25 +1244,9 @@ class TelegramBot:
         if text == BTN_MODE:
             await self.toggle_mode(chat_id, user_id, update)
             return
-        if text == BTN_POSITION:
-            await self.toggle_position_filter(chat_id, user_id, update)
-            return
-        if text == BTN_ADD_URL:
-            await self._prompt_pending_action(
-                chat_id=chat_id,
-                profile_id=profile_id,
-                action='ADD_URL',
-                prompt='Отправь URL конкурента:',
-                update=update,
-            )
-            return
-        if text == BTN_REMOVE_URL:
-            await self.start_remove_url(chat_id, update)
-            return
         if text == BTN_BACK:
             self.pending_actions.pop(chat_id, None)
             self._clear_chat_rules_context(chat_id)
-            self._set_settings_mode(chat_id, 'quick')
             await update.message.reply_text(
                 '📋 Главное меню',
                 reply_markup=self.get_main_keyboard(profile_id),
@@ -1651,8 +1565,6 @@ class TelegramBot:
             return
         profile_id = self._active_profile(chat_id)
         profile_name = self._profile_name(profile_id)
-        settings_mode = self._settings_mode(chat_id)
-        is_advanced = settings_mode == 'advanced'
         product_id = self._product_id(profile_id)
         runtime_profile_id = self._runtime_profile_id_for_product(
             profile_id,
@@ -1708,7 +1620,6 @@ class TelegramBot:
             f'🔁 Товар в списке: {active_product_slot_text}',
             f'📦 Товаров в мониторинге: {tracked_count}',
             '🛰 Мониторинг по товарам: ВСЕ ИЗ СПИСКА',
-            f'🗂 Раздел: {"Расширенные" if is_advanced else "Быстрые"}',
             '',
             f'🔔 Автоцена: {"ВКЛ" if state.get("auto_mode", True) else "ВЫКЛ"}',
             f'🔹 Режим: {self._mode_label(runtime.MODE)}',
@@ -1720,33 +1631,18 @@ class TelegramBot:
             f'📈 MAX: {runtime.MAX_PRICE:.4f}₽',
             f'🎯 Желаемая: {runtime.DESIRED_PRICE:.4f}₽',
             f'↘️ Шаг: {runtime.UNDERCUT_VALUE:.4f}',
+            (
+                '🔁 Обновлять только при изменении конкурента: '
+                f'{"Да" if runtime.UPDATE_ONLY_ON_COMPETITOR_CHANGE else "Нет"}'
+            ),
         ]
-
-        if is_advanced:
-            base_lines.extend(
-                [
-                    '',
-                    (
-                        '🔁 Обновлять только при изменении конкурента: '
-                        f'{"Да" if runtime.UPDATE_ONLY_ON_COMPETITOR_CHANGE else "Нет"}'
-                    ),
-                    (
-                        f'📍 Позиция: '
-                        f'{"Вкл" if runtime.POSITION_FILTER_ENABLED else "Выкл"}'
-                    ),
-                    f'⛑️ MAX_DOWN_STEP: {runtime.MAX_DOWN_STEP:.4f}₽',
-                    f'🚀 FAST_REBOUND_DELTA: {runtime.FAST_REBOUND_DELTA:.4f}₽',
-                    f'📦 Список товаров: {", ".join(tracked_lines)}',
-                    f'🔗 Пары: {" | ".join(pair_lines)}',
-                ]
-            )
-        else:
-            base_lines.extend(
-                [
-                    '',
-                    '💡 Для тонких лимитов и доп. параметров: 🧰 Расширенные',
-                ]
-            )
+        base_lines.extend(
+            [
+                '',
+                f'📦 Список товаров: {", ".join(tracked_lines)}',
+                f'🔗 Пары: {" | ".join(pair_lines)}',
+            ]
+        )
 
         if chat_block:
             base_lines.extend(['', chat_block.strip()])
@@ -1754,10 +1650,7 @@ class TelegramBot:
         text = '\n'.join(base_lines)
         await update.message.reply_text(
             text,
-            reply_markup=self.get_settings_keyboard(
-                profile_id,
-                advanced=is_advanced,
-            ),
+            reply_markup=self.get_settings_keyboard(profile_id),
         )
 
     async def send_diagnostics(
@@ -2607,8 +2500,8 @@ class TelegramBot:
             await update.message.reply_text(
                 (
                     f'✅ Товар {product_id} {action_text}\n'
-                    'Теперь нажми `🔗 Добавить URL` и пришли ссылку '
-                    'конкурента для этого товара.'
+                    'Чтобы привязать конкурента, отправь сразу:\n'
+                    '<product_id> <url_конкурента>'
                     f'{pair_hint}\n'
                     'ℹ️ Бот мониторит все товары из списка, '
                     'активный товар нужен только для редактирования.'

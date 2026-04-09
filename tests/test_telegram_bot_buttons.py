@@ -6,7 +6,6 @@ import pytest
 
 from src import chat_autoreply as chat_keys
 from src.telegram_bot import (
-    BTN_ADD_URL,
     BTN_AUTO_OFF,
     BTN_AUTO_ON,
     BTN_BACK,
@@ -15,24 +14,17 @@ from src.telegram_bot import (
     BTN_CHAT_EMPTY_ONLY_OFF,
     BTN_CHAT_EMPTY_ONLY_ON,
     BTN_CHAT_RULES,
-    BTN_DOWN,
-    BTN_INTERVAL,
     BTN_MAX,
     BTN_MIN,
     BTN_MODE,
     BTN_PRODUCT_NEXT,
     BTN_PRODUCT_PREV,
-    BTN_POSITION,
     BTN_PRICE,
     BTN_PRODUCTS,
     BTN_PROFILE,
-    BTN_REMOVE_URL,
     BTN_SETTINGS,
-    BTN_SETTINGS_ADVANCED,
-    BTN_SETTINGS_QUICK,
     BTN_STATUS,
     BTN_STEP,
-    BTN_UP,
     TelegramBot,
 )
 import src.telegram_bot as telegram_module
@@ -66,9 +58,11 @@ def make_runtime(competitor_urls=None):
     return SimpleNamespace(
         MIN_PRICE=0.2,
         MAX_PRICE=1.0,
+        DESIRED_PRICE=0.35,
         UNDERCUT_VALUE=0.0051,
         MODE='STEP_UP',
         CHECK_INTERVAL=30,
+        UPDATE_ONLY_ON_COMPETITOR_CHANGE=True,
         FAST_CHECK_INTERVAL_MIN=20,
         FAST_CHECK_INTERVAL_MAX=60,
         COOLDOWN_SECONDS=30,
@@ -145,34 +139,16 @@ def test_settings_keyboard_is_not_overloaded():
     texts = keyboard_texts(bot.get_settings_keyboard())
     assert '📤 Экспорт' not in texts
     assert '📥 Импорт' not in texts
-    assert BTN_ADD_URL in texts
-    assert BTN_PRODUCTS not in texts
+    assert BTN_PRODUCTS in texts
     assert BTN_PRODUCT_PREV not in texts
     assert BTN_PRODUCT_NEXT not in texts
-    assert BTN_REMOVE_URL in texts
-    assert BTN_PRICE not in texts
-    assert BTN_STEP not in texts
-    assert BTN_MIN not in texts
-    assert BTN_MAX not in texts
-    assert BTN_SETTINGS_ADVANCED in texts
-    assert BTN_AUTO_OFF in texts
-    assert BTN_AUTO_ON not in texts
-
-
-def test_advanced_settings_keyboard_contains_expert_controls():
-    bot = make_bot()
-    texts = keyboard_texts(bot.get_settings_keyboard(advanced=True))
-    assert BTN_SETTINGS_QUICK in texts
     assert BTN_PRICE in texts
     assert BTN_STEP in texts
     assert BTN_MIN in texts
     assert BTN_MAX in texts
-    assert BTN_POSITION in texts
-    assert BTN_PRODUCTS not in texts
-    assert BTN_PRODUCT_PREV not in texts
-    assert BTN_PRODUCT_NEXT not in texts
+    assert BTN_MODE in texts
+    assert BTN_AUTO_OFF in texts
     assert BTN_AUTO_ON not in texts
-    assert BTN_AUTO_OFF not in texts
 
 
 def test_settings_keyboard_shows_chat_toggle_for_supported_profile():
@@ -203,13 +179,9 @@ def test_main_keyboard_is_not_overloaded():
     assert BTN_PRODUCT_NEXT in texts
     assert BTN_AUTO_ON not in texts
     assert BTN_AUTO_OFF not in texts
-    assert BTN_UP not in texts
-    assert BTN_DOWN not in texts
     settings_texts = keyboard_texts(bot.get_settings_keyboard())
     assert BTN_AUTO_ON not in settings_texts
     assert BTN_AUTO_OFF in settings_texts
-    assert BTN_UP in settings_texts
-    assert BTN_DOWN in settings_texts
 
 
 @pytest.mark.asyncio
@@ -218,7 +190,6 @@ async def test_main_buttons_route_to_handlers():
     bot._state = lambda _profile: {'auto_mode': True}
 
     bot.send_status = AsyncMock()
-    bot.handle_price_change = AsyncMock()
     bot.set_auto_enabled = AsyncMock()
     bot.set_chat_autoreply_enabled = AsyncMock()
     bot.set_chat_autoreply_only_empty_chat = AsyncMock()
@@ -228,14 +199,6 @@ async def test_main_buttons_route_to_handlers():
     status = make_update(BTN_STATUS)
     await bot.handle_message(status, None)
     bot.send_status.assert_awaited_once()
-
-    up = make_update(BTN_UP)
-    await bot.handle_message(up, None)
-    bot.handle_price_change.assert_any_await(100, 0.01, up)
-
-    down = make_update(BTN_DOWN)
-    await bot.handle_message(down, None)
-    bot.handle_price_change.assert_any_await(100, -0.01, down)
 
     auto = make_update(BTN_AUTO_ON)
     await bot.handle_message(auto, None)
@@ -248,16 +211,6 @@ async def test_main_buttons_route_to_handlers():
     settings = make_update(BTN_SETTINGS)
     await bot.handle_message(settings, None)
     bot.send_settings.assert_awaited_once_with(100, settings)
-
-    bot.send_settings.reset_mock()
-    adv = make_update(BTN_SETTINGS_ADVANCED)
-    await bot.handle_message(adv, None)
-    bot.send_settings.assert_awaited_once_with(100, adv)
-
-    bot.send_settings.reset_mock()
-    quick = make_update(BTN_SETTINGS_QUICK)
-    await bot.handle_message(quick, None)
-    bot.send_settings.assert_awaited_once_with(100, quick)
 
     chat_on = make_update(BTN_CHAT_AUTOREPLY_ON)
     await bot.handle_message(chat_on, None)
@@ -311,8 +264,6 @@ async def test_profile_button_opens_profile_keyboard():
         (BTN_MIN, 'MIN_PRICE'),
         (BTN_MAX, 'MAX_PRICE'),
         (BTN_PRODUCTS, 'MANAGE_PRODUCTS'),
-        (BTN_INTERVAL, 'CHECK_INTERVAL'),
-        (BTN_ADD_URL, 'ADD_URL'),
     ],
 )
 async def test_settings_buttons_set_pending_actions(button, expected_action):
@@ -331,20 +282,15 @@ async def test_settings_buttons_set_pending_actions(button, expected_action):
 
 
 @pytest.mark.asyncio
-async def test_mode_and_position_buttons_call_toggles():
+async def test_mode_and_product_buttons_call_toggles():
     bot = make_bot()
     bot._state = lambda _profile: {'auto_mode': True}
     bot.toggle_mode = AsyncMock()
-    bot.toggle_position_filter = AsyncMock()
     bot.switch_active_product = AsyncMock()
 
     mode = make_update(BTN_MODE)
     await bot.handle_message(mode, None)
     bot.toggle_mode.assert_awaited_once_with(100, 1, mode)
-
-    position = make_update(BTN_POSITION)
-    await bot.handle_message(position, None)
-    bot.toggle_position_filter.assert_awaited_once_with(100, 1, position)
 
     prev_product = make_update(BTN_PRODUCT_PREV)
     await bot.handle_message(prev_product, None)
@@ -676,17 +622,6 @@ async def test_chat_rules_pending_commands_save_rule(monkeypatch):
     payload = store[('ggsel', chat_keys.rules_key(1))]
     data = json.loads(payload)
     assert data['rules'][only_key]['text'] == 'Тестовая инструкция'
-
-
-@pytest.mark.asyncio
-async def test_remove_url_button_calls_handler():
-    bot = make_bot()
-    bot._state = lambda _profile: {'auto_mode': True}
-    bot.start_remove_url = AsyncMock()
-
-    remove_url = make_update(BTN_REMOVE_URL)
-    await bot.handle_message(remove_url, None)
-    bot.start_remove_url.assert_awaited_once_with(100, remove_url)
 
 
 @pytest.mark.asyncio

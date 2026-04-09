@@ -2,25 +2,20 @@ import pytest
 from telegram import ReplyKeyboardMarkup
 
 from src.telegram_bot import (
-    BTN_ADD_URL,
     BTN_AUTO_OFF,
     BTN_AUTO_ON,
     BTN_BACK,
     BTN_CHAT_RULES,
-    BTN_DOWN,
     BTN_MAX,
     BTN_MIN,
     BTN_MODE,
     BTN_PRODUCT_NEXT,
     BTN_PRODUCT_PREV,
-    BTN_POSITION,
     BTN_PRICE,
     BTN_PRODUCTS,
-    BTN_REMOVE_URL,
     BTN_SETTINGS,
     BTN_STATUS,
     BTN_STEP,
-    BTN_UP,
     TelegramBot,
 )
 
@@ -77,8 +72,6 @@ async def test_keyboards_are_reply(bot):
         (BTN_STATUS, 'send_status'),
         (BTN_SETTINGS, 'send_settings'),
         (BTN_MODE, 'toggle_mode'),
-        (BTN_POSITION, 'toggle_position_filter'),
-        (BTN_REMOVE_URL, 'start_remove_url'),
         (BTN_CHAT_RULES, 'start_chat_rules'),
     ],
 )
@@ -92,22 +85,6 @@ async def test_buttons_dispatch_to_methods(bot, monkeypatch, button, method_name
     upd = DummyUpdate(button)
     await bot.handle_message(upd, None)
     assert called.get('ok') is True
-
-
-@pytest.mark.asyncio
-async def test_up_down_dispatch_price_change(bot, monkeypatch):
-    deltas = []
-
-    async def _stub(chat_id, delta, _update):
-        assert chat_id == 101
-        deltas.append(delta)
-
-    monkeypatch.setattr(bot, 'handle_price_change', _stub)
-
-    await bot.handle_message(DummyUpdate(BTN_UP), None)
-    await bot.handle_message(DummyUpdate(BTN_DOWN), None)
-
-    assert deltas == [0.01, -0.01]
 
 
 @pytest.mark.asyncio
@@ -153,7 +130,6 @@ async def test_product_switch_buttons_dispatch(bot, monkeypatch, button, step):
         (BTN_MIN, 'MIN_PRICE'),
         (BTN_MAX, 'MAX_PRICE'),
         (BTN_PRODUCTS, 'MANAGE_PRODUCTS'),
-        (BTN_ADD_URL, 'ADD_URL'),
     ],
 )
 async def test_buttons_set_pending_actions(bot, button, expected_action):
