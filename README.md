@@ -153,6 +153,7 @@ cp .env.example .env
 - `DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS=5077639,5104800`
 - `DIGISELLER_CHAT_AUTOREPLY_INTERVAL_SECONDS=30`
 - `DIGISELLER_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES=true`
+- `DIGISELLER_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT=true`
 - `DIGISELLER_CHAT_AUTOREPLY_LOOKBACK_MESSAGES=30`
 - `DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS=30`
 - `DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS=24`
@@ -167,6 +168,8 @@ cp .env.example .env
 Инструкция отправляется для каждого нового заказа (`order_id`) отдельно.
 Для одного и того же заказа бот отправляет инструкцию только один раз
 (антидубль по `order_id` + dedupe по тексту в истории сообщений).
+Если включён `*_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT=true`, бот отправляет инструкцию
+только в пустой чат заказа (без предыдущих сообщений).
 Перед отправкой бот проверяет права chat API; при нехватке прав
 отправка не выполняется, причина пишется в `/diag` (`Chat perms`).
 Если в заказе у выбранного параметра (option/variant) есть свой текст
@@ -180,6 +183,7 @@ cp .env.example .env
 - `GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS`
 - `GGSEL_CHAT_AUTOREPLY_INTERVAL_SECONDS`
 - `GGSEL_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES`
+- `GGSEL_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT`
 - `GGSEL_CHAT_AUTOREPLY_LOOKBACK_MESSAGES`
 - `GGSEL_CHAT_AUTOREPLY_SENT_TTL_DAYS`
 - `GGSEL_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS`
@@ -293,6 +297,8 @@ docker compose logs -f
 - Откройте `⚙ Настройки` -> `📝 Правила инстр.`
 - Бот покажет список вариантов параметров выбранного товара.
 - Если включено хотя бы одно правило, инструкция уходит только по совпавшим правилам.
+- Вкл/выкл правил делается кнопками под сообщением со списком правил.
+- Кастомный текст опционален: если не задан, бот берет текст из карточки товара.
 - Команды в редакторе:
   - `list` — показать текущие правила
   - `on <N>` / `off <N>` — включить/выключить правило
