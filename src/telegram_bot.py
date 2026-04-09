@@ -82,6 +82,14 @@ _CHAT_PROFILE_PREFIX = {
     'ggsel': 'GGSEL',
     'digiseller': 'DIGISELLER',
 }
+_FRIEND_RULE_KEYWORDS = (
+    'друз',
+    'friend',
+    'добавл',
+    'already',
+    'проверил',
+    'проверила',
+)
 
 
 class TelegramBot:
@@ -648,30 +656,35 @@ class TelegramBot:
             return ''
         return self._rule_clean_text(value)
 
-    def _iter_product_option_variants(self, payload: Any):
+    def _iter_product_option_dicts(self, payload: Any):
         if isinstance(payload, dict):
-            variants = (
-                payload.get('variants')
-                or payload.get('values')
-                or payload.get('options')
-            )
-            option_name = self._rule_clean_text(
-                payload.get('name')
-                or payload.get('title')
-                or payload.get('label')
-                or payload.get('question')
-            )
-            if isinstance(variants, list) and option_name:
-                for item in variants:
-                    variant_text = self._rule_choice_text(item)
-                    if variant_text:
-                        yield option_name, variant_text
+            options_value = payload.get('options')
+            if isinstance(options_value, list):
+                for option in options_value:
+                    if isinstance(option, dict):
+                        yield option
             for nested in payload.values():
-                yield from self._iter_product_option_variants(nested)
+                yield from self._iter_product_option_dicts(nested)
             return
         if isinstance(payload, list):
             for item in payload:
-                yield from self._iter_product_option_variants(item)
+                yield from self._iter_product_option_dicts(item)
+
+    def _option_name_text(self, option: dict[str, Any]) -> str:
+        return self._rule_clean_text(
+            option.get('name')
+            or option.get('title')
+            or option.get('label')
+            or option.get('question')
+        )
+
+    def _is_friend_rule_candidate(
+        self,
+        option_name: str,
+        variant_text: str,
+    ) -> bool:
+        haystack = f'{option_name} {variant_text}'.lower()
+        return any(token in haystack for token in _FRIEND_RULE_KEYWORDS)
 
     def _build_chat_rules_items(
         self,
@@ -679,22 +692,43 @@ class TelegramBot:
     ) -> list[dict[str, str]]:
         items: list[dict[str, str]] = []
         seen: set[str] = set()
-        for option_name, variant_text in self._iter_product_option_variants(
-            product_info
-        ):
-            key = chat_keys.option_rule_key(option_name, variant_text)
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            items.append(
-                {
-                    'key': key,
-                    'option': option_name,
-                    'value': variant_text,
-                    'label': f'{option_name} -> {variant_text}',
-                }
+        for option in self._iter_product_option_dicts(product_info):
+            option_name = self._option_name_text(option)
+            variants = (
+                option.get('variants')
+                or option.get('values')
+                or option.get('options')
             )
-        return items
+            if not option_name or not isinstance(variants, list):
+                continue
+            for raw_variant in variants:
+                variant_text = self._rule_choice_text(raw_variant)
+                if not variant_text:
+                    continue
+                key = chat_keys.option_rule_key(option_name, variant_text)
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                items.append(
+                    {
+                        'key': key,
+                        'option': option_name,
+                        'value': variant_text,
+                        'label': f'{option_name} -> {variant_text}',
+                    }
+                )
+
+        if not items:
+            return []
+
+        friend_items = [
+            item for item in items
+            if self._is_friend_rule_candidate(
+                item.get('option', ''),
+                item.get('value', ''),
+            )
+        ]
+        return friend_items or items
 
     def _format_chat_rules_overview(
         self,

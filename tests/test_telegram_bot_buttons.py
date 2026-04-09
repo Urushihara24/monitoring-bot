@@ -104,6 +104,40 @@ def keyboard_texts(markup) -> list[str]:
     return texts
 
 
+def test_build_chat_rules_items_prefers_friend_variants_only():
+    bot = make_bot()
+    payload = {
+        'options': [
+            {
+                'name': 'Укажите свой ник в Fortnite',
+                'variants': [
+                    {'text': 'Пример ника'},
+                ],
+            },
+            {
+                'name': 'Наши аккаунты в друзьях?',
+                'variants': [
+                    {'text': 'Нет. Добавлю после оплаты'},
+                    {'text': 'Да. Проверил(а), в друзьях'},
+                ],
+            },
+            {
+                'name': 'Изучили описание товара?',
+                'variants': [
+                    {'text': 'Да (я буду заказывать предметы, а не В-Баксы)'},
+                ],
+            },
+        ],
+    }
+
+    items = bot._build_chat_rules_items(payload)
+
+    assert len(items) == 2
+    values = [item['value'] for item in items]
+    assert 'Нет. Добавлю после оплаты' in values
+    assert 'Да. Проверил(а), в друзьях' in values
+
+
 def test_settings_keyboard_is_not_overloaded():
     bot = make_bot()
     texts = keyboard_texts(bot.get_settings_keyboard())
