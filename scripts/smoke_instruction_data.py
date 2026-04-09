@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import sys
 from pathlib import Path
 
@@ -11,10 +12,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.api_client import GGSELClient
-from src.config import config
-from src.digiseller_client import DigiSellerClient
-from src.scheduler import Scheduler
+GGSELClient = importlib.import_module('src.api_client').GGSELClient
+config = importlib.import_module('src.config').config
+DigiSellerClient = importlib.import_module(
+    'src.digiseller_client'
+).DigiSellerClient
+Scheduler = importlib.import_module('src.scheduler').Scheduler
 
 
 class _DummyTelegram:

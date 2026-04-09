@@ -1,7 +1,7 @@
 import importlib
+from src.rsc_parser import ParseResult, RSCParser
 
 rsc_module = importlib.import_module('src.rsc_parser')
-from src.rsc_parser import ParseResult, RSCParser
 
 
 def test_parse_html_extracts_unit_price():

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import sys
 from pathlib import Path
 
@@ -11,10 +12,14 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.api_client import GGSELClient
-from src.config import config
-from src.digiseller_client import DigiSellerClient
-from src.profile_smoke import SmokeResult, run_profile_smoke
+GGSELClient = importlib.import_module('src.api_client').GGSELClient
+config = importlib.import_module('src.config').config
+DigiSellerClient = importlib.import_module(
+    'src.digiseller_client'
+).DigiSellerClient
+profile_smoke = importlib.import_module('src.profile_smoke')
+SmokeResult = profile_smoke.SmokeResult
+run_profile_smoke = profile_smoke.run_profile_smoke
 
 
 def _is_transient_read_failure(profile: str, result: SmokeResult) -> bool:
