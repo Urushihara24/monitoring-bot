@@ -898,6 +898,77 @@ class Scheduler:
             return ''
         return self._sanitize_message(value).lower()
 
+    def _numeric_id(self, value: Any) -> int:
+        return chat_keys.parse_numeric_id(value)
+
+    def _option_id(self, option: dict[str, Any]) -> int:
+        for key in ('id', 'name'):
+            if key not in option:
+                continue
+            parsed = self._numeric_id(option.get(key))
+            if parsed > 0:
+                return parsed
+        return 0
+
+    def _variant_id(self, variant: dict[str, Any]) -> int:
+        for key in ('id', 'value'):
+            if key not in variant:
+                continue
+            parsed = self._numeric_id(variant.get(key))
+            if parsed > 0:
+                return parsed
+        return 0
+
+    def _selected_variant_id(self, option: dict[str, Any]) -> int:
+        selected_raw: Any = None
+        selected_key = ''
+        for key in (
+            'selected_id',
+            'variant_id',
+            'value',
+            'selected',
+            'answer',
+            'selection',
+        ):
+            if key in option:
+                selected_raw = option.get(key)
+                selected_key = key
+                break
+
+        direct_id = self._numeric_id(selected_raw)
+        variants = (
+            option.get('variants')
+            or option.get('values')
+            or option.get('options')
+        )
+        if not isinstance(variants, list):
+            return direct_id
+
+        selected_text = self._choice_text_value(selected_raw)
+        for item in variants:
+            if not isinstance(item, dict):
+                continue
+            item_id = self._variant_id(item)
+            matches = False
+            if direct_id > 0 and item_id > 0:
+                matches = item_id == direct_id
+            if not matches and selected_text:
+                for text_key in ('text', 'label', 'name', 'title', 'value', 'id'):
+                    if text_key not in item:
+                        continue
+                    candidate = self._choice_text_value(item.get(text_key))
+                    if candidate and candidate == selected_text:
+                        matches = True
+                        break
+            if matches and item_id > 0:
+                return item_id
+
+        # Для selected_id/variant_id числовой идентификатор остаётся
+        # полезным даже если варианта нет в payload.
+        if selected_key in ('selected_id', 'variant_id'):
+            return direct_id
+        return 0
+
     def _resolve_selected_option_variant(
         self,
         option: dict[str, Any],
@@ -1062,6 +1133,9 @@ class Scheduler:
             }
         return normalized
 
+    def _rules_require_id_match(self, rules: dict[str, dict[str, Any]]) -> bool:
+        return any(chat_keys.is_option_variant_rule_key(key) for key in rules)
+
     def _iter_selected_option_contexts(self, payload: Any):
         for option in self._iter_order_option_dicts(payload):
             option_name = self._sanitize_message(
@@ -1073,13 +1147,26 @@ class Scheduler:
             selected_value = self._sanitize_message(
                 self._option_selected_text(option)
             )
-            if not option_name or not selected_value:
-                continue
-            rule_key = chat_keys.option_rule_key(option_name, selected_value)
-            if not rule_key or rule_key.endswith('::'):
+            option_id = self._option_id(option)
+            variant_id = self._selected_variant_id(option)
+            keys: list[str] = []
+            id_key = chat_keys.option_variant_rule_key(option_id, variant_id)
+            if id_key:
+                keys.append(id_key)
+            text_key = ''
+            if option_name and selected_value:
+                text_key = chat_keys.option_rule_key(option_name, selected_value)
+            if text_key and not text_key.endswith('::'):
+                keys.append(text_key)
+            if not keys:
                 continue
             yield {
-                'key': rule_key,
+                'key': keys[0],
+                'keys': keys,
+                'id_key': id_key,
+                'text_key': text_key,
+                'option_id': option_id,
+                'variant_id': variant_id,
                 'option_name': option_name,
                 'selected_value': selected_value,
                 'option': option,
@@ -1117,6 +1204,7 @@ class Scheduler:
             )
             if not option_name:
                 continue
+            option_id = self._option_id(option)
             variants = (
                 option.get('variants')
                 or option.get('values')
@@ -1136,8 +1224,23 @@ class Scheduler:
                 )
                 if not variant_text:
                     continue
+                variant_id = self._variant_id(variant)
+                keys: list[str] = []
+                id_key = chat_keys.option_variant_rule_key(option_id, variant_id)
+                if id_key:
+                    keys.append(id_key)
+                text_key = chat_keys.option_rule_key(option_name, variant_text)
+                if text_key and not text_key.endswith('::'):
+                    keys.append(text_key)
+                if not keys:
+                    continue
                 yield {
-                    'key': chat_keys.option_rule_key(option_name, variant_text),
+                    'key': keys[0],
+                    'keys': keys,
+                    'id_key': id_key,
+                    'text_key': text_key,
+                    'option_id': option_id,
+                    'variant_id': variant_id,
                     'option': option,
                     'variant': variant,
                 }
@@ -1154,7 +1257,8 @@ class Scheduler:
         if not target:
             return ''
         for context in self._iter_product_rule_variants(payload):
-            if context.get('key') != target:
+            keys = context.get('keys') or [context.get('key')]
+            if target not in keys:
                 continue
             variant = context.get('variant') or {}
             option = context.get('option') or {}
@@ -1766,17 +1870,28 @@ class Scheduler:
                         'chat': chat,
                     }
                     if rules:
+                        require_id_match = self._rules_require_id_match(rules)
                         matched_rule = None
                         matched_context: Optional[dict[str, Any]] = None
                         for context in self._iter_selected_option_contexts(
                             selected_options_payload
                         ):
-                            rule = rules.get(context['key'])
-                            if rule is None:
-                                continue
-                            matched_rule = rule
-                            matched_context = context
-                            break
+                            context_keys = list(context.get('keys') or [])
+                            if require_id_match:
+                                context_keys = [
+                                    key for key in context_keys
+                                    if chat_keys.is_option_variant_rule_key(key)
+                                ]
+                            for key in context_keys:
+                                rule = rules.get(key)
+                                if rule is None:
+                                    continue
+                                matched_rule = rule
+                                matched_context = dict(context)
+                                matched_context['matched_key'] = key
+                                break
+                            if matched_rule is not None:
+                                break
 
                         if matched_rule is None or matched_context is None:
                             logger.info(
@@ -1835,7 +1950,8 @@ class Scheduler:
                                     )
                                     message = self._pick_instruction_for_rule_key(
                                         product_info,
-                                        rule_key=matched_context['key'],
+                                        rule_key=matched_context.get('matched_key')
+                                        or matched_context['key'],
                                         mode=mode,
                                         locale=info_locale,
                                     )

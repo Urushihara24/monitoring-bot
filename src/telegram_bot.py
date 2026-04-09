@@ -678,6 +678,26 @@ class TelegramBot:
             or option.get('question')
         )
 
+    def _rule_option_id(self, option: dict[str, Any]) -> int:
+        for key in ('id', 'name'):
+            if key not in option:
+                continue
+            parsed = chat_keys.parse_numeric_id(option.get(key))
+            if parsed > 0:
+                return parsed
+        return 0
+
+    def _rule_variant_id(self, variant: Any) -> int:
+        if not isinstance(variant, dict):
+            return 0
+        for key in ('id', 'value'):
+            if key not in variant:
+                continue
+            parsed = chat_keys.parse_numeric_id(variant.get(key))
+            if parsed > 0:
+                return parsed
+        return 0
+
     def _is_friend_rule_candidate(
         self,
         option_name: str,
@@ -694,6 +714,7 @@ class TelegramBot:
         seen: set[str] = set()
         for option in self._iter_product_option_dicts(product_info):
             option_name = self._option_name_text(option)
+            option_id = self._rule_option_id(option)
             variants = (
                 option.get('variants')
                 or option.get('values')
@@ -705,13 +726,20 @@ class TelegramBot:
                 variant_text = self._rule_choice_text(raw_variant)
                 if not variant_text:
                     continue
-                key = chat_keys.option_rule_key(option_name, variant_text)
+                variant_id = self._rule_variant_id(raw_variant)
+                key = chat_keys.option_variant_rule_key(option_id, variant_id)
+                legacy_key = chat_keys.option_rule_key(option_name, variant_text)
+                if not key:
+                    key = legacy_key
                 if not key or key in seen:
                     continue
                 seen.add(key)
                 items.append(
                     {
                         'key': key,
+                        'legacy_key': legacy_key,
+                        'option_id': str(option_id) if option_id > 0 else '',
+                        'variant_id': str(variant_id) if variant_id > 0 else '',
                         'option': option_name,
                         'value': variant_text,
                         'label': f'{option_name} -> {variant_text}',
@@ -729,6 +757,31 @@ class TelegramBot:
             )
         ]
         return friend_items or items
+
+    def _chat_rules_rebind_legacy_keys(
+        self,
+        *,
+        rules: dict[str, dict[str, Any]],
+        items: list[dict[str, str]],
+    ) -> tuple[dict[str, dict[str, Any]], bool]:
+        """
+        Миграция text-key -> id-key для стабильного matching по option/variant id.
+        """
+        if not isinstance(rules, dict) or not isinstance(items, list):
+            return rules, False
+        migrated = dict(rules)
+        changed = False
+        for item in items:
+            new_key = str(item.get('key') or '').strip().lower()
+            legacy_key = str(item.get('legacy_key') or '').strip().lower()
+            if not new_key or not legacy_key or new_key == legacy_key:
+                continue
+            if legacy_key not in migrated or new_key in migrated:
+                continue
+            migrated[new_key] = dict(migrated.get(legacy_key) or {})
+            del migrated[legacy_key]
+            changed = True
+        return migrated, changed
 
     def _format_chat_rules_overview(
         self,
@@ -1985,6 +2038,17 @@ class TelegramBot:
             profile_id=profile_id,
             product_id=product_id,
         )
+        rules, migrated = self._chat_rules_rebind_legacy_keys(
+            rules=rules,
+            items=best_items,
+        )
+        if migrated:
+            self._chat_rules_save(
+                profile_id=profile_id,
+                product_id=product_id,
+                rules=rules,
+                user_id=update.effective_user.id if update.effective_user else None,
+            )
         self.chat_rules_context[chat_id] = {
             'profile_id': profile_id,
             'product_id': product_id,

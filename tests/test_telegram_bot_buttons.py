@@ -517,6 +517,38 @@ async def test_chat_rules_button_opens_editor(monkeypatch):
     assert 'Включение/выключение теперь кнопками' in second_args[0]
 
 
+def test_chat_rules_rebinds_legacy_text_key_to_id_key():
+    bot = make_bot()
+    items = [
+        {
+            'key': 'id:32496:152937',
+            'legacy_key': chat_keys.option_rule_key(
+                'Наши аккаунты в друзьях?',
+                'Нет. Добавлю после оплаты',
+            ),
+            'option': 'Наши аккаунты в друзьях?',
+            'value': 'Нет. Добавлю после оплаты',
+            'label': 'Наши аккаунты в друзьях? -> Нет. Добавлю после оплаты',
+        }
+    ]
+    rules = {
+        items[0]['legacy_key']: {
+            'enabled': True,
+            'text': 'legacy text',
+        }
+    }
+
+    migrated, changed = bot._chat_rules_rebind_legacy_keys(
+        rules=rules,
+        items=items,
+    )
+
+    assert changed is True
+    assert items[0]['legacy_key'] not in migrated
+    assert migrated['id:32496:152937']['enabled'] is True
+    assert migrated['id:32496:152937']['text'] == 'legacy text'
+
+
 @pytest.mark.asyncio
 async def test_chat_rules_pending_commands_save_rule(monkeypatch):
     class ProductWithOptionsClient(ChatCapableClient):

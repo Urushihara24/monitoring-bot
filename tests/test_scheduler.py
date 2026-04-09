@@ -1767,6 +1767,87 @@ async def test_scheduler_chat_autoreply_rules_use_product_variant_instruction(
 
 
 @pytest.mark.asyncio
+async def test_scheduler_chat_autoreply_rules_match_by_option_variant_ids(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    rule_key = chat_keys.option_variant_rule_key(3066422, 11792090)
+    test_storage.set_runtime_setting(
+        chat_keys.rules_key(5077639),
+        (
+            '{"version":1,"rules":{'
+            f'"{rule_key}":{{"enabled":true,"text":""}}'
+            '}}'
+        ),
+        profile_id='digiseller',
+        source='test',
+    )
+
+    class RulesIdApi(DummyChatApiClient):
+        def get_order_info(self, _order_id, **_kwargs):
+            return {
+                'locale': 'ru-RU',
+                'id_d': 5077639,
+                'options': [
+                    {
+                        'name': 'option_select_3066422',
+                        'selected_id': 11792090,
+                        'variants': [
+                            {
+                                'value': 11792090,
+                                'text': 'Нет, добавлю позже (текст может меняться)',
+                            },
+                            {'value': 11792091, 'text': 'Да, уже в друзьях'},
+                        ],
+                    }
+                ],
+            }
+
+        def get_product_info(self, product_id, timeout=10, lang=None):
+            self.product_info_calls.append((product_id, lang))
+            return {
+                'options': [
+                    {
+                        'id': 3066422,
+                        'label': 'Наши аккаунты в друзьях?',
+                        'variants': [
+                            {
+                                'value': 11792090,
+                                'text': 'Нет. Добавлю после оплаты',
+                                'add_info': 'ID-based instruction',
+                            },
+                        ],
+                    }
+                ]
+            }
+
+    bot = DummyTelegramBot()
+    api = RulesIdApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    assert api.sent_messages == [(111, 'ID-based instruction')]
+    assert api.product_info_calls == [(5077639, 'ru-RU')]
+
+
+@pytest.mark.asyncio
 async def test_scheduler_chat_autoreply_rules_without_match_skip_order(
     monkeypatch,
     tmp_path,
