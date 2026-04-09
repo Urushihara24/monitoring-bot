@@ -11,7 +11,7 @@ import logging
 import re
 import unicodedata
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from telegram import (
     ReplyKeyboardMarkup,
