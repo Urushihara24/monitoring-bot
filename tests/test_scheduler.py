@@ -923,12 +923,89 @@ async def test_scheduler_chat_autoreply_smart_non_empty_blocks_done_chat(
         def list_messages(self, order_id, **kwargs):
             self.message_queries.append((order_id, kwargs))
             return [
-                {'message': 'Здравствуйте, когда отправите?'},
-                {'message': 'Ваш заказ выполнен. Оставите отзыв?'},
+                {'message': 'Здравствуйте, когда отправите?', 'buyer': 1},
+                {
+                    'message': 'Ваш заказ выполнен. Оставите отзыв?',
+                    'seller': 1,
+                },
             ]
 
     bot = DummyTelegramBot()
     api = NonEmptyDoneApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    assert api.sent_messages == []
+
+
+@pytest.mark.asyncio
+async def test_scheduler_chat_autoreply_smart_non_empty_allows_buyer_code(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_SMART_NON_EMPTY = True
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    class NonEmptyCodeApi(DummyChatApiClient):
+        def list_messages(self, order_id, **kwargs):
+            self.message_queries.append((order_id, kwargs))
+            return [{'message': 'X46RP-2KQ77-MM9K9-TFJFD-RYC9Z', 'buyer': 1}]
+
+    bot = DummyTelegramBot()
+    api = NonEmptyCodeApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    assert api.sent_messages == [(111, 'Инструкция RU')]
+
+
+@pytest.mark.asyncio
+async def test_scheduler_chat_autoreply_smart_non_empty_skips_seller_only(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_SMART_NON_EMPTY = True
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    class NonEmptySellerOnlyApi(DummyChatApiClient):
+        def list_messages(self, order_id, **kwargs):
+            self.message_queries.append((order_id, kwargs))
+            return [{'message': 'Здравствуйте! Ваш заказ выполнен.', 'seller': 1}]
+
+    bot = DummyTelegramBot()
+    api = NonEmptySellerOnlyApi()
     scheduler = scheduler_mod.Scheduler(
         api_client=api,
         telegram_bot=bot,

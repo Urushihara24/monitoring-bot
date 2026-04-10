@@ -13,6 +13,8 @@ from src.telegram_bot import (
     BTN_CHAT_AUTOREPLY_ON,
     BTN_CHAT_EMPTY_ONLY_OFF,
     BTN_CHAT_EMPTY_ONLY_ON,
+    BTN_CHAT_SMART_NON_EMPTY_OFF,
+    BTN_CHAT_SMART_NON_EMPTY_ON,
     BTN_CHAT_RULES,
     BTN_MODE,
     BTN_PRODUCT_NEXT,
@@ -163,6 +165,8 @@ def test_settings_keyboard_shows_chat_toggle_for_supported_profile():
     assert BTN_CHAT_AUTOREPLY_OFF not in texts
     assert BTN_CHAT_EMPTY_ONLY_OFF in texts
     assert BTN_CHAT_EMPTY_ONLY_ON not in texts
+    assert BTN_CHAT_SMART_NON_EMPTY_ON in texts
+    assert BTN_CHAT_SMART_NON_EMPTY_OFF not in texts
     assert BTN_CHAT_RULES in texts
 
 
@@ -189,6 +193,7 @@ async def test_main_buttons_route_to_handlers():
     bot.set_auto_enabled = AsyncMock()
     bot.set_chat_autoreply_enabled = AsyncMock()
     bot.set_chat_autoreply_only_empty_chat = AsyncMock()
+    bot.set_chat_autoreply_smart_non_empty = AsyncMock()
     bot.start_chat_rules = AsyncMock()
     bot.send_settings = AsyncMock()
 
@@ -230,6 +235,18 @@ async def test_main_buttons_route_to_handlers():
     await bot.handle_message(chat_empty_off, None)
     bot.set_chat_autoreply_only_empty_chat.assert_any_await(
         100, 1, chat_empty_off, enabled=False
+    )
+
+    chat_smart_on = make_update(BTN_CHAT_SMART_NON_EMPTY_ON)
+    await bot.handle_message(chat_smart_on, None)
+    bot.set_chat_autoreply_smart_non_empty.assert_any_await(
+        100, 1, chat_smart_on, enabled=True
+    )
+
+    chat_smart_off = make_update(BTN_CHAT_SMART_NON_EMPTY_OFF)
+    await bot.handle_message(chat_smart_off, None)
+    bot.set_chat_autoreply_smart_non_empty.assert_any_await(
+        100, 1, chat_smart_off, enabled=False
     )
 
     chat_rules = make_update(BTN_CHAT_RULES)

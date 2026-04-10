@@ -75,6 +75,9 @@ _NON_EMPTY_CHAT_DENY_MARKERS = (
     'обращаетесь преждевременно',
     'спасибо за покупку',
 )
+_BUYER_CODE_TOKEN_RE = re.compile(
+    r'[A-Za-z0-9][A-Za-z0-9-]{7,39}',
+)
 
 
 class Scheduler:
@@ -1739,37 +1742,151 @@ class Scheduler:
         )
         return self._normalize_compare_text(value)
 
+    def _extract_chat_message_raw(self, message: dict[str, Any]) -> str:
+        if not isinstance(message, dict):
+            return ''
+        value = (
+            message.get('message')
+            or message.get('text')
+            or message.get('body')
+            or message.get('content')
+        )
+        return self._sanitize_message(value)
+
+    def _to_bool_flag(self, value: Any) -> Optional[bool]:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            if int(value) in (0, 1):
+                return bool(int(value))
+            return None
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in _TRUE_CHOICES:
+                return True
+            if normalized in _FALSE_CHOICES:
+                return False
+        return None
+
+    def _is_buyer_message(self, message: dict[str, Any]) -> bool:
+        if not isinstance(message, dict):
+            return True
+
+        buyer_flag = None
+        seller_flag = None
+        for key in ('buyer', 'is_buyer', 'from_buyer'):
+            if key in message:
+                buyer_flag = self._to_bool_flag(message.get(key))
+                if buyer_flag is not None:
+                    break
+        for key in (
+            'seller',
+            'is_seller',
+            'from_seller',
+            'from_me',
+            'is_me',
+        ):
+            if key in message:
+                seller_flag = self._to_bool_flag(message.get(key))
+                if seller_flag is not None:
+                    break
+
+        if buyer_flag is True and seller_flag is not True:
+            return True
+        if seller_flag is True and buyer_flag is not True:
+            return False
+
+        direction = str(message.get('direction') or '').strip().lower()
+        if direction:
+            if direction in ('in', 'incoming', 'buyer'):
+                return True
+            if direction in ('out', 'outgoing', 'seller'):
+                return False
+
+        actor = str(
+            message.get('who')
+            or message.get('author')
+            or message.get('sender')
+            or ''
+        ).strip().lower()
+        if actor:
+            if actor in ('buyer', 'user', 'client', 'customer'):
+                return True
+            if actor in ('seller', 'shop', 'admin', 'support'):
+                return False
+
+        # Если источник не удалось определить, считаем сообщение покупательским.
+        # Это уменьшает риск пропустить авто-инструкцию.
+        return True
+
+    def _contains_probable_buyer_code(self, text: str) -> bool:
+        raw = (text or '').strip()
+        if not raw:
+            return False
+        for token in _BUYER_CODE_TOKEN_RE.findall(raw):
+            normalized = token.strip('-')
+            if len(normalized) < 8 or len(normalized) > 32:
+                continue
+            has_digit = any(ch.isdigit() for ch in normalized)
+            has_alpha = any(ch.isalpha() for ch in normalized)
+            if not (has_digit and has_alpha):
+                continue
+            if '-' in token:
+                parts = [part for part in token.split('-') if part]
+                if len(parts) >= 2 and all(len(part) >= 3 for part in parts):
+                    return True
+                continue
+            if len(normalized) >= 10:
+                return True
+        return False
+
     def _allow_non_empty_chat_autoreply(
         self,
         messages: list[dict[str, Any]],
     ) -> tuple[bool, str]:
-        texts = [
-            self._extract_chat_message_text(message)
-            for message in messages
-            if isinstance(message, dict)
-        ]
-        texts = [text for text in texts if text]
-        if not texts:
+        buyer_texts: list[str] = []
+        seller_texts: list[str] = []
+        buyer_raw_texts: list[str] = []
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            normalized = self._extract_chat_message_text(message)
+            raw_text = self._extract_chat_message_raw(message)
+            if not normalized and not raw_text:
+                continue
+            if self._is_buyer_message(message):
+                if normalized:
+                    buyer_texts.append(normalized)
+                if raw_text:
+                    buyer_raw_texts.append(raw_text)
+            elif normalized:
+                seller_texts.append(normalized)
+
+        if not buyer_texts and not seller_texts:
             return False, 'empty_payload'
 
-        for text in texts:
+        for text in seller_texts:
             if any(marker in text for marker in _NON_EMPTY_CHAT_DENY_MARKERS):
                 return False, 'deny_marker'
 
-        for text in texts:
+        if not buyer_texts:
+            return False, 'no_buyer_message'
+
+        for text in buyer_raw_texts:
+            if self._contains_probable_buyer_code(text):
+                return True, 'buyer_code'
+
+        for text in buyer_texts:
             if any(
                 marker in text
                 for marker in _NON_EMPTY_CHAT_TRIGGER_MARKERS
             ):
                 return True, 'trigger_marker'
 
-        short_question = any(
-            len(text) <= 140 and ('?' in text or text in ('hi', 'hello'))
-            for text in texts
-        )
+        short_question = any(len(text) <= 140 and '?' in text for text in buyer_texts)
         if short_question:
             return True, 'short_question'
-        return False, 'no_trigger'
+        return True, 'buyer_message'
 
     def _list_recent_messages(
         self,
