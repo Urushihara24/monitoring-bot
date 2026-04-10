@@ -55,6 +55,26 @@ _CHAT_PROFILE_PREFIX = {
     'ggsel': 'GGSEL',
     'digiseller': 'DIGISELLER',
 }
+_NON_EMPTY_CHAT_TRIGGER_MARKERS = (
+    'привет',
+    'здравств',
+    'добрый',
+    'добав',
+    'друз',
+    'как получить',
+    'когда',
+    'готов',
+    'item-shop',
+    'fortnite',
+    'gift',
+)
+_NON_EMPTY_CHAT_DENY_MARKERS = (
+    'заказ выполнен',
+    'оставите отзыв',
+    'буду благодарен',
+    'обращаетесь преждевременно',
+    'спасибо за покупку',
+)
 
 
 class Scheduler:
@@ -753,6 +773,22 @@ class Scheduler:
                 'on',
             )
         return bool(self._chat_cfg('ONLY_EMPTY_CHAT', True))
+
+    def _chat_autoreply_smart_non_empty(self) -> bool:
+        if self._chat_profile_prefix() is None:
+            return False
+        runtime_raw = storage.get_runtime_setting(
+            'CHAT_AUTOREPLY_SMART_NON_EMPTY',
+            profile_id=self.base_profile_id,
+        )
+        if runtime_raw is not None:
+            return str(runtime_raw).strip().lower() in (
+                '1',
+                'true',
+                'yes',
+                'on',
+            )
+        return bool(self._chat_cfg('SMART_NON_EMPTY', False))
 
     def _iter_text_values(self, payload: Any):
         queue = [payload]
@@ -1692,6 +1728,49 @@ class Scheduler:
         text = self._sanitize_message(raw).lower()
         return re.sub(r'\s+', ' ', text).strip()
 
+    def _extract_chat_message_text(self, message: dict[str, Any]) -> str:
+        if not isinstance(message, dict):
+            return ''
+        value = (
+            message.get('message')
+            or message.get('text')
+            or message.get('body')
+            or message.get('content')
+        )
+        return self._normalize_compare_text(value)
+
+    def _allow_non_empty_chat_autoreply(
+        self,
+        messages: list[dict[str, Any]],
+    ) -> tuple[bool, str]:
+        texts = [
+            self._extract_chat_message_text(message)
+            for message in messages
+            if isinstance(message, dict)
+        ]
+        texts = [text for text in texts if text]
+        if not texts:
+            return False, 'empty_payload'
+
+        for text in texts:
+            if any(marker in text for marker in _NON_EMPTY_CHAT_DENY_MARKERS):
+                return False, 'deny_marker'
+
+        for text in texts:
+            if any(
+                marker in text
+                for marker in _NON_EMPTY_CHAT_TRIGGER_MARKERS
+            ):
+                return True, 'trigger_marker'
+
+        short_question = any(
+            len(text) <= 140 and ('?' in text or text in ('hi', 'hello'))
+            for text in texts
+        )
+        if short_question:
+            return True, 'short_question'
+        return False, 'no_trigger'
+
     def _list_recent_messages(
         self,
         order_id: int,
@@ -1936,8 +2015,26 @@ class Scheduler:
                                 )
                                 continue
                             if cached_messages:
-                                skipped_non_empty_chat_count += 1
-                                continue
+                                if self._chat_autoreply_smart_non_empty():
+                                    (
+                                        allow_non_empty,
+                                        allow_reason,
+                                    ) = self._allow_non_empty_chat_autoreply(
+                                        cached_messages
+                                    )
+                                    if not allow_non_empty:
+                                        skipped_non_empty_chat_count += 1
+                                        continue
+                                    logger.info(
+                                        '[%s] order_id=%s: непустой чат '
+                                        'допущен smart-mode (%s)',
+                                        self.profile_name,
+                                        order_id,
+                                        allow_reason,
+                                    )
+                                else:
+                                    skipped_non_empty_chat_count += 1
+                                    continue
 
                         chat_product = self._extract_product_id(
                             chat,
