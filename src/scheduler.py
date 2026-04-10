@@ -2662,7 +2662,7 @@ class Scheduler:
             )
         return force
 
-    async def run_cycle(self):
+    async def run_cycle(self, *, include_chat_autoreply: bool = True):
         logger.info('[%s] 🔄 Запуск цикла pricing...', self.profile_name)
         try:
             storage.update_state(
@@ -2677,7 +2677,7 @@ class Scheduler:
             runtime = self._runtime()
             state = self._state()
 
-            if self.chat_autoreply_enabled:
+            if include_chat_autoreply and self.chat_autoreply_enabled:
                 await self._run_chat_autoreply()
 
             is_valid, errors = validate_runtime_config(runtime)
@@ -3220,9 +3220,23 @@ class Scheduler:
             self.profile_name,
             runtime.CHECK_INTERVAL,
         )
+        next_pricing_run_at = datetime.now()
         while self._running:
             try:
-                await self.run_cycle()
+                now = datetime.now()
+                runtime = self._runtime()
+
+                # Pricing-цикл работает по CHECK_INTERVAL.
+                if now >= next_pricing_run_at:
+                    await self.run_cycle(include_chat_autoreply=False)
+                    runtime = self._runtime()
+                    next_pricing_run_at = datetime.now() + timedelta(
+                        seconds=max(1, int(runtime.CHECK_INTERVAL))
+                    )
+
+                # Чат-инструкции проверяем чаще, независимо от pricing.
+                if self.chat_autoreply_enabled:
+                    await self._run_chat_autoreply()
             except KeyboardInterrupt:
                 break
             except Exception as e:
@@ -3233,7 +3247,12 @@ class Scheduler:
                     exc_info=True,
                 )
             runtime = self._runtime()
-            await asyncio.sleep(runtime.CHECK_INTERVAL)
+            sleep_seconds = max(1, int(runtime.CHECK_INTERVAL))
+            if self.chat_autoreply_enabled:
+                # Частота фактической отправки ограничивается
+                # CHAT_AUTOREPLY_INTERVAL_SECONDS внутри _run_chat_autoreply.
+                sleep_seconds = 1
+            await asyncio.sleep(sleep_seconds)
         self._running = False
         logger.info('[%s] Планировщик остановлен', self.profile_name)
 
