@@ -1021,6 +1021,88 @@ async def test_scheduler_chat_autoreply_smart_non_empty_skips_seller_only(
 
 
 @pytest.mark.asyncio
+async def test_scheduler_chat_autoreply_policy_first_buyer_message(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    test_storage.set_runtime_setting(
+        'CHAT_AUTOREPLY_POLICY:5077639',
+        'FIRST_BUYER_MESSAGE',
+        profile_id='digiseller',
+    )
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT = False
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    class FirstBuyerMessageApi(DummyChatApiClient):
+        def list_messages(self, order_id, **kwargs):
+            self.message_queries.append((order_id, kwargs))
+            return [{'message': 'Подтвердите, пожалуйста', 'seller': 1}]
+
+    bot = DummyTelegramBot()
+    api = FirstBuyerMessageApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    assert api.sent_messages == []
+
+
+@pytest.mark.asyncio
+async def test_scheduler_chat_autoreply_policy_code_only_allows_buyer_code(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    test_storage.set_runtime_setting(
+        'CHAT_AUTOREPLY_POLICY:5077639',
+        'CODE_ONLY',
+        profile_id='digiseller',
+    )
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT = False
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    class CodeOnlyApi(DummyChatApiClient):
+        def list_messages(self, order_id, **kwargs):
+            self.message_queries.append((order_id, kwargs))
+            return [{'message': 'X46RP-2KQ77-MM9K9-TFJFD-RYC9Z', 'buyer': 1}]
+
+    bot = DummyTelegramBot()
+    api = CodeOnlyApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    assert api.sent_messages == [(111, 'Инструкция RU')]
+
+
+@pytest.mark.asyncio
 async def test_scheduler_ggsel_chat_autoreply_sent_once(monkeypatch, tmp_path):
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()

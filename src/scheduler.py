@@ -55,6 +55,14 @@ _CHAT_PROFILE_PREFIX = {
     'ggsel': 'GGSEL',
     'digiseller': 'DIGISELLER',
 }
+_CHAT_POLICY_ON_ORDER = 'ON_ORDER'
+_CHAT_POLICY_FIRST_BUYER_MESSAGE = 'FIRST_BUYER_MESSAGE'
+_CHAT_POLICY_CODE_ONLY = 'CODE_ONLY'
+_CHAT_POLICIES = {
+    _CHAT_POLICY_ON_ORDER,
+    _CHAT_POLICY_FIRST_BUYER_MESSAGE,
+    _CHAT_POLICY_CODE_ONLY,
+}
 _NON_EMPTY_CHAT_TRIGGER_MARKERS = (
     'привет',
     'здравств',
@@ -792,6 +800,48 @@ class Scheduler:
                 'on',
             )
         return bool(self._chat_cfg('SMART_NON_EMPTY', False))
+
+    def _chat_autoreply_policy(self, product_id: int) -> str:
+        default_policy = str(
+            self._chat_cfg(
+                'POLICY',
+                _CHAT_POLICY_ON_ORDER,
+            )
+            or _CHAT_POLICY_ON_ORDER
+        ).strip().upper()
+        if default_policy not in _CHAT_POLICIES:
+            default_policy = _CHAT_POLICY_ON_ORDER
+
+        if self._chat_profile_prefix() is None:
+            return default_policy
+
+        runtime_raw = None
+        if int(product_id or 0) > 0:
+            runtime_raw = storage.get_runtime_setting(
+                f'CHAT_AUTOREPLY_POLICY:{int(product_id)}',
+                profile_id=self.base_profile_id,
+            )
+        if runtime_raw is None:
+            runtime_raw = storage.get_runtime_setting(
+                'CHAT_AUTOREPLY_POLICY',
+                profile_id=self.base_profile_id,
+            )
+
+        if runtime_raw is None:
+            return default_policy
+
+        normalized = str(runtime_raw).strip().upper()
+        aliases = {
+            'NEW_ORDER': _CHAT_POLICY_ON_ORDER,
+            'ORDER': _CHAT_POLICY_ON_ORDER,
+            'FIRST_MESSAGE': _CHAT_POLICY_FIRST_BUYER_MESSAGE,
+            'MESSAGE': _CHAT_POLICY_FIRST_BUYER_MESSAGE,
+            'CODE': _CHAT_POLICY_CODE_ONLY,
+        }
+        normalized = aliases.get(normalized, normalized)
+        if normalized in _CHAT_POLICIES:
+            return normalized
+        return default_policy
 
     def _iter_text_values(self, payload: Any):
         queue = [payload]
@@ -1888,6 +1938,46 @@ class Scheduler:
             return True, 'short_question'
         return True, 'buyer_message'
 
+    def _chat_policy_allows_send(
+        self,
+        *,
+        policy: str,
+        messages: list[dict[str, Any]],
+    ) -> tuple[bool, str]:
+        normalized = str(policy or '').strip().upper()
+        if normalized not in _CHAT_POLICIES:
+            normalized = _CHAT_POLICY_ON_ORDER
+
+        if normalized == _CHAT_POLICY_ON_ORDER:
+            return True, 'on_order'
+
+        buyer_texts: list[str] = []
+        buyer_raw_texts: list[str] = []
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            if not self._is_buyer_message(message):
+                continue
+            normalized_text = self._extract_chat_message_text(message)
+            raw_text = self._extract_chat_message_raw(message)
+            if normalized_text:
+                buyer_texts.append(normalized_text)
+            if raw_text:
+                buyer_raw_texts.append(raw_text)
+
+        if normalized == _CHAT_POLICY_FIRST_BUYER_MESSAGE:
+            if buyer_texts:
+                return True, 'first_buyer_message'
+            return False, 'no_buyer_message'
+
+        if normalized == _CHAT_POLICY_CODE_ONLY:
+            for text in buyer_raw_texts:
+                if self._contains_probable_buyer_code(text):
+                    return True, 'buyer_code'
+            return False, 'no_buyer_code'
+
+        return True, 'on_order'
+
     def _list_recent_messages(
         self,
         order_id: int,
@@ -2118,40 +2208,6 @@ class Scheduler:
                             ),
                         )
                         cached_messages: Optional[list[dict[str, Any]]] = None
-                        if self._chat_autoreply_only_empty_chat():
-                            cached_messages = self._list_recent_messages(
-                                order_id,
-                                lookback=lookback_messages,
-                            )
-                            if cached_messages is None:
-                                logger.warning(
-                                    '[%s] Пропуск order_id=%s: не удалось '
-                                    'проверить пустоту чата',
-                                    self.profile_name,
-                                    order_id,
-                                )
-                                continue
-                            if cached_messages:
-                                if self._chat_autoreply_smart_non_empty():
-                                    (
-                                        allow_non_empty,
-                                        allow_reason,
-                                    ) = self._allow_non_empty_chat_autoreply(
-                                        cached_messages
-                                    )
-                                    if not allow_non_empty:
-                                        skipped_non_empty_chat_count += 1
-                                        continue
-                                    logger.info(
-                                        '[%s] order_id=%s: непустой чат '
-                                        'допущен smart-mode (%s)',
-                                        self.profile_name,
-                                        order_id,
-                                        allow_reason,
-                                    )
-                                else:
-                                    skipped_non_empty_chat_count += 1
-                                    continue
 
                         chat_product = self._extract_product_id(
                             chat,
@@ -2206,6 +2262,75 @@ class Scheduler:
                                 continue
 
                         product_id = known_product_id or self.product_id
+                        chat_policy = self._chat_autoreply_policy(product_id)
+
+                        need_messages_for_policy = (
+                            chat_policy != _CHAT_POLICY_ON_ORDER
+                        )
+                        need_messages_for_empty_guard = (
+                            self._chat_autoreply_only_empty_chat()
+                        )
+                        if (
+                            need_messages_for_policy
+                            or need_messages_for_empty_guard
+                        ):
+                            cached_messages = self._list_recent_messages(
+                                order_id,
+                                lookback=lookback_messages,
+                            )
+                            if cached_messages is None:
+                                logger.warning(
+                                    '[%s] Пропуск order_id=%s: не удалось '
+                                    'получить сообщения чата '
+                                    '(policy=%s, only_empty=%s)',
+                                    self.profile_name,
+                                    order_id,
+                                    chat_policy,
+                                    need_messages_for_empty_guard,
+                                )
+                                continue
+
+                        if (
+                            need_messages_for_empty_guard
+                            and cached_messages
+                        ):
+                            if self._chat_autoreply_smart_non_empty():
+                                (
+                                    allow_non_empty,
+                                    allow_reason,
+                                ) = self._allow_non_empty_chat_autoreply(
+                                    cached_messages
+                                )
+                                if not allow_non_empty:
+                                    skipped_non_empty_chat_count += 1
+                                    continue
+                                logger.info(
+                                    '[%s] order_id=%s: непустой чат '
+                                    'допущен smart-mode (%s)',
+                                    self.profile_name,
+                                    order_id,
+                                    allow_reason,
+                                )
+                            else:
+                                skipped_non_empty_chat_count += 1
+                                continue
+
+                        if need_messages_for_policy:
+                            policy_ok, policy_reason = self._chat_policy_allows_send(
+                                policy=chat_policy,
+                                messages=cached_messages or [],
+                            )
+                            if not policy_ok:
+                                logger.info(
+                                    '[%s] Пропуск order_id=%s: policy=%s '
+                                    '(%s, product_id=%s)',
+                                    self.profile_name,
+                                    order_id,
+                                    chat_policy,
+                                    policy_reason,
+                                    product_id,
+                                )
+                                continue
 
                         locale = (
                             self._extract_locale(order_info)
@@ -2449,12 +2574,14 @@ class Scheduler:
                         sent_count += 1
                         logger.info(
                             '[%s] Инструкция отправлена: order_id=%s '
-                            '(product_id=%s, locale=%s, mode=%s, source=%s)',
+                            '(product_id=%s, locale=%s, mode=%s, '
+                            'policy=%s, source=%s)',
                             self.profile_name,
                             order_id,
                             product_id,
                             locale,
                             mode,
+                            chat_policy,
                             message_source,
                         )
 

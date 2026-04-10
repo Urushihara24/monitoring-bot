@@ -103,6 +103,10 @@ class Config:
         'GGSEL_CHAT_AUTOREPLY_SMART_NON_EMPTY',
         False,
     )
+    GGSEL_CHAT_AUTOREPLY_POLICY: str = os.getenv(
+        'GGSEL_CHAT_AUTOREPLY_POLICY',
+        'ON_ORDER',
+    )
     GGSEL_CHAT_AUTOREPLY_LOOKBACK_MESSAGES: int = int(
         os.getenv('GGSEL_CHAT_AUTOREPLY_LOOKBACK_MESSAGES', '30')
     )
@@ -179,6 +183,10 @@ class Config:
     DIGISELLER_CHAT_AUTOREPLY_SMART_NON_EMPTY: bool = _env_bool(
         'DIGISELLER_CHAT_AUTOREPLY_SMART_NON_EMPTY',
         False,
+    )
+    DIGISELLER_CHAT_AUTOREPLY_POLICY: str = os.getenv(
+        'DIGISELLER_CHAT_AUTOREPLY_POLICY',
+        'ON_ORDER',
     )
     DIGISELLER_CHAT_AUTOREPLY_LOOKBACK_MESSAGES: int = int(
         os.getenv('DIGISELLER_CHAT_AUTOREPLY_LOOKBACK_MESSAGES', '30')
