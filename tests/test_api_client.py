@@ -633,6 +633,35 @@ def test_request_with_retry_404_no_retries(monkeypatch):
     assert calls['n'] == 1
 
 
+def test_request_with_retry_switches_legacy_host_to_backoffice(monkeypatch):
+    client = make_client()
+    calls: list[str] = []
+
+    def fake_request(method, url, timeout=10, **kwargs):
+        calls.append(url)
+        if url.startswith('https://seller.ggsel.com/api_sellers/api'):
+            return FakeResponse(404, {})
+        if url.startswith('https://back-office.ggsel.com/api_sellers/api'):
+            return FakeResponse(200, {'retval': 0})
+        return FakeResponse(500, {})
+
+    monkeypatch.setattr(client.session, 'request', fake_request)
+
+    response = client._request_with_retry(
+        'GET',
+        'https://seller.ggsel.com/api_sellers/api/products/list',
+        max_retries=1,
+    )
+
+    assert response is not None
+    assert response.status_code == 200
+    assert calls == [
+        'https://seller.ggsel.com/api_sellers/api/products/list',
+        'https://back-office.ggsel.com/api_sellers/api/products/list',
+    ]
+    assert client.base_url == 'https://back-office.ggsel.com/api_sellers/api'
+
+
 def test_request_with_retry_404_suppresses_not_found_log(monkeypatch):
     client = make_client()
     calls = {'n': 0}

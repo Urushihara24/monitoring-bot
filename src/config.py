@@ -72,7 +72,10 @@ class Config:
     GGSEL_ACCESS_TOKEN: str = os.getenv('GGSEL_ACCESS_TOKEN', '')
     GGSEL_SELLER_ID: int = int(os.getenv('GGSEL_SELLER_ID', '8175'))
     GGSEL_PRODUCT_ID: int = int(os.getenv('GGSEL_PRODUCT_ID', '0'))
-    GGSEL_BASE_URL: str = 'https://seller.ggsel.com/api_sellers/api'
+    GGSEL_BASE_URL: str = os.getenv(
+        'GGSEL_BASE_URL',
+        'https://back-office.ggsel.com/api_sellers/api',
+    )
     GGSEL_LANG: str = os.getenv('GGSEL_LANG', 'ru-RU')
     GGSEL_REQUIRE_API_ON_START: bool = _env_bool('GGSEL_REQUIRE_API_ON_START', False)
     GGSEL_ENABLED: bool = _env_bool('GGSEL_ENABLED', True)
