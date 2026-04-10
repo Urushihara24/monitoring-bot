@@ -1931,6 +1931,132 @@ async def test_scheduler_chat_autoreply_rules_match_by_option_variant_ids(
 
 
 @pytest.mark.asyncio
+async def test_scheduler_ggsel_rules_match_by_user_data_id(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.GGSEL_CHAT_AUTOREPLY_ENABLED = True
+    cfg.GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS = [4697439]
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    rule_key = chat_keys.option_variant_rule_key(32496, 152937)
+    test_storage.set_runtime_setting(
+        chat_keys.rules_key(4697439),
+        (
+            '{"version":1,"rules":{'
+            f'"{rule_key}":{{"enabled":true,"text":"GGSEL user_data_id"}}'
+            '}}'
+        ),
+        profile_id='ggsel',
+        source='test',
+    )
+
+    class GGSELRulesApi(DummyChatApiClient):
+        def list_chats(self, **kwargs):
+            if kwargs.get('page') == 1:
+                return [{'id_i': 111, 'product': 4697439}]
+            return []
+
+        def get_order_info(self, _order_id, **_kwargs):
+            return {
+                'locale': 'ru-RU',
+                'id_d': 4697439,
+                'options': [
+                    {
+                        'id': 32496,
+                        'name': 'Наши аккаунты ***8rabbit в друзьях?',
+                        'user_data': 'Нет. Добавлю после оплаты',
+                        'user_data_id': 152937,
+                    }
+                ],
+            }
+
+    bot = DummyTelegramBot()
+    api = GGSELRulesApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='ggsel',
+        profile_name='GGSEL',
+        product_id=4697439,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    assert api.sent_messages == [(111, 'GGSEL user_data_id')]
+
+
+@pytest.mark.asyncio
+async def test_scheduler_ggsel_rules_match_by_user_data_text(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.GGSEL_CHAT_AUTOREPLY_ENABLED = True
+    cfg.GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS = [4697439]
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    rule_key = chat_keys.option_rule_key(
+        'Наши аккаунты ***8rabbit в друзьях?',
+        'Нет. Добавлю после оплаты',
+    )
+    test_storage.set_runtime_setting(
+        chat_keys.rules_key(4697439),
+        (
+            '{"version":1,"rules":{'
+            f'"{rule_key}":{{"enabled":true,"text":"GGSEL user_data text"}}'
+            '}}'
+        ),
+        profile_id='ggsel',
+        source='test',
+    )
+
+    class GGSELTextRulesApi(DummyChatApiClient):
+        def list_chats(self, **kwargs):
+            if kwargs.get('page') == 1:
+                return [{'id_i': 111, 'product': 4697439}]
+            return []
+
+        def get_order_info(self, _order_id, **_kwargs):
+            return {
+                'locale': 'ru-RU',
+                'id_d': 4697439,
+                'options': [
+                    {
+                        'id': 32496,
+                        'name': 'Наши аккаунты ***8rabbit в друзьях?',
+                        'user_data': 'Нет. Добавлю после оплаты',
+                    }
+                ],
+            }
+
+    bot = DummyTelegramBot()
+    api = GGSELTextRulesApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='ggsel',
+        profile_name='GGSEL',
+        product_id=4697439,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    assert api.sent_messages == [(111, 'GGSEL user_data text')]
+
+
+@pytest.mark.asyncio
 async def test_scheduler_chat_autoreply_rules_without_match_skip_order(
     monkeypatch,
     tmp_path,

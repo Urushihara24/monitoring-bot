@@ -941,6 +941,7 @@ class Scheduler:
         for key in (
             'selected_id',
             'variant_id',
+            'user_data_id',
             'value',
             'selected',
             'answer',
@@ -997,6 +998,8 @@ class Scheduler:
             'selection',
             'selected_id',
             'variant_id',
+            'user_data',
+            'user_data_id',
         ):
             if key in option:
                 selected_raw = option.get(key)
@@ -1062,6 +1065,8 @@ class Scheduler:
             'selection',
             'selected_id',
             'variant_id',
+            'user_data',
+            'user_data_id',
         ):
             if key in option:
                 selected_raw = option.get(key)
