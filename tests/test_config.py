@@ -48,6 +48,7 @@ def test_config_optional_bool_is_none_on_empty(monkeypatch):
 def test_config_parses_digiseller_chat_autoreply_fields(monkeypatch):
     monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_ENABLED', '1')
     monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT', '0')
+    monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_SMART_NON_EMPTY', '1')
     monkeypatch.setenv(
         'DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS',
         '5077639, 5104800, bad',
@@ -71,6 +72,7 @@ def test_config_parses_digiseller_chat_autoreply_fields(monkeypatch):
 
     assert cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED is True
     assert cfg.DIGISELLER_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT is False
+    assert cfg.DIGISELLER_CHAT_AUTOREPLY_SMART_NON_EMPTY is True
     assert cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS == [5077639, 5104800]
     assert cfg.DIGISELLER_CHAT_AUTOREPLY_PAGE_SIZE == 30
     assert cfg.DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES == 3
@@ -87,6 +89,7 @@ def test_config_parses_digiseller_chat_autoreply_fields(monkeypatch):
 def test_config_parses_ggsel_chat_autoreply_fields(monkeypatch):
     monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_ENABLED', '1')
     monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT', '0')
+    monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_SMART_NON_EMPTY', '1')
     monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS', '4697439, bad')
     monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_PAGE_SIZE', '40')
     monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_MAX_PAGES', '4')
@@ -104,6 +107,7 @@ def test_config_parses_ggsel_chat_autoreply_fields(monkeypatch):
 
     assert cfg.GGSEL_CHAT_AUTOREPLY_ENABLED is True
     assert cfg.GGSEL_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT is False
+    assert cfg.GGSEL_CHAT_AUTOREPLY_SMART_NON_EMPTY is True
     assert cfg.GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS == [4697439]
     assert cfg.GGSEL_CHAT_AUTOREPLY_PAGE_SIZE == 40
     assert cfg.GGSEL_CHAT_AUTOREPLY_MAX_PAGES == 4

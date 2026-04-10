@@ -13,6 +13,9 @@ from src.telegram_bot import (
     BTN_CHAT_AUTOREPLY_ON,
     BTN_CHAT_EMPTY_ONLY_OFF,
     BTN_CHAT_EMPTY_ONLY_ON,
+    BTN_CHAT_POLICY,
+    BTN_CHAT_SMART_NON_EMPTY_OFF,
+    BTN_CHAT_SMART_NON_EMPTY_ON,
     BTN_CHAT_RULES,
     BTN_MODE,
     BTN_PRODUCT_NEXT,
@@ -163,6 +166,9 @@ def test_settings_keyboard_shows_chat_toggle_for_supported_profile():
     assert BTN_CHAT_AUTOREPLY_OFF not in texts
     assert BTN_CHAT_EMPTY_ONLY_OFF in texts
     assert BTN_CHAT_EMPTY_ONLY_ON not in texts
+    assert BTN_CHAT_SMART_NON_EMPTY_ON in texts
+    assert BTN_CHAT_SMART_NON_EMPTY_OFF not in texts
+    assert BTN_CHAT_POLICY in texts
     assert BTN_CHAT_RULES in texts
 
 
@@ -189,6 +195,8 @@ async def test_main_buttons_route_to_handlers():
     bot.set_auto_enabled = AsyncMock()
     bot.set_chat_autoreply_enabled = AsyncMock()
     bot.set_chat_autoreply_only_empty_chat = AsyncMock()
+    bot.set_chat_autoreply_smart_non_empty = AsyncMock()
+    bot.cycle_chat_autoreply_policy = AsyncMock()
     bot.start_chat_rules = AsyncMock()
     bot.send_settings = AsyncMock()
 
@@ -230,6 +238,24 @@ async def test_main_buttons_route_to_handlers():
     await bot.handle_message(chat_empty_off, None)
     bot.set_chat_autoreply_only_empty_chat.assert_any_await(
         100, 1, chat_empty_off, enabled=False
+    )
+
+    chat_smart_on = make_update(BTN_CHAT_SMART_NON_EMPTY_ON)
+    await bot.handle_message(chat_smart_on, None)
+    bot.set_chat_autoreply_smart_non_empty.assert_any_await(
+        100, 1, chat_smart_on, enabled=True
+    )
+
+    chat_smart_off = make_update(BTN_CHAT_SMART_NON_EMPTY_OFF)
+    await bot.handle_message(chat_smart_off, None)
+    bot.set_chat_autoreply_smart_non_empty.assert_any_await(
+        100, 1, chat_smart_off, enabled=False
+    )
+
+    chat_policy = make_update(BTN_CHAT_POLICY)
+    await bot.handle_message(chat_policy, None)
+    bot.cycle_chat_autoreply_policy.assert_awaited_once_with(
+        100, 1, chat_policy
     )
 
     chat_rules = make_update(BTN_CHAT_RULES)
@@ -778,6 +804,7 @@ async def test_status_shows_digiseller_chat_autoreply_block(monkeypatch):
             'CHAT_AUTOREPLY_LAST_RUN_AT': '2026-04-04T10:00:00',
             'CHAT_AUTOREPLY_LAST_SENT_AT': '2026-04-04T10:01:00Z',
             'CHAT_AUTOREPLY_LAST_ERROR': '',
+            'CHAT_AUTOREPLY_POLICY:5077639': 'CODE_ONLY',
         }
         return mapping.get(key)
 
@@ -794,6 +821,7 @@ async def test_status_shows_digiseller_chat_autoreply_block(monkeypatch):
     args, _kwargs = update.message.reply_text.await_args
     assert '💬 Авто-инструкции: ВКЛ' in args[0]
     assert '📭 Только пустой чат: Да' in args[0]
+    assert '🧭 Режим отправки: Только при коде' in args[0]
     assert '📦 Товары: 5077639, 5104800' in args[0]
     assert '📨 Отправлено: 7' in args[0]
     assert '🕓 Последняя отправка:' in args[0]

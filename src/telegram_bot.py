@@ -58,6 +58,9 @@ BTN_CHAT_AUTOREPLY_ON = '💬 Инструкции: ВКЛ'
 BTN_CHAT_AUTOREPLY_OFF = '💬 Инструкции: ВЫКЛ'
 BTN_CHAT_EMPTY_ONLY_ON = '📭 Только пустой чат: ВКЛ'
 BTN_CHAT_EMPTY_ONLY_OFF = '📨 Только пустой чат: ВЫКЛ'
+BTN_CHAT_SMART_NON_EMPTY_ON = '🧠 Умный непустой: ВКЛ'
+BTN_CHAT_SMART_NON_EMPTY_OFF = '🧠 Умный непустой: ВЫКЛ'
+BTN_CHAT_POLICY = '🧭 Режим отправки'
 BTN_CHAT_RULES = '📝 Правила инстр.'
 
 _MODE_SEQUENCE = [
@@ -83,6 +86,16 @@ _FRIEND_RULE_KEYWORDS = (
     'проверил',
     'проверила',
 )
+_CHAT_POLICY_SEQUENCE = (
+    'ON_ORDER',
+    'FIRST_BUYER_MESSAGE',
+    'CODE_ONLY',
+)
+_CHAT_POLICY_LABELS_RU = {
+    'ON_ORDER': 'После заказа',
+    'FIRST_BUYER_MESSAGE': 'После 1-го сообщения',
+    'CODE_ONLY': 'Только при коде',
+}
 
 
 class TelegramBot:
@@ -462,9 +475,57 @@ class TelegramBot:
             return normalized in ('1', 'true', 'yes', 'on')
         return bool(self._chat_cfg(profile_id, 'ONLY_EMPTY_CHAT', True))
 
+    def _chat_autoreply_smart_non_empty(self, profile_id: str) -> bool:
+        runtime_raw = storage.get_runtime_setting(
+            'CHAT_AUTOREPLY_SMART_NON_EMPTY',
+            profile_id=profile_id,
+        )
+        if runtime_raw is not None:
+            normalized = str(runtime_raw).strip().lower()
+            return normalized in ('1', 'true', 'yes', 'on')
+        return bool(self._chat_cfg(profile_id, 'SMART_NON_EMPTY', False))
+
+    def _chat_policy_label(self, value: str) -> str:
+        normalized = str(value or '').strip().upper()
+        return _CHAT_POLICY_LABELS_RU.get(normalized, _CHAT_POLICY_LABELS_RU['ON_ORDER'])
+
+    def _chat_autoreply_policy(
+        self,
+        profile_id: str,
+        *,
+        product_id: Optional[int] = None,
+    ) -> str:
+        pid = int(product_id or self._product_id(profile_id) or 0)
+        runtime_raw = None
+        if pid > 0:
+            runtime_raw = storage.get_runtime_setting(
+                f'CHAT_AUTOREPLY_POLICY:{pid}',
+                profile_id=profile_id,
+            )
+        if runtime_raw is None:
+            runtime_raw = storage.get_runtime_setting(
+                'CHAT_AUTOREPLY_POLICY',
+                profile_id=profile_id,
+            )
+        if runtime_raw is None:
+            runtime_raw = self._chat_cfg(profile_id, 'POLICY', 'ON_ORDER')
+        normalized = str(runtime_raw or '').strip().upper()
+        aliases = {
+            'NEW_ORDER': 'ON_ORDER',
+            'ORDER': 'ON_ORDER',
+            'FIRST_MESSAGE': 'FIRST_BUYER_MESSAGE',
+            'MESSAGE': 'FIRST_BUYER_MESSAGE',
+            'CODE': 'CODE_ONLY',
+        }
+        normalized = aliases.get(normalized, normalized)
+        if normalized not in _CHAT_POLICY_SEQUENCE:
+            return 'ON_ORDER'
+        return normalized
+
     def _chat_autoreply_meta(self, profile_id: str) -> Optional[dict]:
         if not self._chat_autoreply_supported(profile_id):
             return None
+        active_product_id = self._product_id(profile_id)
         enabled = self._chat_autoreply_enabled(profile_id)
         dedupe = bool(
             self._chat_cfg(profile_id, 'DEDUPE_BY_MESSAGES', True)
@@ -479,11 +540,11 @@ class TelegramBot:
         normalized_products = []
         for value in product_ids:
             try:
-                product_id = int(float(value))
+                listed_product_id = int(float(value))
             except (TypeError, ValueError):
                 continue
-            if product_id > 0:
-                normalized_products.append(str(product_id))
+            if listed_product_id > 0:
+                normalized_products.append(str(listed_product_id))
         products_text = ', '.join(normalized_products)
         if not products_text:
             products_text = 'по активному товару'
@@ -529,6 +590,11 @@ class TelegramBot:
         return {
             'enabled': enabled,
             'only_empty_chat': self._chat_autoreply_only_empty_chat(profile_id),
+            'smart_non_empty': self._chat_autoreply_smart_non_empty(profile_id),
+            'policy': self._chat_autoreply_policy(
+                profile_id,
+                product_id=active_product_id,
+            ),
             'dedupe': dedupe,
             'lookback': lookback,
             'interval_seconds': interval_seconds,
@@ -910,8 +976,17 @@ class TelegramBot:
                 if empty_chat_only_enabled
                 else BTN_CHAT_EMPTY_ONLY_ON
             )
+            smart_non_empty_enabled = self._chat_autoreply_smart_non_empty(
+                profile
+            )
+            smart_non_empty_button = (
+                BTN_CHAT_SMART_NON_EMPTY_OFF
+                if smart_non_empty_enabled
+                else BTN_CHAT_SMART_NON_EMPTY_ON
+            )
             rows.append([chat_toggle_button, empty_chat_button])
-            rows.append([BTN_CHAT_RULES])
+            rows.append([smart_non_empty_button])
+            rows.append([BTN_CHAT_POLICY, BTN_CHAT_RULES])
         rows.append([BTN_BACK])
         return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
@@ -1172,6 +1247,29 @@ class TelegramBot:
                 user_id,
                 update,
                 enabled=False,
+            )
+            return
+        if text == BTN_CHAT_SMART_NON_EMPTY_ON:
+            await self.set_chat_autoreply_smart_non_empty(
+                chat_id,
+                user_id,
+                update,
+                enabled=True,
+            )
+            return
+        if text == BTN_CHAT_SMART_NON_EMPTY_OFF:
+            await self.set_chat_autoreply_smart_non_empty(
+                chat_id,
+                user_id,
+                update,
+                enabled=False,
+            )
+            return
+        if text == BTN_CHAT_POLICY:
+            await self.cycle_chat_autoreply_policy(
+                chat_id,
+                user_id,
+                update,
             )
             return
         if text == BTN_CHAT_RULES:
@@ -1514,6 +1612,10 @@ class TelegramBot:
                 f'{"ВКЛ" if chat_meta["enabled"] else "ВЫКЛ"}\n'
                 f'📭 Только пустой чат: '
                 f'{"Да" if chat_meta["only_empty_chat"] else "Нет"}\n'
+                f'🧠 Умный непустой чат: '
+                f'{"Да" if chat_meta["smart_non_empty"] else "Нет"}\n'
+                f'🧭 Режим отправки: '
+                f'{self._chat_policy_label(chat_meta["policy"])}\n'
                 f'📦 Товары: {chat_meta["products"]}\n'
                 f'📨 Отправлено: {chat_meta["sent_count"]}\n'
                 f'🕓 Последняя отправка: {chat_meta["last_sent"]}'
@@ -1585,6 +1687,10 @@ class TelegramBot:
                 f'{"ВКЛ" if chat_meta["enabled"] else "ВЫКЛ"}\n'
                 f'📭 Только пустой чат: '
                 f'{"Да" if chat_meta["only_empty_chat"] else "Нет"}\n'
+                f'🧠 Умный непустой чат: '
+                f'{"Да" if chat_meta["smart_non_empty"] else "Нет"}\n'
+                f'🧭 Режим отправки: '
+                f'{self._chat_policy_label(chat_meta["policy"])}\n'
                 f'📦 Товары инструкций: {chat_meta["products"]}\n'
                 f'📨 Отправлено всего: {chat_meta["sent_count"]}\n'
                 f'🧷 Дубликатов пропущено: {chat_meta["duplicate_count"]}\n'
@@ -1923,6 +2029,93 @@ class TelegramBot:
             (
                 '📭 Отправка только в пустой чат: '
                 f'{"ВКЛ" if enabled else "ВЫКЛ"}'
+            ),
+            reply_markup=self.get_settings_keyboard(profile_id),
+        )
+        await self.send_settings(chat_id, update)
+
+    async def set_chat_autoreply_smart_non_empty(
+        self,
+        chat_id: int,
+        user_id: int,
+        update: Update,
+        *,
+        enabled: bool,
+    ):
+        if not update.message:
+            return
+        profile_id = self._active_profile(chat_id)
+        if not self._chat_autoreply_supported(profile_id):
+            await update.message.reply_text(
+                '❌ Для этого профиля авто-инструкции недоступны',
+                reply_markup=self.get_settings_keyboard(profile_id),
+            )
+            return
+
+        storage.set_runtime_setting(
+            'CHAT_AUTOREPLY_SMART_NON_EMPTY',
+            'true' if enabled else 'false',
+            user_id=user_id,
+            source='telegram',
+            profile_id=profile_id,
+        )
+        await update.message.reply_text(
+            (
+                '🧠 Умный режим для непустого чата: '
+                f'{"ВКЛ" if enabled else "ВЫКЛ"}'
+            ),
+            reply_markup=self.get_settings_keyboard(profile_id),
+        )
+        await self.send_settings(chat_id, update)
+
+    async def cycle_chat_autoreply_policy(
+        self,
+        chat_id: int,
+        user_id: int,
+        update: Update,
+    ):
+        if not update.message:
+            return
+        profile_id = self._active_profile(chat_id)
+        if not self._chat_autoreply_supported(profile_id):
+            await update.message.reply_text(
+                '❌ Для этого профиля авто-инструкции недоступны',
+                reply_markup=self.get_settings_keyboard(profile_id),
+            )
+            return
+
+        product_id = self._product_id(profile_id)
+        if int(product_id or 0) <= 0:
+            await update.message.reply_text(
+                '❌ Для активного товара не найден product_id',
+                reply_markup=self.get_settings_keyboard(profile_id),
+            )
+            return
+
+        current = self._chat_autoreply_policy(
+            profile_id,
+            product_id=product_id,
+        )
+        try:
+            index = _CHAT_POLICY_SEQUENCE.index(current)
+        except ValueError:
+            index = 0
+        new_policy = _CHAT_POLICY_SEQUENCE[
+            (index + 1) % len(_CHAT_POLICY_SEQUENCE)
+        ]
+
+        storage.set_runtime_setting(
+            f'CHAT_AUTOREPLY_POLICY:{int(product_id)}',
+            new_policy,
+            user_id=user_id,
+            source='telegram',
+            profile_id=profile_id,
+        )
+
+        await update.message.reply_text(
+            (
+                f'🧭 Режим отправки для товара {int(product_id)}: '
+                f'{self._chat_policy_label(new_policy)}'
             ),
             reply_markup=self.get_settings_keyboard(profile_id),
         )
