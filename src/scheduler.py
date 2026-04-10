@@ -1551,6 +1551,57 @@ class Scheduler:
         except Exception:
             return None
 
+    def _parse_chat_datetime(self, value: Any) -> Optional[datetime]:
+        if value is None:
+            return None
+
+        if isinstance(value, (int, float)):
+            try:
+                return datetime.fromtimestamp(float(value))
+            except Exception:
+                return None
+
+        raw = str(value).strip()
+        if not raw:
+            return None
+
+        parsed = self._parse_iso_datetime(raw)
+        if parsed is not None:
+            return parsed
+
+        for fmt in (
+            '%Y-%m-%d %H:%M:%S',
+            '%Y-%m-%d %H:%M',
+            '%d.%m.%Y %H:%M:%S',
+            '%d.%m.%Y %H:%M',
+        ):
+            try:
+                return datetime.strptime(raw, fmt)
+            except ValueError:
+                continue
+        return None
+
+    def _extract_chat_activity_at(
+        self,
+        chat_payload: dict[str, Any],
+    ) -> Optional[datetime]:
+        for key in (
+            'last_date',
+            'date',
+            'timestamp',
+            'time',
+            'created_at',
+            'updated_at',
+            'date_pay',
+            'purchase_date',
+        ):
+            if key not in chat_payload:
+                continue
+            parsed = self._parse_chat_datetime(chat_payload.get(key))
+            if parsed is not None:
+                return parsed
+        return None
+
     def _cleanup_autoreply_marks_if_due(self):
         every_hours = max(
             1,
@@ -1796,210 +1847,307 @@ class Scheduler:
             product_info_cache: Dict[tuple[int, str], dict[str, Any]] = {}
             product_rules_cache: Dict[int, dict[str, dict[str, Any]]] = {}
             chats_product_filter = target_products or None
-            for page in range(1, max_pages + 1):
-                chats = self.api_client.list_chats(
-                    filter_new=1,
-                    product_ids=chats_product_filter,
-                    page_size=page_size,
-                    page=page,
-                    timeout=10,
-                )
-                if not chats:
-                    break
-
-                for chat in chats:
-                    if not isinstance(chat, dict):
-                        continue
-                    order_id = self._extract_numeric_field(
-                        chat,
-                        (
-                            'id_i',
-                            'invoice_id',
-                            'order_id',
-                            'purchase_id',
-                        ),
-                    )
-                    if order_id <= 0:
-                        continue
-                    if order_id in processed_orders:
-                        continue
-                    processed_orders.add(order_id)
-                    if self._is_autoreply_sent(order_id):
-                        continue
-
-                    lookback_messages = max(
-                        1,
-                        min(
-                            200,
-                            int(
-                                self._chat_cfg(
-                                    'LOOKBACK_MESSAGES',
-                                    30,
-                                )
-                            ),
-                        ),
-                    )
-                    cached_messages: Optional[list[dict[str, Any]]] = None
-                    if self._chat_autoreply_only_empty_chat():
-                        cached_messages = self._list_recent_messages(
-                            order_id,
-                            lookback=lookback_messages,
+            recent_minutes = max(
+                1,
+                min(
+                    240,
+                    int(
+                        self._chat_cfg(
+                            'RECENT_LOOKBACK_MINUTES',
+                            20,
                         )
-                        if cached_messages is None:
-                            logger.warning(
-                                '[%s] Пропуск order_id=%s: не удалось '
-                                'проверить пустоту чата',
-                                self.profile_name,
-                                order_id,
-                            )
-                            continue
-                        if cached_messages:
-                            logger.info(
-                                '[%s] Пропуск order_id=%s: чат уже не пуст',
-                                self.profile_name,
-                                order_id,
-                            )
-                            continue
+                    ),
+                ),
+            )
+            recent_cutoff = datetime.now() - timedelta(minutes=recent_minutes)
+            query_plan = [
+                (1, max_pages, 'new'),
+                (None, 1, 'recent'),
+            ]
+            for filter_new, plan_max_pages, plan_name in query_plan:
+                for page in range(1, plan_max_pages + 1):
+                    chats = self.api_client.list_chats(
+                        filter_new=filter_new,
+                        product_ids=chats_product_filter,
+                        page_size=page_size,
+                        page=page,
+                        timeout=10,
+                    )
+                    if not chats:
+                        break
 
-                    chat_product = self._extract_product_id(
-                        chat,
-                        exclude_ids={order_id},
-                    )
-                    locale_hint = self._extract_locale(chat) or 'ru'
-                    order_info: dict[str, Any] = {}
-                    for order_locale in self._order_locales_to_try(locale_hint):
-                        order_info = self.api_client.get_order_info(
-                            order_id,
-                            locale=order_locale,
-                            timeout=10,
-                        ) or {}
-                        if order_info:
-                            break
-                    order_product = self._extract_product_id(
-                        order_info,
-                        exclude_ids={order_id},
-                    )
-                    candidate_product_ids = []
-                    for candidate in (chat_product, order_product):
-                        if candidate > 0 and candidate not in candidate_product_ids:
-                            candidate_product_ids.append(candidate)
-                    known_product_id = order_product or chat_product
-                    if target_products:
-                        matched_product_id = next(
+                    for chat in chats:
+                        if not isinstance(chat, dict):
+                            continue
+                        if plan_name == 'recent':
+                            activity_at = self._extract_chat_activity_at(chat)
+                            if (
+                                activity_at is not None
+                                and activity_at < recent_cutoff
+                            ):
+                                continue
+
+                        order_id = self._extract_numeric_field(
+                            chat,
                             (
-                                candidate for candidate in candidate_product_ids
-                                if candidate in target_products
+                                'id_i',
+                                'invoice_id',
+                                'order_id',
+                                'purchase_id',
                             ),
-                            0,
                         )
-                        if matched_product_id > 0:
-                            known_product_id = matched_product_id
-                        elif not candidate_product_ids:
-                            logger.info(
-                                '[%s] Пропуск order_id=%s: не удалось определить '
-                                'product_id для фильтра target товаров',
-                                self.profile_name,
-                                order_id,
-                            )
+                        if order_id <= 0:
                             continue
-                        else:
-                            logger.info(
-                                '[%s] Пропуск order_id=%s: product_id не в '
-                                'target (candidates=%s, targets=%s)',
-                                self.profile_name,
-                                order_id,
-                                candidate_product_ids,
-                                target_products,
-                            )
+                        if order_id in processed_orders:
+                            continue
+                        processed_orders.add(order_id)
+                        if self._is_autoreply_sent(order_id):
                             continue
 
-                    product_id = known_product_id or self.product_id
+                        lookback_messages = max(
+                            1,
+                            min(
+                                200,
+                                int(
+                                    self._chat_cfg(
+                                        'LOOKBACK_MESSAGES',
+                                        30,
+                                    )
+                                ),
+                            ),
+                        )
+                        cached_messages: Optional[list[dict[str, Any]]] = None
+                        if self._chat_autoreply_only_empty_chat():
+                            cached_messages = self._list_recent_messages(
+                                order_id,
+                                lookback=lookback_messages,
+                            )
+                            if cached_messages is None:
+                                logger.warning(
+                                    '[%s] Пропуск order_id=%s: не удалось '
+                                    'проверить пустоту чата',
+                                    self.profile_name,
+                                    order_id,
+                                )
+                                continue
+                            if cached_messages:
+                                logger.info(
+                                    '[%s] Пропуск order_id=%s: чат уже не пуст',
+                                    self.profile_name,
+                                    order_id,
+                                )
+                                continue
 
-                    locale = (
-                        self._extract_locale(order_info)
-                        or self._extract_locale(chat)
-                        or 'ru'
-                    )
-                    mode = self._detect_friend_mode(
-                        {
+                        chat_product = self._extract_product_id(
+                            chat,
+                            exclude_ids={order_id},
+                        )
+                        locale_hint = self._extract_locale(chat) or 'ru'
+                        order_info: dict[str, Any] = {}
+                        for order_locale in self._order_locales_to_try(locale_hint):
+                            order_info = self.api_client.get_order_info(
+                                order_id,
+                                locale=order_locale,
+                                timeout=10,
+                            ) or {}
+                            if order_info:
+                                break
+                        order_product = self._extract_product_id(
+                            order_info,
+                            exclude_ids={order_id},
+                        )
+                        candidate_product_ids = []
+                        for candidate in (chat_product, order_product):
+                            if candidate > 0 and candidate not in candidate_product_ids:
+                                candidate_product_ids.append(candidate)
+                        known_product_id = order_product or chat_product
+                        if target_products:
+                            matched_product_id = next(
+                                (
+                                    candidate for candidate in candidate_product_ids
+                                    if candidate in target_products
+                                ),
+                                0,
+                            )
+                            if matched_product_id > 0:
+                                known_product_id = matched_product_id
+                            elif not candidate_product_ids:
+                                logger.info(
+                                    '[%s] Пропуск order_id=%s: не удалось определить '
+                                    'product_id для фильтра target товаров',
+                                    self.profile_name,
+                                    order_id,
+                                )
+                                continue
+                            else:
+                                logger.info(
+                                    '[%s] Пропуск order_id=%s: product_id не в '
+                                    'target (candidates=%s, targets=%s)',
+                                    self.profile_name,
+                                    order_id,
+                                    candidate_product_ids,
+                                    target_products,
+                                )
+                                continue
+
+                        product_id = known_product_id or self.product_id
+
+                        locale = (
+                            self._extract_locale(order_info)
+                            or self._extract_locale(chat)
+                            or 'ru'
+                        )
+                        mode = self._detect_friend_mode(
+                            {
+                                'order': order_info,
+                                'chat': chat,
+                            }
+                        ) or _MODE_ALREADY
+
+                        message = ''
+                        message_source = ''
+                        rules = product_rules_cache.get(product_id)
+                        if rules is None:
+                            rules = self._chat_rules_get(product_id)
+                            product_rules_cache[product_id] = rules
+
+                        selected_options_payload = {
                             'order': order_info,
                             'chat': chat,
                         }
-                    ) or _MODE_ALREADY
+                        if rules:
+                            require_id_match = self._rules_require_id_match(rules)
+                            matched_rule = None
+                            matched_context: Optional[dict[str, Any]] = None
+                            for context in self._iter_selected_option_contexts(
+                                selected_options_payload
+                            ):
+                                context_keys = list(context.get('keys') or [])
+                                if require_id_match:
+                                    context_keys = [
+                                        key for key in context_keys
+                                        if chat_keys.is_option_variant_rule_key(key)
+                                    ]
+                                for key in context_keys:
+                                    rule = rules.get(key)
+                                    if rule is None:
+                                        continue
+                                    matched_rule = rule
+                                    matched_context = dict(context)
+                                    matched_context['matched_key'] = key
+                                    break
+                                if matched_rule is not None:
+                                    break
 
-                    message = ''
-                    message_source = ''
-                    rules = product_rules_cache.get(product_id)
-                    if rules is None:
-                        rules = self._chat_rules_get(product_id)
-                        product_rules_cache[product_id] = rules
+                            if matched_rule is None or matched_context is None:
+                                logger.info(
+                                    '[%s] Пропуск order_id=%s: нет совпадения по '
+                                    'настроенным правилам параметров '
+                                    '(product_id=%s)',
+                                    self.profile_name,
+                                    order_id,
+                                    product_id,
+                                )
+                                continue
 
-                    selected_options_payload = {
-                        'order': order_info,
-                        'chat': chat,
-                    }
-                    if rules:
-                        require_id_match = self._rules_require_id_match(rules)
-                        matched_rule = None
-                        matched_context: Optional[dict[str, Any]] = None
-                        for context in self._iter_selected_option_contexts(
-                            selected_options_payload
-                        ):
-                            context_keys = list(context.get('keys') or [])
-                            if require_id_match:
-                                context_keys = [
-                                    key for key in context_keys
-                                    if chat_keys.is_option_variant_rule_key(key)
-                                ]
-                            for key in context_keys:
-                                rule = rules.get(key)
-                                if rule is None:
-                                    continue
-                                matched_rule = rule
-                                matched_context = dict(context)
-                                matched_context['matched_key'] = key
-                                break
-                            if matched_rule is not None:
-                                break
+                            if not bool(matched_rule.get('enabled', True)):
+                                logger.info(
+                                    '[%s] Пропуск order_id=%s: правило отключено '
+                                    '(product_id=%s, option=%s, value=%s)',
+                                    self.profile_name,
+                                    order_id,
+                                    product_id,
+                                    matched_context.get('option_name'),
+                                    matched_context.get('selected_value'),
+                                )
+                                continue
 
-                        if matched_rule is None or matched_context is None:
-                            logger.info(
-                                '[%s] Пропуск order_id=%s: нет совпадения по '
-                                'настроенным правилам параметров '
-                                '(product_id=%s)',
-                                self.profile_name,
-                                order_id,
-                                product_id,
+                            custom_message = self._sanitize_message(
+                                matched_rule.get('text') or ''
                             )
-                            continue
-
-                        if not bool(matched_rule.get('enabled', True)):
-                            logger.info(
-                                '[%s] Пропуск order_id=%s: правило отключено '
-                                '(product_id=%s, option=%s, value=%s)',
-                                self.profile_name,
-                                order_id,
-                                product_id,
-                                matched_context.get('option_name'),
-                                matched_context.get('selected_value'),
-                            )
-                            continue
-
-                        custom_message = self._sanitize_message(
-                            matched_rule.get('text') or ''
-                        )
-                        if custom_message:
-                            message = custom_message
-                            message_source = 'rule_custom'
-                        else:
-                            message = self._pick_instruction_for_option(
-                                matched_context['option'],
-                                mode=mode,
-                                locale=locale,
-                            )
-                            if message:
-                                message_source = 'rule_option'
+                            if custom_message:
+                                message = custom_message
+                                message_source = 'rule_custom'
                             else:
+                                message = self._pick_instruction_for_option(
+                                    matched_context['option'],
+                                    mode=mode,
+                                    locale=locale,
+                                )
+                                if message:
+                                    message_source = 'rule_option'
+                                else:
+                                    for info_lang in self._product_info_locales_to_try(
+                                        locale
+                                    ):
+                                        cache_key = (int(product_id), info_lang)
+                                        product_info = product_info_cache.get(
+                                            cache_key
+                                        )
+                                        if product_info is None:
+                                            product_info = self.api_client.get_product_info(
+                                                product_id,
+                                                timeout=10,
+                                                lang=info_lang,
+                                            ) or {}
+                                            product_info_cache[
+                                                cache_key
+                                            ] = product_info
+                                        info_locale = (
+                                            'en'
+                                            if info_lang.lower().startswith('en')
+                                            else 'ru'
+                                        )
+                                        message = self._pick_instruction_for_rule_key(
+                                            product_info,
+                                            rule_key=matched_context.get(
+                                                'matched_key'
+                                            )
+                                            or matched_context['key'],
+                                            mode=mode,
+                                            locale=info_locale,
+                                        )
+                                        if message:
+                                            message_source = (
+                                                f'rule_product_option[{info_lang}]'
+                                            )
+                                            break
+                                    if not message:
+                                        logger.info(
+                                            '[%s] Пропуск order_id=%s: по выбранному '
+                                            'параметру нет текста инструкции '
+                                            '(product_id=%s, option=%s, value=%s)',
+                                            self.profile_name,
+                                            order_id,
+                                            product_id,
+                                            matched_context.get('option_name'),
+                                            matched_context.get('selected_value'),
+                                        )
+                                        continue
+                        else:
+                            template = self._resolve_chat_template(
+                                locale=locale,
+                                mode=mode,
+                            )
+                            message = self._sanitize_message(template)
+                            message_source = 'template'
+                            if not message:
+                                message = self._pick_selected_option_instruction(
+                                    selected_options_payload,
+                                    mode=mode,
+                                    locale=locale,
+                                )
+                                if message:
+                                    message_source = 'order_selected_option'
+                            if not message:
+                                message = self._pick_instruction_text(
+                                    order_info,
+                                    mode=mode,
+                                    locale=locale,
+                                )
+                                if message:
+                                    message_source = 'order_info'
+                            if not message:
                                 for info_lang in self._product_info_locales_to_try(
                                     locale
                                 ):
@@ -2017,144 +2165,83 @@ class Scheduler:
                                         if info_lang.lower().startswith('en')
                                         else 'ru'
                                     )
-                                    message = self._pick_instruction_for_rule_key(
+                                    message = self._pick_selected_option_instruction(
                                         product_info,
-                                        rule_key=matched_context.get('matched_key')
-                                        or matched_context['key'],
                                         mode=mode,
                                         locale=info_locale,
                                     )
                                     if message:
                                         message_source = (
-                                            f'rule_product_option[{info_lang}]'
+                                            f'product_selected_option[{info_lang}]'
                                         )
                                         break
-                                if not message:
-                                    logger.info(
-                                        '[%s] Пропуск order_id=%s: по выбранному '
-                                        'параметру нет текста инструкции '
-                                        '(product_id=%s, option=%s, value=%s)',
-                                        self.profile_name,
-                                        order_id,
-                                        product_id,
-                                        matched_context.get('option_name'),
-                                        matched_context.get('selected_value'),
+                                    message = self._pick_instruction_text(
+                                        product_info,
+                                        mode=mode,
+                                        locale=info_locale,
                                     )
-                                    continue
-                    else:
-                        template = self._resolve_chat_template(
-                            locale=locale,
-                            mode=mode,
-                        )
-                        message = self._sanitize_message(template)
-                        message_source = 'template'
-                        if not message:
-                            message = self._pick_selected_option_instruction(
-                                selected_options_payload,
-                                mode=mode,
-                                locale=locale,
-                            )
-                            if message:
-                                message_source = 'order_selected_option'
-                        if not message:
-                            message = self._pick_instruction_text(
-                                order_info,
-                                mode=mode,
-                                locale=locale,
-                            )
-                            if message:
-                                message_source = 'order_info'
-                        if not message:
-                            for info_lang in self._product_info_locales_to_try(locale):
-                                cache_key = (int(product_id), info_lang)
-                                product_info = product_info_cache.get(cache_key)
-                                if product_info is None:
-                                    product_info = self.api_client.get_product_info(
-                                        product_id,
-                                        timeout=10,
-                                        lang=info_lang,
-                                    ) or {}
-                                    product_info_cache[cache_key] = product_info
-                                info_locale = (
-                                    'en'
-                                    if info_lang.lower().startswith('en')
-                                    else 'ru'
-                                )
-                                message = self._pick_selected_option_instruction(
-                                    product_info,
-                                    mode=mode,
-                                    locale=info_locale,
-                                )
-                                if message:
-                                    message_source = (
-                                        f'product_selected_option[{info_lang}]'
-                                    )
-                                    break
-                                message = self._pick_instruction_text(
-                                    product_info,
-                                    mode=mode,
-                                    locale=info_locale,
-                                )
-                                if message:
-                                    message_source = f'product_info[{info_lang}]'
-                                    break
+                                    if message:
+                                        message_source = (
+                                            f'product_info[{info_lang}]'
+                                        )
+                                        break
 
-                    if not message:
-                        logger.warning(
-                            '[%s] Нет текста инструкции для order_id=%s '
-                            '(product_id=%s, locale=%s, mode=%s)',
+                        if not message:
+                            logger.warning(
+                                '[%s] Нет текста инструкции для order_id=%s '
+                                '(product_id=%s, locale=%s, mode=%s)',
+                                self.profile_name,
+                                order_id,
+                                product_id,
+                                locale,
+                                mode,
+                            )
+                            continue
+
+                        if self._is_message_already_sent(
+                            order_id,
+                            message,
+                            preloaded_messages=cached_messages,
+                        ):
+                            self._mark_autoreply_sent(order_id)
+                            self._chat_meta_inc(
+                                chat_keys.KEY_DUPLICATE_COUNT,
+                                delta=1,
+                            )
+                            logger.info(
+                                '[%s] Пропуск отправки: инструкция уже есть в '
+                                'чате order_id=%s',
+                                self.profile_name,
+                                order_id,
+                            )
+                            continue
+
+                        sent = self.api_client.send_chat_message(
+                            order_id,
+                            message,
+                            timeout=10,
+                        )
+                        if not sent:
+                            logger.warning(
+                                '[%s] Не удалось отправить инструкцию в чат '
+                                'order_id=%s',
+                                self.profile_name,
+                                order_id,
+                            )
+                            continue
+
+                        self._mark_autoreply_sent(order_id)
+                        sent_count += 1
+                        logger.info(
+                            '[%s] Инструкция отправлена: order_id=%s '
+                            '(product_id=%s, locale=%s, mode=%s, source=%s)',
                             self.profile_name,
                             order_id,
                             product_id,
                             locale,
                             mode,
+                            message_source,
                         )
-                        continue
-
-                    if self._is_message_already_sent(
-                        order_id,
-                        message,
-                        preloaded_messages=cached_messages,
-                    ):
-                        self._mark_autoreply_sent(order_id)
-                        self._chat_meta_inc(
-                            chat_keys.KEY_DUPLICATE_COUNT,
-                            delta=1,
-                        )
-                        logger.info(
-                            '[%s] Пропуск отправки: инструкция уже есть в '
-                            'чате order_id=%s',
-                            self.profile_name,
-                            order_id,
-                        )
-                        continue
-
-                    sent = self.api_client.send_chat_message(
-                        order_id,
-                        message,
-                        timeout=10,
-                    )
-                    if not sent:
-                        logger.warning(
-                            '[%s] Не удалось отправить инструкцию в чат '
-                            'order_id=%s',
-                            self.profile_name,
-                            order_id,
-                        )
-                        continue
-
-                    self._mark_autoreply_sent(order_id)
-                    sent_count += 1
-                    logger.info(
-                        '[%s] Инструкция отправлена: order_id=%s '
-                        '(product_id=%s, locale=%s, mode=%s, source=%s)',
-                        self.profile_name,
-                        order_id,
-                        product_id,
-                        locale,
-                        mode,
-                        message_source,
-                    )
 
             if sent_count > 0:
                 self._chat_meta_set(

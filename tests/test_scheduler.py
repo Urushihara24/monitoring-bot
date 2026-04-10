@@ -2024,8 +2024,63 @@ async def test_scheduler_chat_autoreply_passes_product_filter_to_list_chats(
 
     await scheduler.run_cycle()
 
-    assert len(api.list_chats_kwargs) == 1
+    assert len(api.list_chats_kwargs) == 2
     assert api.list_chats_kwargs[0].get('product_ids') == [5077639, 5104800]
+    assert api.list_chats_kwargs[1].get('product_ids') == [5077639, 5104800]
+    assert api.list_chats_kwargs[0].get('filter_new') == 1
+    assert api.list_chats_kwargs[1].get('filter_new') is None
+
+
+@pytest.mark.asyncio
+async def test_scheduler_chat_autoreply_recent_fallback_picks_new_order(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
+    cfg.DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES = 1
+    cfg.DIGISELLER_CHAT_AUTOREPLY_RECENT_LOOKBACK_MINUTES = 30
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    now_text = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    class RecentFallbackApi(DummyChatApiClient):
+        def __init__(self):
+            super().__init__()
+            self.calls = []
+
+        def list_chats(self, **kwargs):
+            self.calls.append(kwargs)
+            if kwargs.get('filter_new') == 1:
+                return []
+            if kwargs.get('page') == 1:
+                return [{
+                    'id_i': 111,
+                    'id_d': 5077639,
+                    'last_date': now_text,
+                }]
+            return []
+
+    bot = DummyTelegramBot()
+    api = RecentFallbackApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    assert api.sent_messages == [(111, 'Инструкция RU')]
+    assert [call.get('filter_new') for call in api.calls] == [1, None]
 
 
 @pytest.mark.asyncio
@@ -2496,4 +2551,4 @@ async def test_scheduler_digiseller_chat_autoreply_respects_interval(
     await scheduler.run_cycle()
     await scheduler.run_cycle()
 
-    assert api.list_chats_calls == 1
+    assert api.list_chats_calls == 2
