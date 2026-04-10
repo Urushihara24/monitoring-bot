@@ -1843,6 +1843,7 @@ class Scheduler:
                 ),
             )
             sent_count = 0
+            skipped_non_empty_chat_count = 0
             processed_orders: set[int] = set()
             product_info_cache: Dict[tuple[int, str], dict[str, Any]] = {}
             product_rules_cache: Dict[int, dict[str, dict[str, Any]]] = {}
@@ -1860,10 +1861,9 @@ class Scheduler:
                 ),
             )
             recent_cutoff = datetime.now() - timedelta(minutes=recent_minutes)
-            query_plan = [
-                (1, max_pages, 'new'),
-                (None, 1, 'recent'),
-            ]
+            query_plan = [(1, max_pages, 'new')]
+            if bool(self._chat_cfg('ENABLE_RECENT_FALLBACK', True)):
+                query_plan.append((None, 1, 'recent'))
             for filter_new, plan_max_pages, plan_name in query_plan:
                 for page in range(1, plan_max_pages + 1):
                     chats = self.api_client.list_chats(
@@ -1931,11 +1931,7 @@ class Scheduler:
                                 )
                                 continue
                             if cached_messages:
-                                logger.info(
-                                    '[%s] Пропуск order_id=%s: чат уже не пуст',
-                                    self.profile_name,
-                                    order_id,
-                                )
+                                skipped_non_empty_chat_count += 1
                                 continue
 
                         chat_product = self._extract_product_id(
@@ -2242,6 +2238,13 @@ class Scheduler:
                             mode,
                             message_source,
                         )
+
+            if skipped_non_empty_chat_count > 0:
+                logger.info(
+                    '[%s] Авто-инструкции: пропущено, чат не пуст: %s',
+                    self.profile_name,
+                    skipped_non_empty_chat_count,
+                )
 
             if sent_count > 0:
                 self._chat_meta_set(

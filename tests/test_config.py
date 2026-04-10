@@ -58,6 +58,7 @@ def test_config_parses_digiseller_chat_autoreply_fields(monkeypatch):
     monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES', '0')
     monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_LOOKBACK_MESSAGES', '77')
     monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_RECENT_LOOKBACK_MINUTES', '35')
+    monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_ENABLE_RECENT_FALLBACK', '0')
     monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS', '45')
     monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS', '12')
     monkeypatch.setenv(
@@ -77,6 +78,7 @@ def test_config_parses_digiseller_chat_autoreply_fields(monkeypatch):
     assert cfg.DIGISELLER_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES is False
     assert cfg.DIGISELLER_CHAT_AUTOREPLY_LOOKBACK_MESSAGES == 77
     assert cfg.DIGISELLER_CHAT_AUTOREPLY_RECENT_LOOKBACK_MINUTES == 35
+    assert cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLE_RECENT_FALLBACK is False
     assert cfg.DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS == 45
     assert cfg.DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS == 12
     assert cfg.DIGISELLER_CHAT_TEMPLATE_RU_ALREADY == 'RU already'
@@ -92,6 +94,7 @@ def test_config_parses_ggsel_chat_autoreply_fields(monkeypatch):
     monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES', '0')
     monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_LOOKBACK_MESSAGES', '15')
     monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_RECENT_LOOKBACK_MINUTES', '42')
+    monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_ENABLE_RECENT_FALLBACK', '1')
     monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_SENT_TTL_DAYS', '10')
     monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS', '8')
     monkeypatch.setenv('GGSEL_CHAT_TEMPLATE_EN_ADD', 'EN add')
@@ -108,6 +111,7 @@ def test_config_parses_ggsel_chat_autoreply_fields(monkeypatch):
     assert cfg.GGSEL_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES is False
     assert cfg.GGSEL_CHAT_AUTOREPLY_LOOKBACK_MESSAGES == 15
     assert cfg.GGSEL_CHAT_AUTOREPLY_RECENT_LOOKBACK_MINUTES == 42
+    assert cfg.GGSEL_CHAT_AUTOREPLY_ENABLE_RECENT_FALLBACK is True
     assert cfg.GGSEL_CHAT_AUTOREPLY_SENT_TTL_DAYS == 10
     assert cfg.GGSEL_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS == 8
     assert cfg.GGSEL_CHAT_TEMPLATE_EN_ADD == 'EN add'
