@@ -135,6 +135,27 @@ def test_build_chat_rules_items_prefers_friend_variants_only():
     assert 'Да. Проверил(а), в друзьях' in values
 
 
+def test_build_chat_rules_items_uses_human_label_when_name_is_numeric():
+    bot = make_bot()
+    payload = {
+        'options': [
+            {
+                'name': '32496',
+                'label': 'Наши аккаунты ***8rabbit в друзьях?',
+                'variants': [
+                    {'value': 1, 'text': 'Нет. Добавлю после оплаты'},
+                    {'value': 2, 'text': 'Да. Проверил(а), в друзьях'},
+                ],
+            },
+        ],
+    }
+
+    items = bot._build_chat_rules_items(payload)
+
+    assert len(items) == 2
+    assert all(item['option'] == 'Наши аккаунты ***8rabbit в друзьях?' for item in items)
+
+
 def test_settings_keyboard_is_not_overloaded():
     bot = make_bot()
     texts = keyboard_texts(bot.get_settings_keyboard())

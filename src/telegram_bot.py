@@ -722,12 +722,17 @@ class TelegramBot:
                 yield from self._iter_product_option_dicts(item)
 
     def _option_name_text(self, option: dict[str, Any]) -> str:
-        return self._rule_clean_text(
-            option.get('name')
-            or option.get('title')
-            or option.get('label')
-            or option.get('question')
-        )
+        # В GGSEL поле `name` часто содержит numeric id опции.
+        # Для UX правил предпочитаем человекочитаемые label/title/question.
+        for key in ('label', 'title', 'question', 'name'):
+            value = self._rule_clean_text(option.get(key))
+            if not value:
+                continue
+            if key == 'name' and value.isdigit():
+                continue
+            return value
+        # Если доступен только numeric name/id — оставляем как fallback.
+        return self._rule_clean_text(option.get('name'))
 
     def _rule_option_id(self, option: dict[str, Any]) -> int:
         for key in ('id', 'name'):
