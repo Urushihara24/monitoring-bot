@@ -34,6 +34,9 @@ class Product:
 class GGSELClient:
     """Клиент для GGSEL Seller API"""
 
+    _GGSEL_LEGACY_BASE_URL = "https://seller.ggsel.com/api_sellers/api"
+    _GGSEL_BACKOFFICE_BASE_URL = "https://back-office.ggsel.com/api_sellers/api"
+
     def __init__(
         self,
         api_key: str,
@@ -345,16 +348,56 @@ class GGSELClient:
         Returns:
             Response или None
         """
+        if (
+            url.startswith(self._GGSEL_LEGACY_BASE_URL)
+            and self.base_url == self._GGSEL_BACKOFFICE_BASE_URL
+        ):
+            url = url.replace(
+                self._GGSEL_LEGACY_BASE_URL,
+                self._GGSEL_BACKOFFICE_BASE_URL,
+                1,
+            )
+
         last_error = None
 
         for attempt in range(max_retries):
             try:
+                request_url = url
                 response = self.session.request(method, url, timeout=timeout, **kwargs)
+
+                # GGSEL перенёс Seller API на back-office host.
+                # Автоматически пробуем новый host, если legacy host вернул 404.
+                if (
+                    response.status_code == 404
+                    and url.startswith(self._GGSEL_LEGACY_BASE_URL)
+                ):
+                    alt_url = url.replace(
+                        self._GGSEL_LEGACY_BASE_URL,
+                        self._GGSEL_BACKOFFICE_BASE_URL,
+                        1,
+                    )
+                    logger.warning(
+                        "GGSEL legacy host вернул 404, пробую back-office host: %s",
+                        alt_url,
+                    )
+                    alt_response = self.session.request(
+                        method,
+                        alt_url,
+                        timeout=timeout,
+                        **kwargs,
+                    )
+                    response = alt_response
+                    request_url = alt_url
+                    # Фиксируем новый base_url для следующих запросов.
+                    self.base_url = self._GGSEL_BACKOFFICE_BASE_URL
+                    # Следующие retry-попытки в этом же запросе пойдут сразу
+                    # на рабочий host без повторного legacy 404.
+                    url = alt_url
 
                 # 404 не retry-им
                 if response.status_code == 404:
                     if not suppress_404_log:
-                        logger.error(f"API endpoint не найден (404): {url}")
+                        logger.error(f"API endpoint не найден (404): {request_url}")
                     return response
 
                 # 401/403 retry-им с задержкой
