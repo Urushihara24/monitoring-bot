@@ -436,3 +436,11 @@ def test_parse_url_skips_goods_api_for_non_ggsel_domain(monkeypatch):
 
     assert not result.success
     assert fallback_called['value'] is False
+
+
+def test_extract_goods_id_handles_plain_numeric_segment():
+    parser = RSCParser(max_retries=0)
+    goods_id = parser._extract_goods_id(  # noqa: SLF001
+        'https://ggsel.net/catalog/product/4697439'
+    )
+    assert goods_id == '4697439'

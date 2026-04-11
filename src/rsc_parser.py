@@ -591,10 +591,27 @@ class RSCParser:
         )
 
     def _extract_goods_id(self, url: str) -> Optional[str]:
+        # Стандартный формат карточки: /...-<id>
         match = re.search(r'-(\d+)(?:[/?#]|$)', url)
-        if not match:
-            return None
-        return match.group(1)
+        if match:
+            return match.group(1)
+
+        # Резерв: /catalog/product/<id>
+        try:
+            path = (urlparse(url).path or '').rstrip('/')
+        except Exception:
+            path = ''
+        if path:
+            last_segment = path.split('/')[-1].strip()
+            m_last = re.search(r'(\d+)$', last_segment)
+            if m_last:
+                return m_last.group(1)
+
+        # Последний шанс — любое завершающееся число в URL.
+        m_any = re.search(r'(\d+)(?:[/?#]|$)', url)
+        if m_any:
+            return m_any.group(1)
+        return None
 
     def _is_ggsel_domain(self, url: str) -> bool:
         try:
