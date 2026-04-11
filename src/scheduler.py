@@ -166,10 +166,15 @@ class Scheduler:
         if self.product_id <= 0:
             return None
 
+        get_product_info = getattr(self.api_client, 'get_product_info', None)
+        if not callable(get_product_info):
+            # Для упрощённых/тестовых клиентов без get_product_info
+            # не делаем сетевой fallback по URL-guess.
+            return None
+
         fallback = f'https://ggsel.net/catalog/product/{int(self.product_id)}'
         url = fallback
 
-        get_product_info = getattr(self.api_client, 'get_product_info', None)
         if callable(get_product_info):
             try:
                 info = get_product_info(self.product_id, timeout=10) or {}
@@ -196,8 +201,9 @@ class Scheduler:
 
     def _read_ggsel_card_unit_price(self, runtime) -> Optional[float]:
         """
-        Читает цену собственного GGSEL товара через HTML карточку
-        (unit price за 1 V-Bucks), без fallback на api4.
+        Читает unit-цену собственного GGSEL товара.
+        Внутри parse_url() для GGSEL используется goods API как приоритет,
+        поэтому этот путь устойчив к QRATOR/JS challenge на HTML карточке.
         """
         product_url = self._resolve_own_product_url()
         if not product_url:
@@ -207,22 +213,11 @@ class Scheduler:
         if runtime is not None:
             cookies = getattr(runtime, 'COMPETITOR_COOKIES', None) or None
 
-        result = rsc_parser._parse_with_stealth(  # noqa: SLF001
+        result = rsc_parser.parse_url(
             product_url,
             timeout=12,
             cookies=cookies,
         )
-        if (
-            not result.success
-            and cookies
-            and getattr(result, 'cookies_expired', False)
-        ):
-            # Если cookies протухли, для своей карточки пробуем без cookies.
-            result = rsc_parser._parse_with_stealth(  # noqa: SLF001
-                product_url,
-                timeout=12,
-                cookies=None,
-            )
 
         if result.success and result.price is not None:
             price = round(float(result.price), 4)

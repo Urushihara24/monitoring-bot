@@ -172,7 +172,7 @@ def test_read_current_price_ggsel_prefers_card_unit_price(monkeypatch):
 
     monkeypatch.setattr(
         scheduler_mod.rsc_parser,
-        '_parse_with_stealth',
+        'parse_url',
         lambda url, timeout=12, cookies=None: ParseResult(
             success=True,
             price=0.2549,
@@ -214,7 +214,7 @@ def test_read_current_price_ggsel_fallbacks_to_my_price(monkeypatch):
 
     monkeypatch.setattr(
         scheduler_mod.rsc_parser,
-        '_parse_with_stealth',
+        'parse_url',
         lambda url, timeout=12, cookies=None: ParseResult(
             success=False,
             price=None,
@@ -264,7 +264,7 @@ def test_read_current_price_ggsel_fallbacks_to_public_before_my_price(
 
     monkeypatch.setattr(
         scheduler_mod.rsc_parser,
-        '_parse_with_stealth',
+        'parse_url',
         lambda url, timeout=12, cookies=None: ParseResult(
             success=False,
             price=None,
