@@ -1761,6 +1761,10 @@ class TelegramBot:
         profile_id = profile
         profile_name = self._profile_name(profile_id)
         product_id = self._product_id(profile_id)
+        runtime_profile_id = self._runtime_profile_id_for_product(
+            profile_id,
+            product_id,
+        )
         state = self._state_for_product(profile_id, product_id)
         runtime = self._runtime_for_product(profile_id, product_id)
         is_valid, errors = validate_runtime_config(runtime)
@@ -1847,6 +1851,40 @@ class TelegramBot:
             lines.append(chat_perms_line)
         if refresh_line:
             lines.append(refresh_line)
+        auto_change = storage.get_last_setting_change(
+            'auto_mode',
+            profile_id=runtime_profile_id,
+        )
+        if auto_change:
+            auto_actor = auto_change.get('user_id')
+            auto_actor_text = (
+                str(auto_actor) if auto_actor is not None else 'system'
+            )
+            lines.append(
+                'Auto changed: '
+                f'{auto_change.get("timestamp")} by {auto_actor_text} '
+                f'({auto_change.get("source")}) '
+                f'{auto_change.get("old_value")}→{auto_change.get("new_value")}'
+            )
+        monitor_change = storage.get_last_setting_change(
+            'competitor_urls',
+            profile_id=runtime_profile_id,
+        )
+        if monitor_change is None and runtime_profile_id != profile_id:
+            monitor_change = storage.get_last_setting_change(
+                'competitor_urls',
+                profile_id=profile_id,
+            )
+        if monitor_change:
+            monitor_actor = monitor_change.get('user_id')
+            monitor_actor_text = (
+                str(monitor_actor) if monitor_actor is not None else 'system'
+            )
+            lines.append(
+                'Monitoring changed: '
+                f'{monitor_change.get("timestamp")} by {monitor_actor_text} '
+                f'({monitor_change.get("source")})'
+            )
         chat_meta = self._chat_autoreply_meta(profile_id)
         if chat_meta:
             lines.append(
@@ -1964,7 +2002,20 @@ class TelegramBot:
             profile_id,
             product_id,
         )
-        storage.update_state(profile_id=runtime_profile_id, auto_mode=enabled)
+        user_id = update.effective_user.id if update.effective_user else None
+        storage.set_auto_mode(
+            enabled,
+            profile_id=runtime_profile_id,
+            user_id=user_id,
+            source='telegram',
+        )
+        logger.info(
+            'Auto mode changed: profile=%s, product=%s, enabled=%s, user_id=%s',
+            profile_id,
+            product_id,
+            enabled,
+            user_id,
+        )
         await update.message.reply_text(
             (
                 f'🔔 Автоцена ({self._profile_name(profile_id)} / {product_id}): '
