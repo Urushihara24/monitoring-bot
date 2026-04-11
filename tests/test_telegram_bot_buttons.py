@@ -1,4 +1,5 @@
 import json
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -1209,6 +1210,7 @@ async def test_pending_price_action_isolated_for_active_product(monkeypatch):
 async def test_pending_manage_products_add(monkeypatch):
     bot = make_bot()
     bot.pending_actions[100] = ('MANAGE_PRODUCTS', 'ggsel')
+    bot.pending_action_started_at[100] = time.monotonic()
     bot.send_settings = AsyncMock()
     monkeypatch.setattr(
         bot,
@@ -1217,6 +1219,7 @@ async def test_pending_manage_products_add(monkeypatch):
     )
 
     captured = {}
+    captured_runtime_urls = {}
 
     def fake_upsert_tracked_product(
         *,
@@ -1234,6 +1237,20 @@ async def test_pending_manage_products_add(monkeypatch):
         telegram_module.storage,
         'upsert_tracked_product',
         fake_upsert_tracked_product,
+    )
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_competitor_urls',
+        lambda urls, user_id=None, source='system', profile_id='ggsel': (
+            captured_runtime_urls.update(
+                {
+                    'urls': list(urls),
+                    'user_id': user_id,
+                    'source': source,
+                    'profile_id': profile_id,
+                }
+            )
+        ),
     )
     monkeypatch.setattr(
         telegram_module.storage,
@@ -1249,13 +1266,40 @@ async def test_pending_manage_products_add(monkeypatch):
         update,
     )
 
+    assert captured == {}
+    assert bot.pending_actions.get(100) == ('MANAGE_PRODUCTS', 'ggsel')
+    assert bot.manage_products_context.get(100) == {
+        'profile_id': 'ggsel',
+        'product_id': 4697439,
+        'set_at': bot.manage_products_context[100]['set_at'],
+    }
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert 'Подтверди добавление/выбор товара' in args[0]
+
+    update.message.reply_text.reset_mock()
+
+    await bot.handle_pending_action(
+        100,
+        1,
+        '4697439',
+        update,
+    )
+
     assert captured == {
         'profile_id': 'ggsel',
         'product_id': 4697439,
         'competitor_urls': [],
         'enabled': True,
     }
+    assert captured_runtime_urls == {
+        'urls': [],
+        'user_id': 1,
+        'source': 'telegram',
+        'profile_id': 'ggsel:4697439',
+    }
     assert 100 not in bot.pending_actions
+    assert 100 not in bot.manage_products_context
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert 'Товар 4697439 добавлен' in args[0]
@@ -1265,6 +1309,7 @@ async def test_pending_manage_products_add(monkeypatch):
 async def test_pending_manage_products_add_inline_pair(monkeypatch):
     bot = make_bot()
     bot.pending_actions[100] = ('MANAGE_PRODUCTS', 'ggsel')
+    bot.pending_action_started_at[100] = time.monotonic()
     bot.send_settings = AsyncMock()
     monkeypatch.setattr(
         bot,
@@ -1273,6 +1318,7 @@ async def test_pending_manage_products_add_inline_pair(monkeypatch):
     )
 
     captured = {}
+    captured_runtime_urls = {}
 
     def fake_upsert_tracked_product(
         *,
@@ -1290,6 +1336,20 @@ async def test_pending_manage_products_add_inline_pair(monkeypatch):
         telegram_module.storage,
         'upsert_tracked_product',
         fake_upsert_tracked_product,
+    )
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_competitor_urls',
+        lambda urls, user_id=None, source='system', profile_id='ggsel': (
+            captured_runtime_urls.update(
+                {
+                    'urls': list(urls),
+                    'user_id': user_id,
+                    'source': source,
+                    'profile_id': profile_id,
+                }
+            )
+        ),
     )
     monkeypatch.setattr(
         telegram_module.storage,
@@ -1311,6 +1371,12 @@ async def test_pending_manage_products_add_inline_pair(monkeypatch):
         'competitor_urls': ['https://a.example/item'],
         'enabled': True,
     }
+    assert captured_runtime_urls == {
+        'urls': ['https://a.example/item'],
+        'user_id': 1,
+        'source': 'telegram',
+        'profile_id': 'ggsel:4697439',
+    }
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert 'Пара(ы) добавлены: 1' in args[0]
@@ -1320,6 +1386,7 @@ async def test_pending_manage_products_add_inline_pair(monkeypatch):
 async def test_pending_remove_product_success_switches_active(monkeypatch):
     bot = make_bot()
     bot.pending_actions[100] = ('REMOVE_PRODUCT', 'ggsel')
+    bot.pending_action_started_at[100] = time.monotonic()
     bot.profile_products['ggsel'] = 4697439
     bot.send_settings = AsyncMock()
     bot._runtime_for_product = lambda _profile, _product: make_runtime([])
@@ -1332,6 +1399,7 @@ async def test_pending_remove_product_success_switches_active(monkeypatch):
     bot._tracked_product_ids = fake_tracked_ids
 
     captured = {}
+    cleanup_calls = []
 
     def fake_remove_tracked_product(*, profile_id='ggsel', product_id=0):
         captured['profile_id'] = profile_id
@@ -1344,11 +1412,34 @@ async def test_pending_remove_product_success_switches_active(monkeypatch):
         'remove_tracked_product',
         fake_remove_tracked_product,
     )
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'delete_runtime_setting',
+        lambda key, user_id=None, source='system', profile_id='ggsel': (
+            cleanup_calls.append(
+                {
+                    'key': key,
+                    'user_id': user_id,
+                    'source': source,
+                    'profile_id': profile_id,
+                }
+            )
+            or True
+        ),
+    )
     update = make_update('active')
 
     await bot.handle_pending_action(100, 1, 'active', update)
 
     assert captured == {'profile_id': 'ggsel', 'product_id': 4697439}
+    assert cleanup_calls == [
+        {
+            'key': 'competitor_urls',
+            'user_id': 1,
+            'source': 'telegram',
+            'profile_id': 'ggsel:4697439',
+        }
+    ]
     assert bot.profile_products['ggsel'] == 5104800
     assert 100 not in bot.pending_actions
     update.message.reply_text.assert_awaited_once()
@@ -1360,6 +1451,7 @@ async def test_pending_remove_product_success_switches_active(monkeypatch):
 async def test_pending_remove_product_rejects_last_product(monkeypatch):
     bot = make_bot()
     bot.pending_actions[100] = ('REMOVE_PRODUCT', 'ggsel')
+    bot.pending_action_started_at[100] = time.monotonic()
     bot.profile_products['ggsel'] = 4697439
     bot._runtime_for_product = lambda _profile, _product: make_runtime([])
     bot._tracked_product_ids = lambda _profile, runtime=None: [4697439]
@@ -1385,6 +1477,7 @@ async def test_pending_remove_product_rejects_last_product(monkeypatch):
 async def test_pending_remove_product_unknown_id(monkeypatch):
     bot = make_bot()
     bot.pending_actions[100] = ('REMOVE_PRODUCT', 'ggsel')
+    bot.pending_action_started_at[100] = time.monotonic()
     bot.profile_products['ggsel'] = 4697439
     bot._runtime_for_product = lambda _profile, _product: make_runtime([])
     bot._tracked_product_ids = lambda _profile, runtime=None: [4697439, 5104800]
@@ -1452,6 +1545,7 @@ async def test_pending_action_is_not_applied_to_other_profile(monkeypatch):
     )
 
     bot.pending_actions[100] = ('MIN_PRICE', 'ggsel')
+    bot.pending_action_started_at[100] = time.monotonic()
     bot.chat_profile[100] = 'digiseller'
     update = make_update('0.25')
 
@@ -1462,6 +1556,25 @@ async def test_pending_action_is_not_applied_to_other_profile(monkeypatch):
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert 'активный профиль был изменён' in args[0]
+
+
+@pytest.mark.asyncio
+async def test_pending_action_expires_and_is_cleared(monkeypatch):
+    bot = make_bot()
+    bot._state = lambda _profile: {'auto_mode': True}
+    bot.pending_actions[100] = ('MIN_PRICE', 'ggsel')
+    bot.pending_action_started_at[100] = time.monotonic() - 1000
+    bot.handle_pending_action = AsyncMock()
+    update = make_update('0.25')
+
+    await bot.handle_message(update, None)
+
+    assert 100 not in bot.pending_actions
+    assert 100 not in bot.pending_action_started_at
+    bot.handle_pending_action.assert_not_awaited()
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert 'ввод устарел' in args[0].lower()
 
 
 @pytest.mark.asyncio

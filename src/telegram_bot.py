@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 import unicodedata
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
@@ -91,6 +92,7 @@ _CHAT_POLICY_SEQUENCE = (
     'FIRST_BUYER_MESSAGE',
     'CODE_ONLY',
 )
+_PENDING_ACTION_TIMEOUT_SECONDS = 300
 _CHAT_POLICY_LABELS_RU = {
     'ON_ORDER': 'После заказа',
     'FIRST_BUYER_MESSAGE': 'После 1-го сообщения',
@@ -114,6 +116,8 @@ class TelegramBot:
         self.admin_ids = set(config.TELEGRAM_ADMIN_IDS)
         self._app: Optional[Application] = None
         self.pending_actions: Dict[int, Tuple[str, str]] = {}
+        self.pending_action_started_at: Dict[int, float] = {}
+        self.manage_products_context: Dict[int, Dict[str, Any]] = {}
         self.chat_profile: Dict[int, str] = {}
         self.chat_rules_context: Dict[int, Dict[str, Any]] = {}
 
@@ -206,7 +210,18 @@ class TelegramBot:
         """Сохраняет pending-действие с привязкой к активному профилю."""
         if action != 'CHAT_RULES':
             self._clear_chat_rules_context(chat_id)
+        self._clear_manage_products_context(chat_id)
         self.pending_actions[chat_id] = (action, profile_id)
+        self.pending_action_started_at[chat_id] = time.monotonic()
+
+    def _clear_manage_products_context(self, chat_id: int):
+        self.manage_products_context.pop(chat_id, None)
+
+    def _clear_pending_action(self, chat_id: int):
+        self.pending_actions.pop(chat_id, None)
+        self.pending_action_started_at.pop(chat_id, None)
+        self._clear_chat_rules_context(chat_id)
+        self._clear_manage_products_context(chat_id)
 
     def _clear_chat_rules_context(self, chat_id: int):
         self.chat_rules_context.pop(chat_id, None)
@@ -235,16 +250,31 @@ class TelegramBot:
         """
         pending = self.pending_actions.get(chat_id)
         if pending is None:
+            self.pending_action_started_at.pop(chat_id, None)
             return None, self._active_profile(chat_id)
         if isinstance(pending, tuple) and len(pending) == 2:
             action, profile_id = pending
+            self.pending_action_started_at.setdefault(
+                chat_id,
+                time.monotonic(),
+            )
             return action, profile_id
 
         # Soft migration для in-memory legacy формата.
         action = str(pending)
         profile_id = self._active_profile(chat_id)
         self.pending_actions[chat_id] = (action, profile_id)
+        self.pending_action_started_at[chat_id] = time.monotonic()
         return action, profile_id
+
+    def _is_pending_action_expired(self, chat_id: int) -> bool:
+        started_at = self.pending_action_started_at.get(chat_id)
+        if started_at is None:
+            return False
+        return (
+            time.monotonic() - started_at
+            > _PENDING_ACTION_TIMEOUT_SECONDS
+        )
 
     def _resolve_profile_arg(self, value: str) -> Optional[str]:
         normalized = (value or '').strip().lower()
@@ -1286,8 +1316,7 @@ class TelegramBot:
                 had_pending = chat_id in self.pending_actions
                 self._set_profile(chat_id, pid)
                 if had_pending:
-                    self.pending_actions.pop(chat_id, None)
-                self._clear_chat_rules_context(chat_id)
+                    self._clear_pending_action(chat_id)
                 suffix = (
                     '\n⚠️ Незавершённый ввод сброшен.'
                     if had_pending else ''
@@ -1346,8 +1375,7 @@ class TelegramBot:
             await self.toggle_mode(chat_id, user_id, update)
             return
         if text == BTN_BACK:
-            self.pending_actions.pop(chat_id, None)
-            self._clear_chat_rules_context(chat_id)
+            self._clear_pending_action(chat_id)
             await update.message.reply_text(
                 '📋 Главное меню',
                 reply_markup=self.get_main_keyboard(profile_id),
@@ -1355,6 +1383,16 @@ class TelegramBot:
             return
 
         if chat_id in self.pending_actions:
+            if self._is_pending_action_expired(chat_id):
+                self._clear_pending_action(chat_id)
+                await update.message.reply_text(
+                    (
+                        '⌛ Незавершённый ввод устарел '
+                        '(больше 5 минут) и был сброшен.'
+                    ),
+                    reply_markup=self.get_main_keyboard(profile_id),
+                )
+                return
             await self.handle_pending_action(chat_id, user_id, text, update)
             return
 
@@ -1434,8 +1472,7 @@ class TelegramBot:
         action = parts[1] if len(parts) > 1 else ''
 
         if action == 'd':
-            self.pending_actions.pop(chat_id, None)
-            self._clear_chat_rules_context(chat_id)
+            self._clear_pending_action(chat_id)
             await query.answer('Готово')
             if query.message:
                 await query.message.reply_text(
@@ -2311,8 +2348,7 @@ class TelegramBot:
 
         had_pending = chat_id in self.pending_actions
         if had_pending:
-            self.pending_actions.pop(chat_id, None)
-            self._clear_chat_rules_context(chat_id)
+            self._clear_pending_action(chat_id)
         self.profile_products[profile_id] = new_product_id
 
         new_idx = product_ids.index(new_product_id) + 1
@@ -2369,8 +2405,15 @@ class TelegramBot:
         if not action:
             return
         profile_id = self._active_profile(chat_id)
+        if self._is_pending_action_expired(chat_id):
+            self._clear_pending_action(chat_id)
+            await update.message.reply_text(
+                '⌛ Незавершённый ввод устарел. Открой пункт заново.',
+                reply_markup=self.get_settings_keyboard(profile_id),
+            )
+            return
         if pending_profile_id != profile_id:
-            self.pending_actions.pop(chat_id, None)
+            self._clear_pending_action(chat_id)
             await update.message.reply_text(
                 (
                     '⚠️ Незавершённый ввод сброшен: '
@@ -2409,7 +2452,7 @@ class TelegramBot:
                 source='telegram',
                 profile_id=runtime_profile_id,
             )
-            self.pending_actions.pop(chat_id, None)
+            self._clear_pending_action(chat_id)
             await update.message.reply_text(
                 (
                     f'✅ {action} ({self._profile_name(profile_id)} / '
@@ -2425,8 +2468,7 @@ class TelegramBot:
             ctx_profile = str(context.get('profile_id') or '').strip().lower()
             ctx_product = int(context.get('product_id') or 0)
             if ctx_profile != profile_id or ctx_product != product_id:
-                self.pending_actions.pop(chat_id, None)
-                self._clear_chat_rules_context(chat_id)
+                self._clear_pending_action(chat_id)
                 await update.message.reply_text(
                     (
                         '⚠️ Контекст правил сброшен: активный '
@@ -2447,8 +2489,7 @@ class TelegramBot:
             normalized = text.strip()
             lower = normalized.lower()
             if lower in {'done', 'готово', 'выход', 'exit'}:
-                self.pending_actions.pop(chat_id, None)
-                self._clear_chat_rules_context(chat_id)
+                self._clear_pending_action(chat_id)
                 await update.message.reply_text(
                     '✅ Редактор правил закрыт',
                     reply_markup=self.get_settings_keyboard(profile_id),
@@ -2568,6 +2609,7 @@ class TelegramBot:
                 return
             lower = normalized.lower()
             if lower in {'list', 'список'}:
+                self._clear_manage_products_context(chat_id)
                 lines = self._format_tracked_products(
                     profile_id,
                     runtime=runtime,
@@ -2614,6 +2656,30 @@ class TelegramBot:
                     reply_markup=self.get_settings_keyboard(profile_id),
                 )
                 return
+            if not normalized_urls:
+                current_ctx = self.manage_products_context.get(chat_id) or {}
+                ctx_profile = str(
+                    current_ctx.get('profile_id') or ''
+                ).strip().lower()
+                ctx_product_id = int(current_ctx.get('product_id') or 0)
+                if ctx_profile != profile_id or ctx_product_id != product_id:
+                    self.manage_products_context[chat_id] = {
+                        'profile_id': profile_id,
+                        'product_id': product_id,
+                        'set_at': time.monotonic(),
+                    }
+                    await update.message.reply_text(
+                        (
+                            '⚠️ Подтверди добавление/выбор товара: '
+                            f'отправь `{product_id}` ещё раз.\n'
+                            'Или отправь пару сразу:\n'
+                            '<product_id> <url_конкурента>'
+                        ),
+                        reply_markup=self.get_settings_keyboard(profile_id),
+                    )
+                    return
+            else:
+                self._clear_manage_products_context(chat_id)
 
             tracked = self._tracked_products(profile_id, runtime=runtime)
             tracked_ids = {
@@ -2630,6 +2696,10 @@ class TelegramBot:
             merged_urls = storage.normalize_competitor_urls(
                 existing_urls + normalized_urls
             )
+            target_runtime_profile_id = self._runtime_profile_id_for_product(
+                profile_id,
+                product_id,
+            )
             if is_new_product:
                 storage.upsert_tracked_product(
                     profile_id=profile_id,
@@ -2642,8 +2712,15 @@ class TelegramBot:
                     product_id=product_id,
                     competitor_urls=merged_urls,
                 )
+            if is_new_product or normalized_urls:
+                storage.set_competitor_urls(
+                    merged_urls,
+                    user_id=user_id,
+                    source='telegram',
+                    profile_id=target_runtime_profile_id,
+                )
             self.profile_products[profile_id] = product_id
-            self.pending_actions.pop(chat_id, None)
+            self._clear_pending_action(chat_id)
 
             action_text = 'добавлен' if is_new_product else 'выбран'
             pair_hint = (
@@ -2718,12 +2795,22 @@ class TelegramBot:
                     reply_markup=self.get_settings_keyboard(profile_id),
                 )
                 return
+            target_runtime_profile_id = self._runtime_profile_id_for_product(
+                profile_id,
+                target_product_id,
+            )
+            storage.delete_runtime_setting(
+                'competitor_urls',
+                user_id=user_id,
+                source='telegram',
+                profile_id=target_runtime_profile_id,
+            )
 
             if self._product_id(profile_id) == target_product_id:
                 remaining_ids = self._tracked_product_ids(profile_id)
                 if remaining_ids:
                     self.profile_products[profile_id] = remaining_ids[0]
-            self.pending_actions.pop(chat_id, None)
+            self._clear_pending_action(chat_id)
             await update.message.reply_text(
                 f'✅ Товар удалён: {target_product_id}',
                 reply_markup=self.get_settings_keyboard(profile_id),
@@ -2736,7 +2823,7 @@ class TelegramBot:
             action,
             profile_id,
         )
-        self.pending_actions.pop(chat_id, None)
+        self._clear_pending_action(chat_id)
         await update.message.reply_text(
             '⚠️ Незавершённый ввод сброшен: неизвестное действие.',
             reply_markup=self.get_settings_keyboard(profile_id),
