@@ -534,47 +534,54 @@ class GGSELClient:
 
     def get_public_price(self, product_id: int, timeout: int = 10) -> Optional[float]:
         """
-        Получение цены с публичной витрины GGSEL (api4).
+        Получение цены с публичной витрины GGSEL.
+        Приоритет: api.ggsel.com (актуальный), затем api4.ggsel.com (legacy).
 
         Для ряда товаров витрина и seller endpoint могут различаться
         из-за внутренних округлений/надбавок; для статуса используем
         именно витринную цену.
         """
-        url = f"https://api4.ggsel.com/goods/{int(product_id)}"
-        response = self._request_with_retry(
-            "GET",
-            url,
-            timeout=timeout,
-            max_retries=2,
-            headers={"Accept": "application/json"},
+        urls = (
+            f"https://api.ggsel.com/goods/{int(product_id)}",
+            f"https://api4.ggsel.com/goods/{int(product_id)}",
         )
-        if response is None or response.status_code != 200:
-            return None
-        try:
-            payload = response.json()
-        except Exception:
-            return None
-        if not isinstance(payload, dict):
-            return None
-        data = payload.get("data") or {}
-        if not isinstance(data, dict):
-            return None
+        for url in urls:
+            response = self._request_with_retry(
+                "GET",
+                url,
+                timeout=timeout,
+                max_retries=2,
+                headers={"Accept": "application/json"},
+                suppress_404_log=True,
+            )
+            if response is None or response.status_code != 200:
+                continue
+            try:
+                payload = response.json()
+            except Exception:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            data = payload.get("data") or {}
+            if not isinstance(data, dict):
+                continue
 
-        prices_unit = data.get("prices_unit") or {}
-        if isinstance(prices_unit, dict):
-            price = self._coerce_price(prices_unit.get("unit_amount"))
+            prices_unit = data.get("prices_unit") or {}
+            if isinstance(prices_unit, dict):
+                price = self._coerce_price(prices_unit.get("unit_amount"))
+                if price is not None:
+                    logger.info(
+                        "Публичная цена товара %s: %s RUB",
+                        product_id,
+                        price,
+                    )
+                    return price
+
+            price = self._coerce_price(data.get("price"))
             if price is not None:
-                logger.info(
-                    "Публичная цена товара %s: %s RUB",
-                    product_id,
-                    price,
-                )
+                logger.info("Публичная цена товара %s: %s RUB", product_id, price)
                 return price
-
-        price = self._coerce_price(data.get("price"))
-        if price is not None:
-            logger.info("Публичная цена товара %s: %s RUB", product_id, price)
-        return price
+        return None
 
     def get_display_price(self, product_id: int, timeout: int = 10) -> Optional[float]:
         """

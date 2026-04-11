@@ -777,7 +777,8 @@ class RSCParser:
 
     def _parse_with_goods_api(self, url: str, timeout: int) -> ParseResult:
         """
-        Fallback через публичный endpoint api4.ggsel.com/goods/<id>.
+        Fallback через публичный endpoint goods API.
+        Приоритет: api.ggsel.com (актуальный), затем api4.ggsel.com (legacy).
         """
         method = 'api4_goods'
         goods_id = self._extract_goods_id(url)
@@ -789,35 +790,48 @@ class RSCParser:
                 method=method,
             )
 
-        api_url = f'https://api4.ggsel.com/goods/{goods_id}'
+        api_urls = (
+            f'https://api.ggsel.com/goods/{goods_id}',
+            f'https://api4.ggsel.com/goods/{goods_id}',
+        )
         headers = {
             'User-Agent': self._get_random_user_agent(),
             'Accept': 'application/json,text/plain,*/*',
         }
-        try:
-            resp = stealth_requests.get(
-                api_url,
-                headers=headers,
-                timeout=timeout,
-            )
-            if resp.status_code != 200:
-                return ParseResult(
-                    success=False,
-                    error=f'API fallback HTTP {resp.status_code}',
-                    url=url,
-                    method=method,
-                    status_code=resp.status_code,
-                )
+        last_error: Optional[str] = None
+        last_status: Optional[int] = None
 
-            payload = resp.json()
-            if not isinstance(payload, dict):
-                return ParseResult(
-                    success=False,
-                    error='API fallback: invalid JSON payload',
-                    url=url,
-                    method=method,
+        for api_url in api_urls:
+            try:
+                resp = stealth_requests.get(
+                    api_url,
+                    headers=headers,
+                    timeout=timeout,
                 )
+            except Exception as e:
+                last_error = f'API fallback exception: {e}'
+                continue
+
+            last_status = resp.status_code
+            if resp.status_code != 200:
+                last_error = f'API fallback HTTP {resp.status_code}'
+                continue
+
+            try:
+                payload = resp.json()
+            except Exception:
+                last_error = 'API fallback: invalid JSON payload'
+                continue
+
+            if not isinstance(payload, dict):
+                last_error = 'API fallback: invalid JSON payload'
+                continue
+
             data = payload.get('data') or {}
+            if not isinstance(data, dict):
+                last_error = 'API fallback: invalid data payload'
+                continue
+
             price = None
             prices_unit = data.get('prices_unit')
             if isinstance(prices_unit, dict):
@@ -831,19 +845,11 @@ class RSCParser:
                 price = self._coerce_price(data.get('price'))
 
             if price is None:
-                return ParseResult(
-                    success=False,
-                    error='API fallback: поле price отсутствует',
-                    url=url,
-                    method=method,
-                )
+                last_error = 'API fallback: поле price отсутствует'
+                continue
             if price <= 0:
-                return ParseResult(
-                    success=False,
-                    error='API fallback: невалидная цена',
-                    url=url,
-                    method=method,
-                )
+                last_error = 'API fallback: невалидная цена'
+                continue
 
             return ParseResult(
                 success=True,
@@ -853,13 +859,14 @@ class RSCParser:
                 method=method,
                 status_code=resp.status_code,
             )
-        except Exception as e:
-            return ParseResult(
-                success=False,
-                error=f'API fallback exception: {e}',
-                url=url,
-                method=method,
-            )
+
+        return ParseResult(
+            success=False,
+            error=last_error or 'API fallback failed',
+            url=url,
+            method=method,
+            status_code=last_status,
+        )
 
     def parse_url(
         self,
@@ -870,6 +877,23 @@ class RSCParser:
         """Parse URL using stealth_requests with public API fallback."""
         logger.info(f'🔍 НАЧАЛО ПАРСИНГА: {url}')
         started = time.time()
+
+        # Для GGSEL приоритетно используем публичный goods API, потому что
+        # карточка товара может быть закрыта JS/anti-bot challenge.
+        if self._is_ggsel_domain(url):
+            api_direct = self._parse_with_goods_api(url, timeout)
+            if api_direct.success:
+                elapsed = time.time() - started
+                api_direct.elapsed_seconds = elapsed
+                self.success_count += 1
+                self._inc_method_success(api_direct.method)
+                logger.info(
+                    '🎉 ПАРСИНГ УСПЕШЕН (api direct): цена=%s₽, время=%.2fs',
+                    api_direct.price,
+                    elapsed,
+                )
+                return api_direct
+            self._inc_method_fail(api_direct.method)
 
         if self._is_plati_domain(url):
             direct = self._parse_with_plati_price_api(
