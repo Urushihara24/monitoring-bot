@@ -1641,6 +1641,12 @@ class TelegramBot:
             f'{competitor_price:.4f}'
             if competitor_price is not None else 'N/A'
         )
+        if profile_id == 'ggsel':
+            display_price_label = '💰 Цена API (база)'
+            target_price_label = '🎯 Цена по стратегии'
+        else:
+            display_price_label = '💰 Моя цена'
+            target_price_label = '🎯 Выставлено ботом'
         chat_block = ''
         chat_meta = (
             self._chat_autoreply_meta(profile_id)
@@ -1668,8 +1674,8 @@ class TelegramBot:
 🧭 Площадка: {profile_name}
 🆔 Активный товар: {product_id or 'N/A'} ({active_product_slot_text})
 📦 Товаров в мониторинге: {tracked_count}
-💰 Моя цена: {display_price_str}₽
-🎯 Выставлено ботом: {target_price_str}₽
+{display_price_label}: {display_price_str}₽
+{target_price_label}: {target_price_str}₽
 📈 Цена конкурента: {competitor_price_str}₽
 🔗 URL: {competitor_url}
 🧪 Метод парсинга: {parse_method}
