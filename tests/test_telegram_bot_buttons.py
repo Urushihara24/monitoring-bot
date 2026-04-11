@@ -403,18 +403,24 @@ async def test_toggle_auto_updates_only_active_profile(monkeypatch):
 
     calls = []
 
-    def fake_update_state(*, profile_id='ggsel', **kwargs):
-        calls.append((profile_id, kwargs))
+    def fake_set_auto_mode(
+        enabled,
+        *,
+        profile_id='ggsel',
+        user_id=None,
+        source='system',
+    ):
+        calls.append((enabled, profile_id, user_id, source))
 
     monkeypatch.setattr(
         telegram_module.storage,
-        'update_state',
-        fake_update_state,
+        'set_auto_mode',
+        fake_set_auto_mode,
     )
 
     await bot.toggle_auto(update)
 
-    assert calls == [('digiseller', {'auto_mode': False})]
+    assert calls == [(False, 'digiseller', 1, 'telegram')]
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert args[0] == '🔔 Автоцена (DIGISELLER / 2): ВЫКЛ'

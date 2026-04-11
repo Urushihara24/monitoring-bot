@@ -23,6 +23,33 @@ def test_auto_mode_persistence(tmp_path):
     assert state['auto_mode'] is False
 
 
+def test_set_auto_mode_persistence_and_history(tmp_path):
+    db_path = tmp_path / 'state.db'
+    storage = Storage(str(db_path))
+    changed = storage.set_auto_mode(
+        False,
+        user_id=42,
+        source='telegram',
+    )
+    assert changed is True
+    state = storage.get_state()
+    assert state['auto_mode'] is False
+
+    history = storage.get_settings_history(limit=5)
+    row = next(item for item in history if item['key'] == 'auto_mode')
+    assert row['old_value'] == '1'
+    assert row['new_value'] == '0'
+    assert row['user_id'] == 42
+    assert row['source'] == 'telegram'
+
+    changed_again = storage.set_auto_mode(
+        False,
+        user_id=42,
+        source='telegram',
+    )
+    assert changed_again is False
+
+
 def test_runtime_competitor_urls(tmp_path):
     db_path = tmp_path / 'state.db'
     storage = Storage(str(db_path))

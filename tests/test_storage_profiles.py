@@ -150,6 +150,31 @@ def test_runtime_settings_with_last_change_keeps_profile_isolation(tmp_path):
     assert rows[0]['last_change'] is not None
 
 
+def test_get_last_setting_change_returns_latest_row(tmp_path):
+    db = tmp_path / 'state.db'
+    storage = Storage(db_path=str(db))
+    storage.set_runtime_setting(
+        'MODE',
+        'FOLLOW',
+        profile_id='ggsel',
+        user_id=1,
+        source='telegram',
+    )
+    storage.set_runtime_setting(
+        'MODE',
+        'DUMPING',
+        profile_id='ggsel',
+        user_id=2,
+        source='telegram',
+    )
+
+    row = storage.get_last_setting_change('MODE', profile_id='ggsel')
+    assert row is not None
+    assert row['new_value'] == 'DUMPING'
+    assert row['user_id'] == 2
+    assert row['source'] == 'telegram'
+
+
 def test_competitor_urls_profile_specific(tmp_path):
     db = tmp_path / 'state.db'
     storage = Storage(db_path=str(db))

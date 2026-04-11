@@ -658,6 +658,70 @@ class Storage:
             )
             conn.commit()
 
+    def set_auto_mode(
+        self,
+        enabled: bool,
+        *,
+        profile_id: str = DEFAULT_PROFILE,
+        user_id: Optional[int] = None,
+        source: str = 'system',
+    ) -> bool:
+        """
+        Обновляет auto_mode в profile_state и пишет аудит в settings_history.
+        Возвращает True, если значение изменилось.
+        """
+        profile = self._normalize_profile(profile_id)
+        new_value = 1 if enabled else 0
+        with sqlite3.connect(str(self.db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            self._ensure_profile_state(conn, profile)
+            row = conn.execute(
+                '''
+                SELECT auto_mode
+                FROM profile_state
+                WHERE profile_id = ?
+                ''',
+                (profile,),
+            ).fetchone()
+            old_value_raw = (
+                int(row['auto_mode'])
+                if row and row['auto_mode'] is not None else 1
+            )
+            if old_value_raw == new_value:
+                return False
+
+            conn.execute(
+                '''
+                UPDATE profile_state
+                SET auto_mode = ?
+                WHERE profile_id = ?
+                ''',
+                (new_value, profile),
+            )
+            conn.execute(
+                '''
+                INSERT INTO settings_history (
+                    profile_id,
+                    key,
+                    old_value,
+                    new_value,
+                    user_id,
+                    source
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    profile,
+                    'auto_mode',
+                    str(old_value_raw),
+                    str(new_value),
+                    user_id,
+                    source,
+                ),
+            )
+            conn.commit()
+        return True
+
     def increment_update_count(self, profile_id: str = DEFAULT_PROFILE):
         profile = self._normalize_profile(profile_id)
         with sqlite3.connect(str(self.db_path)) as conn:
@@ -1299,6 +1363,26 @@ class Storage:
                 (profile, limit),
             ).fetchall()
             return [dict(row) for row in rows]
+
+    def get_last_setting_change(
+        self,
+        key: str,
+        profile_id: str = DEFAULT_PROFILE,
+    ) -> Optional[dict]:
+        profile = self._normalize_profile(profile_id)
+        with sqlite3.connect(str(self.db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                '''
+                SELECT key, old_value, new_value, user_id, source, timestamp
+                FROM settings_history
+                WHERE profile_id = ? AND key = ?
+                ORDER BY id DESC
+                LIMIT 1
+                ''',
+                (profile, key),
+            ).fetchone()
+            return dict(row) if row else None
 
     # ================================
     # Alert throttling
