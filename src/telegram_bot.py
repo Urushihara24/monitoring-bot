@@ -2725,6 +2725,20 @@ class TelegramBot:
                     source='telegram',
                     profile_id=target_runtime_profile_id,
                 )
+            auto_hint = ''
+            if is_new_product and target_runtime_profile_id != profile_id:
+                # Fail-safe: новый дополнительный товар стартует с выключенной
+                # автоценой, пока пользователь отдельно не включит её.
+                storage.set_auto_mode(
+                    False,
+                    profile_id=target_runtime_profile_id,
+                    user_id=user_id,
+                    source='telegram_add_product',
+                )
+                auto_hint = (
+                    '\n🛡️ Для нового товара автоцена выключена '
+                    '(включается отдельно).'
+                )
             self.profile_products[profile_id] = product_id
             self._clear_pending_action(chat_id)
 
@@ -2739,6 +2753,7 @@ class TelegramBot:
                     'Чтобы привязать конкурента, отправь сразу:\n'
                     '<product_id> <url_конкурента>'
                     f'{pair_hint}\n'
+                    f'{auto_hint}'
                     'ℹ️ Бот мониторит все товары из списка, '
                     'активный товар нужен только для редактирования.'
                 ),

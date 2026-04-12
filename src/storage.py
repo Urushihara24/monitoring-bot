@@ -1130,156 +1130,204 @@ class Storage:
         default_urls: Optional[list] = None,
     ) -> SimpleNamespace:
         profile = self._normalize_profile(profile_id)
+        # Важно: у product-runtime профилей (`ggsel:<product_id>`) не
+        # наследуем runtime-настройки родителя, чтобы товары были
+        # полностью изолированы по стратегиям/шагам/лимитам.
+        inherit_parent = ':' not in profile
         runtime = {
-            'MIN_PRICE': self._get_float('MIN_PRICE', base_config.MIN_PRICE, profile),
-            'MAX_PRICE': self._get_float('MAX_PRICE', base_config.MAX_PRICE, profile),
+            'MIN_PRICE': self._get_float(
+                'MIN_PRICE',
+                base_config.MIN_PRICE,
+                profile,
+                inherit_parent=inherit_parent,
+            ),
+            'MAX_PRICE': self._get_float(
+                'MAX_PRICE',
+                base_config.MAX_PRICE,
+                profile,
+                inherit_parent=inherit_parent,
+            ),
             'DESIRED_PRICE': self._get_float(
                 'DESIRED_PRICE',
                 base_config.DESIRED_PRICE,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'UNDERCUT_VALUE': self._get_float(
                 'UNDERCUT_VALUE',
                 base_config.UNDERCUT_VALUE,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'MODE': self._normalize_mode(
-                self._get_str('MODE', base_config.MODE, profile)
+                self._get_str(
+                    'MODE',
+                    base_config.MODE,
+                    profile,
+                    inherit_parent=inherit_parent,
+                )
             ),
             'FIXED_PRICE': self._get_float(
                 'FIXED_PRICE',
                 base_config.FIXED_PRICE,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'STEP_UP_VALUE': self._get_float(
                 'STEP_UP_VALUE',
                 base_config.STEP_UP_VALUE,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'WEAK_PRICE_CEIL_LIMIT': self._get_float(
                 'WEAK_PRICE_CEIL_LIMIT',
                 base_config.WEAK_PRICE_CEIL_LIMIT,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'POSITION_FILTER_ENABLED': self._get_bool(
                 'POSITION_FILTER_ENABLED',
                 base_config.POSITION_FILTER_ENABLED,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'WEAK_POSITION_THRESHOLD': self._get_int(
                 'WEAK_POSITION_THRESHOLD',
                 base_config.WEAK_POSITION_THRESHOLD,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'WEAK_UNKNOWN_RANK_ENABLED': self._get_bool(
                 'WEAK_UNKNOWN_RANK_ENABLED',
                 base_config.WEAK_UNKNOWN_RANK_ENABLED,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'WEAK_UNKNOWN_RANK_ABS_GAP': self._get_float(
                 'WEAK_UNKNOWN_RANK_ABS_GAP',
                 base_config.WEAK_UNKNOWN_RANK_ABS_GAP,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'WEAK_UNKNOWN_RANK_REL_GAP': self._get_float(
                 'WEAK_UNKNOWN_RANK_REL_GAP',
                 base_config.WEAK_UNKNOWN_RANK_REL_GAP,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'COOLDOWN_SECONDS': self._get_int(
                 'COOLDOWN_SECONDS',
                 base_config.COOLDOWN_SECONDS,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'IGNORE_DELTA': self._get_float(
                 'IGNORE_DELTA',
                 base_config.IGNORE_DELTA,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'CHECK_INTERVAL': self._get_int(
                 'CHECK_INTERVAL',
                 base_config.CHECK_INTERVAL,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'FAST_CHECK_INTERVAL_MIN': self._get_int(
                 'FAST_CHECK_INTERVAL_MIN',
                 base_config.FAST_CHECK_INTERVAL_MIN,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'FAST_CHECK_INTERVAL_MAX': self._get_int(
                 'FAST_CHECK_INTERVAL_MAX',
                 base_config.FAST_CHECK_INTERVAL_MAX,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'COMPETITOR_COOKIES': self._get_str(
                 'COMPETITOR_COOKIES',
                 base_config.COMPETITOR_COOKIES,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'NOTIFY_SKIP': self._get_bool(
                 'NOTIFY_SKIP',
                 base_config.NOTIFY_SKIP,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'NOTIFY_SKIP_COOLDOWN_SECONDS': self._get_int(
                 'NOTIFY_SKIP_COOLDOWN_SECONDS',
                 base_config.NOTIFY_SKIP_COOLDOWN_SECONDS,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'NOTIFY_COMPETITOR_CHANGE': self._get_bool(
                 'NOTIFY_COMPETITOR_CHANGE',
                 base_config.NOTIFY_COMPETITOR_CHANGE,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'COMPETITOR_CHANGE_DELTA': self._get_float(
                 'COMPETITOR_CHANGE_DELTA',
                 base_config.COMPETITOR_CHANGE_DELTA,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'COMPETITOR_CHANGE_COOLDOWN_SECONDS': self._get_int(
                 'COMPETITOR_CHANGE_COOLDOWN_SECONDS',
                 base_config.COMPETITOR_CHANGE_COOLDOWN_SECONDS,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'UPDATE_ONLY_ON_COMPETITOR_CHANGE': self._get_bool(
                 'UPDATE_ONLY_ON_COMPETITOR_CHANGE',
                 base_config.UPDATE_ONLY_ON_COMPETITOR_CHANGE,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'NOTIFY_PARSER_ISSUES': self._get_bool(
                 'NOTIFY_PARSER_ISSUES',
                 base_config.NOTIFY_PARSER_ISSUES,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'NOTIFY_ERRORS': self._get_bool(
                 'NOTIFY_ERRORS',
                 getattr(base_config, 'NOTIFY_ERRORS', True),
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'PARSER_ISSUE_COOLDOWN_SECONDS': self._get_int(
                 'PARSER_ISSUE_COOLDOWN_SECONDS',
                 base_config.PARSER_ISSUE_COOLDOWN_SECONDS,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'HARD_FLOOR_ENABLED': self._get_bool(
                 'HARD_FLOOR_ENABLED',
                 base_config.HARD_FLOOR_ENABLED,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'MAX_DOWN_STEP': self._get_float(
                 'MAX_DOWN_STEP',
                 base_config.MAX_DOWN_STEP,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'FAST_REBOUND_DELTA': self._get_float(
                 'FAST_REBOUND_DELTA',
                 base_config.FAST_REBOUND_DELTA,
                 profile,
+                inherit_parent=inherit_parent,
             ),
             'FAST_REBOUND_BYPASS_COOLDOWN': self._get_bool(
                 'FAST_REBOUND_BYPASS_COOLDOWN',
                 base_config.FAST_REBOUND_BYPASS_COOLDOWN,
                 profile,
+                inherit_parent=inherit_parent,
             ),
         }
         # Важно: пустой список default_urls для профиля должен оставаться пустым,
@@ -1296,12 +1344,34 @@ class Storage:
         )
         return SimpleNamespace(**runtime)
 
-    def _get_str(self, key: str, default: str, profile_id: str) -> str:
-        value = self.get_runtime_setting(key, profile_id=profile_id)
+    def _get_str(
+        self,
+        key: str,
+        default: str,
+        profile_id: str,
+        *,
+        inherit_parent: bool = True,
+    ) -> str:
+        value = self.get_runtime_setting(
+            key,
+            profile_id=profile_id,
+            inherit_parent=inherit_parent,
+        )
         return default if value is None else value
 
-    def _get_float(self, key: str, default: float, profile_id: str) -> float:
-        value = self.get_runtime_setting(key, profile_id=profile_id)
+    def _get_float(
+        self,
+        key: str,
+        default: float,
+        profile_id: str,
+        *,
+        inherit_parent: bool = True,
+    ) -> float:
+        value = self.get_runtime_setting(
+            key,
+            profile_id=profile_id,
+            inherit_parent=inherit_parent,
+        )
         if value is None:
             return default
         try:
@@ -1313,8 +1383,19 @@ class Storage:
         except Exception:
             return default
 
-    def _get_int(self, key: str, default: int, profile_id: str) -> int:
-        value = self.get_runtime_setting(key, profile_id=profile_id)
+    def _get_int(
+        self,
+        key: str,
+        default: int,
+        profile_id: str,
+        *,
+        inherit_parent: bool = True,
+    ) -> int:
+        value = self.get_runtime_setting(
+            key,
+            profile_id=profile_id,
+            inherit_parent=inherit_parent,
+        )
         if value is None:
             return default
         try:
@@ -1322,8 +1403,19 @@ class Storage:
         except Exception:
             return default
 
-    def _get_bool(self, key: str, default: bool, profile_id: str) -> bool:
-        value = self.get_runtime_setting(key, profile_id=profile_id)
+    def _get_bool(
+        self,
+        key: str,
+        default: bool,
+        profile_id: str,
+        *,
+        inherit_parent: bool = True,
+    ) -> bool:
+        value = self.get_runtime_setting(
+            key,
+            profile_id=profile_id,
+            inherit_parent=inherit_parent,
+        )
         if value is None:
             return default
         return value.strip().lower() in ('1', 'true', 'yes', 'on')

@@ -4,6 +4,43 @@ import sqlite3
 from src.storage import Storage
 
 
+def _runtime_cfg():
+    return type('Cfg', (), {
+        'MIN_PRICE': 0.1,
+        'MAX_PRICE': 10.0,
+        'DESIRED_PRICE': 1.0,
+        'UNDERCUT_VALUE': 0.0051,
+        'MODE': 'DUMPING',
+        'FIXED_PRICE': 1.0,
+        'STEP_UP_VALUE': 0.01,
+        'WEAK_PRICE_CEIL_LIMIT': 0.3,
+        'POSITION_FILTER_ENABLED': False,
+        'WEAK_POSITION_THRESHOLD': 20,
+        'WEAK_UNKNOWN_RANK_ENABLED': True,
+        'WEAK_UNKNOWN_RANK_ABS_GAP': 0.03,
+        'WEAK_UNKNOWN_RANK_REL_GAP': 0.08,
+        'COOLDOWN_SECONDS': 10,
+        'IGNORE_DELTA': 0.001,
+        'CHECK_INTERVAL': 60,
+        'FAST_CHECK_INTERVAL_MIN': 20,
+        'FAST_CHECK_INTERVAL_MAX': 60,
+        'COMPETITOR_COOKIES': '',
+        'NOTIFY_SKIP': False,
+        'NOTIFY_SKIP_COOLDOWN_SECONDS': 300,
+        'NOTIFY_COMPETITOR_CHANGE': True,
+        'COMPETITOR_CHANGE_DELTA': 0.0001,
+        'COMPETITOR_CHANGE_COOLDOWN_SECONDS': 60,
+        'UPDATE_ONLY_ON_COMPETITOR_CHANGE': True,
+        'NOTIFY_PARSER_ISSUES': True,
+        'PARSER_ISSUE_COOLDOWN_SECONDS': 300,
+        'HARD_FLOOR_ENABLED': True,
+        'MAX_DOWN_STEP': 0.05,
+        'FAST_REBOUND_DELTA': 0.01,
+        'FAST_REBOUND_BYPASS_COOLDOWN': True,
+        'COMPETITOR_URLS': [],
+    })
+
+
 def test_profile_state_isolation(tmp_path):
     db = tmp_path / 'state.db'
     storage = Storage(db_path=str(db))
@@ -61,6 +98,34 @@ def test_competitor_urls_not_inherited_from_parent(tmp_path):
         profile_id='ggsel:4697439',
     )
     assert child_urls == ['https://child.example/item']
+
+
+def test_child_runtime_config_does_not_inherit_parent_strategy(tmp_path):
+    db = tmp_path / 'state.db'
+    storage = Storage(db_path=str(db))
+
+    storage.set_runtime_setting('MODE', 'RAISE', profile_id='ggsel')
+    storage.set_runtime_setting('UNDERCUT_VALUE', '0.0999', profile_id='ggsel')
+    storage.set_runtime_setting('CHECK_INTERVAL', '5', profile_id='ggsel')
+
+    child_runtime = storage.get_runtime_config(
+        _runtime_cfg(),
+        profile_id='ggsel:4697439',
+        default_urls=['https://child.example/item'],
+    )
+    parent_runtime = storage.get_runtime_config(
+        _runtime_cfg(),
+        profile_id='ggsel',
+        default_urls=['https://root.example/item'],
+    )
+
+    assert parent_runtime.MODE == 'RAISE'
+    assert parent_runtime.UNDERCUT_VALUE == 0.0999
+    assert parent_runtime.CHECK_INTERVAL == 5
+
+    assert child_runtime.MODE == 'DUMPING'
+    assert child_runtime.UNDERCUT_VALUE == 0.0051
+    assert child_runtime.CHECK_INTERVAL == 60
 
 
 def test_runtime_settings_list_and_delete_by_prefix(tmp_path):

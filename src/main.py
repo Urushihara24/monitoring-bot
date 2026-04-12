@@ -375,6 +375,22 @@ async def main():
                     tracked_urls,
                     profile_id=runtime_profile_id,
                 )
+            if runtime_profile_id != pid:
+                auto_mode_change = storage.get_last_setting_change(
+                    'auto_mode',
+                    profile_id=runtime_profile_id,
+                )
+                if auto_mode_change is None:
+                    storage.set_auto_mode(
+                        False,
+                        profile_id=runtime_profile_id,
+                        source='startup_safe_default',
+                    )
+                    logger.info(
+                        '[%s] Safe default: автоцена выключена для товара %s',
+                        pname,
+                        tracked_product_id,
+                    )
 
         profile_defaults = build_profile_runtime_defaults(config, pid)
         seeded = seed_profile_runtime_defaults(
