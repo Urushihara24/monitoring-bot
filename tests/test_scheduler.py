@@ -587,9 +587,9 @@ async def test_scheduler_stores_applied_price_when_api_rounds(monkeypatch, tmp_p
 
     state = test_storage.get_state()
     assert state['last_target_price'] == 0.2549
-    assert state['last_price'] == 0.25
+    assert state['last_price'] == 0.2549
     assert len(bot.updates) == 1
-    assert bot.updates[0]['new_price'] == 0.25
+    assert bot.updates[0]['new_price'] == 0.2549
 
 
 @pytest.mark.asyncio

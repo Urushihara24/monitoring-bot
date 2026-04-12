@@ -924,7 +924,7 @@ async def test_status_shows_ggsel_chat_autoreply_block(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_status_shows_live_api_price_over_state():
+async def test_status_ggsel_keeps_strategy_price_when_api_differs():
     class ApiClient:
         def get_my_price(self, product_id):
             assert product_id == 1
@@ -963,7 +963,7 @@ async def test_status_shows_live_api_price_over_state():
     args, _kwargs = update.message.reply_text.await_args
     assert '💰 Моя цена: 0.2649₽' in args[0]
     assert '🎯 Цена по стратегии: 0.2649₽' in args[0]
-    assert '📡 API (округл.): 0.2711₽' in args[0]
+    assert '📡 API (округл.)' not in args[0]
 
 
 @pytest.mark.asyncio
@@ -1004,7 +1004,7 @@ async def test_status_formats_live_api_price_to_4dp():
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert '💰 Моя цена: 0.2649₽' in args[0]
-    assert '📡 API (округл.): 0.2500₽' in args[0]
+    assert '📡 API (округл.)' not in args[0]
 
 
 @pytest.mark.asyncio

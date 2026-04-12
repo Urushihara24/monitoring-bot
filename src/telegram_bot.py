@@ -1597,38 +1597,55 @@ class TelegramBot:
             getattr(client, 'get_display_price', None) if client else None
         )
         get_my_price = getattr(client, 'get_my_price', None) if client else None
-        if callable(get_display_price) and product_id > 0:
-            try:
-                resolved_price = await asyncio.to_thread(
-                    get_display_price,
-                    product_id,
-                )
-                if resolved_price is not None:
-                    display_price = float(resolved_price)
-            except Exception as e:
-                logger.warning(
-                    '[%s] Не удалось получить display-цену для статуса: %s',
-                    profile_name,
-                    e,
-                )
-        if (
-            display_price is None
-            and profile_id != 'digiseller'
-            and callable(get_my_price)
-            and product_id > 0
-        ):
-            try:
-                api_price = await asyncio.to_thread(get_my_price, product_id)
-                if api_price is not None:
-                    display_price = float(api_price)
-            except Exception as e:
-                logger.warning(
-                    '[%s] Не удалось получить live-цену для статуса: %s',
-                    profile_name,
-                    e,
-                )
-        if display_price is None:
+        if profile_id == 'ggsel':
+            # Для GGSEL основная цена в статусе = рабочая цена стратегии/state.
+            # Seller API часто отдаёт "базу" с иным округлением.
             display_price = target_price
+            if display_price is None:
+                if callable(get_my_price) and product_id > 0:
+                    try:
+                        api_price = await asyncio.to_thread(get_my_price, product_id)
+                        if api_price is not None:
+                            display_price = float(api_price)
+                    except Exception as e:
+                        logger.warning(
+                            '[%s] Не удалось получить API-цену для статуса: %s',
+                            profile_name,
+                            e,
+                        )
+        else:
+            if callable(get_display_price) and product_id > 0:
+                try:
+                    resolved_price = await asyncio.to_thread(
+                        get_display_price,
+                        product_id,
+                    )
+                    if resolved_price is not None:
+                        display_price = float(resolved_price)
+                except Exception as e:
+                    logger.warning(
+                        '[%s] Не удалось получить display-цену для статуса: %s',
+                        profile_name,
+                        e,
+                    )
+            if (
+                display_price is None
+                and profile_id != 'digiseller'
+                and callable(get_my_price)
+                and product_id > 0
+            ):
+                try:
+                    api_price = await asyncio.to_thread(get_my_price, product_id)
+                    if api_price is not None:
+                        display_price = float(api_price)
+                except Exception as e:
+                    logger.warning(
+                        '[%s] Не удалось получить live-цену для статуса: %s',
+                        profile_name,
+                        e,
+                    )
+            if display_price is None:
+                display_price = target_price
         competitor_price = state.get('last_competitor_min')
         target_price_str = (
             f'{target_price:.4f}' if target_price is not None else 'N/A'
@@ -1641,26 +1658,9 @@ class TelegramBot:
             f'{competitor_price:.4f}'
             if competitor_price is not None else 'N/A'
         )
-        ggsel_api_hint = ''
         if profile_id == 'ggsel':
-            api_base_price = display_price
-            # Для GGSEL API часто возвращает округлённую "базу" (например 0.3300),
-            # а фактическая выставленная цена стратегии хранится точнее (0.3349).
-            # В статусе основной линией показываем именно рабочую цену.
-            if target_price is not None:
-                display_price = target_price
-                display_price_str = f'{display_price:.4f}'
             display_price_label = '💰 Моя цена'
             target_price_label = '🎯 Цена по стратегии'
-            if (
-                target_price is not None
-                and api_base_price is not None
-                and abs(float(api_base_price) - float(target_price)) >= 0.0001
-            ):
-                ggsel_api_hint = (
-                    '\n'
-                    f'📡 API (округл.): {self._fmt_price(api_base_price)}₽'
-                )
         else:
             display_price_label = '💰 Моя цена'
             target_price_label = '🎯 Выставлено ботом'
@@ -1698,7 +1698,6 @@ class TelegramBot:
 🧪 Метод парсинга: {parse_method}
 🕓 Последний парс: {parse_at_str}
 📡 Мониторинг: {monitor_mode}
-{ggsel_api_hint}
 {chat_block}
 
 🔔 Авто: {'ВКЛ' if state.get('auto_mode', True) else 'ВЫКЛ'}

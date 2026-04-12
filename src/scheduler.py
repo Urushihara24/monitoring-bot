@@ -246,7 +246,12 @@ class Scheduler:
         )
         return None
 
-    def _read_current_price(self, runtime=None) -> Optional[float]:
+    def _read_current_price(
+        self,
+        runtime=None,
+        *,
+        allow_low_precision_fallback: bool = True,
+    ) -> Optional[float]:
         """
         Читает текущую цену в приоритете:
         GGSEL: карточка товара (unit) -> seller API.
@@ -256,6 +261,9 @@ class Scheduler:
             card_price = self._read_ggsel_card_unit_price(runtime)
             if card_price is not None:
                 return card_price
+
+            if not allow_low_precision_fallback:
+                return None
 
             get_public_price = getattr(self.api_client, 'get_public_price', None)
             if callable(get_public_price):
@@ -3095,10 +3103,32 @@ class Scheduler:
                 success = await self._update_price(decision.price, decision)
                 if success:
                     applied_price = decision.price
+                    verification_price: Optional[float] = None
                     try:
-                        verified_price = self._read_current_price(runtime=runtime)
-                        if verified_price is not None:
-                            applied_price = round(float(verified_price), 4)
+                        verified_price_precise = self._read_current_price(
+                            runtime=runtime,
+                            allow_low_precision_fallback=False,
+                        )
+                        if verified_price_precise is not None:
+                            verified_precise_value = round(
+                                float(verified_price_precise),
+                                4,
+                            )
+                            applied_price = verified_precise_value
+                            verification_price = verified_precise_value
+                        else:
+                            # Для no-effect проверки допускаем fallback на
+                            # менее точные источники (API/публичная база),
+                            # но не используем их как "фактическую" цену.
+                            verified_price_fallback = self._read_current_price(
+                                runtime=runtime,
+                                allow_low_precision_fallback=True,
+                            )
+                            if verified_price_fallback is not None:
+                                verification_price = round(
+                                    float(verified_price_fallback),
+                                    4,
+                                )
                     except Exception as e:
                         logger.warning(
                             '[%s] Не удалось перечитать цену после update: %s',
@@ -3116,9 +3146,10 @@ class Scheduler:
                     # В таком случае не считаем это обновлением и не шлём success.
                     if (
                         previous_price is not None
+                        and verification_price is not None
                         and abs(float(requested_price) - float(previous_price))
                         >= ignore_delta
-                        and abs(float(applied_price) - float(previous_price))
+                        and abs(float(verification_price) - float(previous_price))
                         < ignore_delta
                     ):
                         logger.warning(
@@ -3127,11 +3158,11 @@ class Scheduler:
                             self.profile_name,
                             float(previous_price),
                             float(requested_price),
-                            float(applied_price),
+                            float(verification_price),
                         )
                         storage.update_state(
                             profile_id=self.profile_id,
-                            last_price=applied_price,
+                            last_price=verification_price,
                         )
                         storage.increment_skip_count(profile_id=self.profile_id)
                         await self._notify_error_throttled(
