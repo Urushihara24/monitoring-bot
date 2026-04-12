@@ -534,13 +534,15 @@ class GGSELClient:
 
     def get_public_price(self, product_id: int, timeout: int = 10) -> Optional[float]:
         """
-        Получение цены с публичной витрины GGSEL (api4).
+        Получение цены с публичной витрины GGSEL.
 
         Для ряда товаров витрина и seller endpoint могут различаться
         из-за внутренних округлений/надбавок; для статуса используем
         именно витринную цену.
         """
-        url = f"https://api4.ggsel.com/goods/{int(product_id)}"
+        # Исторический host api4.ggsel.com больше не обслуживает endpoint
+        # /goods/<id>; рабочий публичный API переехал на api.ggsel.com.
+        url = f"https://api.ggsel.com/goods/{int(product_id)}"
         response = self._request_with_retry(
             "GET",
             url,

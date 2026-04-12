@@ -591,10 +591,17 @@ class RSCParser:
         )
 
     def _extract_goods_id(self, url: str) -> Optional[str]:
-        match = re.search(r'-(\d+)(?:[/?#]|$)', url)
-        if not match:
-            return None
-        return match.group(1)
+        patterns = (
+            r'-(\d+)(?:[/?#]|$)',
+            r'/catalog/product/(\d+)(?:[/?#]|$)',
+            r'/goods/(\d+)(?:[/?#]|$)',
+            r'/product/(\d+)(?:[/?#]|$)',
+        )
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                return match.group(1)
+        return None
 
     def _is_ggsel_domain(self, url: str) -> bool:
         try:
@@ -777,7 +784,7 @@ class RSCParser:
 
     def _parse_with_goods_api(self, url: str, timeout: int) -> ParseResult:
         """
-        Fallback через публичный endpoint api4.ggsel.com/goods/<id>.
+        Fallback через публичный endpoint api.ggsel.com/goods/<id>.
         """
         method = 'api4_goods'
         goods_id = self._extract_goods_id(url)
@@ -789,7 +796,7 @@ class RSCParser:
                 method=method,
             )
 
-        api_url = f'https://api4.ggsel.com/goods/{goods_id}'
+        api_url = f'https://api.ggsel.com/goods/{goods_id}'
         headers = {
             'User-Agent': self._get_random_user_agent(),
             'Accept': 'application/json,text/plain,*/*',

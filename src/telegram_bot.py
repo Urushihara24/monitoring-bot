@@ -1598,9 +1598,26 @@ class TelegramBot:
         )
         get_my_price = getattr(client, 'get_my_price', None) if client else None
         if profile_id == 'ggsel':
-            # Для GGSEL основная цена в статусе = рабочая цена стратегии/state.
-            # Seller API часто отдаёт "базу" с иным округлением.
+            # Для GGSEL в первую очередь показываем фактическую витринную цену
+            # (публичный goods API), а не округлённую seller-базу.
             display_price = target_price
+            get_public_price = (
+                getattr(client, 'get_public_price', None) if client else None
+            )
+            if callable(get_public_price) and product_id > 0:
+                try:
+                    public_price = await asyncio.to_thread(
+                        get_public_price,
+                        product_id,
+                    )
+                    if public_price is not None:
+                        display_price = float(public_price)
+                except Exception as e:
+                    logger.warning(
+                        '[%s] Не удалось получить публичную цену для статуса: %s',
+                        profile_name,
+                        e,
+                    )
             if display_price is None:
                 if callable(get_my_price) and product_id > 0:
                     try:
