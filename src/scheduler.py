@@ -86,6 +86,10 @@ _NON_EMPTY_CHAT_DENY_MARKERS = (
 _BUYER_CODE_TOKEN_RE = re.compile(
     r'[A-Za-z0-9][A-Za-z0-9-]{7,39}',
 )
+_CHAT_PERMS_CACHE_OK_SECONDS = 300
+_CHAT_PERMS_CACHE_RATE_LIMIT_SECONDS = 900
+_CHAT_PERMS_CACHE_FAIL_SECONDS = 300
+_CHAT_PERMS_CACHE_TRANSIENT_SECONDS = 120
 
 
 class Scheduler:
@@ -133,6 +137,9 @@ class Scheduler:
         self._env_cookies_signature: Optional[tuple[str, int, int]] = None
         self._env_cookies_cached_value: Optional[str] = None
         self._own_product_url_cache: Optional[str] = None
+        self._chat_perms_checked_at: Optional[datetime] = None
+        self._chat_perms_cached_ok: Optional[bool] = None
+        self._chat_perms_cached_desc: str = ''
 
     def _runtime(self):
         return storage.get_runtime_config(
@@ -1812,6 +1819,63 @@ class Scheduler:
             return True
         return (datetime.now() - last_run).total_seconds() >= interval_seconds
 
+    def _chat_perms_cache_ttl_seconds(
+        self,
+        *,
+        ok: bool,
+        desc: str,
+    ) -> int:
+        text = (desc or '').lower()
+        if ok:
+            return _CHAT_PERMS_CACHE_OK_SECONDS
+        if 'http_429' in text or 'rate' in text:
+            return _CHAT_PERMS_CACHE_RATE_LIMIT_SECONDS
+        if 'no_response' in text:
+            return _CHAT_PERMS_CACHE_TRANSIENT_SECONDS
+        return _CHAT_PERMS_CACHE_FAIL_SECONDS
+
+    def _chat_perms_status_cached(self) -> tuple[bool, str]:
+        now = datetime.now()
+        if (
+            self._chat_perms_checked_at is not None
+            and self._chat_perms_cached_ok is not None
+        ):
+            ttl_seconds = self._chat_perms_cache_ttl_seconds(
+                ok=bool(self._chat_perms_cached_ok),
+                desc=self._chat_perms_cached_desc,
+            )
+            age = (now - self._chat_perms_checked_at).total_seconds()
+            if age < float(ttl_seconds):
+                return (
+                    bool(self._chat_perms_cached_ok),
+                    self._chat_perms_cached_desc,
+                )
+
+        perms_ok, perms_desc = self.api_client.get_chat_perms_status(
+            timeout=8,
+            include_send_probe=False,
+        )
+        # DigiSeller chat endpoints периодически отдают no_response
+        # из-за временной недоступности upstream. Делаем один повтор
+        # перед тем как блокировать авто-инструкции.
+        if not perms_ok and 'no_response' in (perms_desc or '').lower():
+            try:
+                retry_ok, retry_desc = self.api_client.get_chat_perms_status(
+                    timeout=12,
+                    include_send_probe=False,
+                )
+                if retry_ok:
+                    perms_ok, perms_desc = retry_ok, retry_desc
+                else:
+                    perms_desc = retry_desc or perms_desc
+            except Exception:
+                pass
+
+        self._chat_perms_checked_at = now
+        self._chat_perms_cached_ok = bool(perms_ok)
+        self._chat_perms_cached_desc = str(perms_desc or '')
+        return bool(perms_ok), str(perms_desc or '')
+
     def _normalize_compare_text(self, raw: Any) -> str:
         text = self._sanitize_message(raw).lower()
         return re.sub(r'\s+', ' ', text).strip()
@@ -2095,28 +2159,19 @@ class Scheduler:
         )
         try:
             if hasattr(self.api_client, 'get_chat_perms_status'):
-                perms_ok, perms_desc = self.api_client.get_chat_perms_status(
-                    timeout=8,
-                    include_send_probe=False,
-                )
-                # DigiSeller chat endpoints периодически отдают no_response
-                # из-за временной недоступности upstream. Делаем один повтор
-                # перед тем как блокировать авто-инструкции.
-                if not perms_ok and 'no_response' in (perms_desc or '').lower():
-                    try:
-                        retry_ok, retry_desc = self.api_client.get_chat_perms_status(
-                            timeout=12,
-                            include_send_probe=False,
-                        )
-                        if retry_ok:
-                            perms_ok, perms_desc = retry_ok, retry_desc
-                        else:
-                            perms_desc = retry_desc or perms_desc
-                    except Exception:
-                        pass
+                perms_ok, perms_desc = self._chat_perms_status_cached()
                 if not perms_ok:
-                    is_transient = 'no_response' in (perms_desc or '').lower()
-                    if is_transient:
+                    perms_lower = (perms_desc or '').lower()
+                    is_transient = 'no_response' in perms_lower
+                    is_rate_limited = 'http_429' in perms_lower
+                    if is_rate_limited:
+                        message = (
+                            'Rate limit chat API для авто-инструкций: '
+                            f'{perms_desc}'
+                        )
+                        alert_key = 'chat_autoreply_api_rate_limited'
+                        cooldown_seconds = 900
+                    elif is_transient:
                         message = (
                             'Временная недоступность chat API для '
                             f'авто-инструкций: {perms_desc}'

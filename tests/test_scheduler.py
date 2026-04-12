@@ -2638,6 +2638,57 @@ async def test_scheduler_digiseller_chat_autoreply_perms_no_response_retry_ok(
 
 
 @pytest.mark.asyncio
+async def test_scheduler_digiseller_chat_autoreply_perms_rate_limit_cached(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    class RateLimitedPermsApi(DummyChatApiClient):
+        def __init__(self):
+            super().__init__()
+            self.perms_calls = 0
+
+        def get_chat_perms_status(self, timeout=8, include_send_probe=False):
+            self.perms_calls += 1
+            return (
+                False,
+                'chats.read=OK[http_200]; messages.read=FAIL[http_429]; '
+                'purchase.read=OK[http_200]',
+            )
+
+    bot = DummyTelegramBot()
+    api = RateLimitedPermsApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+    scheduler._should_run_chat_autoreply_now = lambda: True
+
+    await scheduler._run_chat_autoreply()
+    await scheduler._run_chat_autoreply()
+
+    assert api.perms_calls == 1
+    last_error = test_storage.get_runtime_setting(
+        'CHAT_AUTOREPLY_LAST_ERROR',
+        profile_id='digiseller',
+    )
+    assert 'http_429' in (last_error or '')
+    assert len(bot.errors) == 1
+
+
+@pytest.mark.asyncio
 async def test_scheduler_digiseller_chat_autoreply_skips_duplicate_by_messages(
     monkeypatch,
     tmp_path,
