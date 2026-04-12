@@ -785,6 +785,8 @@ class RSCParser:
     def _parse_with_goods_api(self, url: str, timeout: int) -> ParseResult:
         """
         Fallback через публичный endpoint api.ggsel.com/goods/<id>.
+        Метод исторически называется api4_goods и оставлен
+        для совместимости метрик/статуса.
         """
         method = 'api4_goods'
         goods_id = self._extract_goods_id(url)

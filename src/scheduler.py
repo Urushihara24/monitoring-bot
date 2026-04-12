@@ -197,7 +197,7 @@ class Scheduler:
     def _read_ggsel_card_unit_price(self, runtime) -> Optional[float]:
         """
         Читает цену собственного GGSEL товара через HTML карточку
-        (unit price за 1 V-Bucks), без fallback на api4.
+        (unit price за 1 V-Bucks), без fallback на публичный API.
         """
         product_url = self._resolve_own_product_url()
         if not product_url:
@@ -350,13 +350,19 @@ class Scheduler:
     ):
         current_runtime = runtime or self._runtime()
         if not getattr(current_runtime, 'NOTIFY_ERRORS', True):
-            logger.info(
-                '[%s] Telegram-уведомление об ошибке отключено '
-                '(NOTIFY_ERRORS=false): key=%s, message=%s',
-                self.profile_name,
-                key,
-                message,
-            )
+            muted_key = f'notify_errors_muted:{key}'
+            if storage.should_send_alert(
+                key=muted_key,
+                cooldown_seconds=max(60, cooldown_seconds),
+                profile_id=self.profile_id,
+            ):
+                logger.info(
+                    '[%s] Telegram-уведомление об ошибке отключено '
+                    '(NOTIFY_ERRORS=false): key=%s, message=%s',
+                    self.profile_name,
+                    key,
+                    message,
+                )
             return
         if storage.should_send_alert(
             key=key,
@@ -365,10 +371,31 @@ class Scheduler:
         ):
             await self.telegram_bot.notify_error(self._tag(message))
         else:
-            logger.info(
+            logger.debug(
                 '[%s] Уведомление подавлено throttling: key=%s',
                 self.profile_name,
                 key,
+            )
+
+    def _log_warning_throttled(
+        self,
+        *,
+        key: str,
+        message: str,
+        cooldown_seconds: int = 300,
+    ) -> None:
+        log_key = f'log_warning:{key}'
+        if storage.should_send_alert(
+            key=log_key,
+            cooldown_seconds=cooldown_seconds,
+            profile_id=self.profile_id,
+        ):
+            logger.warning('[%s] %s', self.profile_name, message)
+        else:
+            logger.debug(
+                '[%s] Лог предупреждения подавлен throttling: key=%s',
+                self.profile_name,
+                log_key,
             )
 
     async def _notify_skip_throttled(
@@ -2107,7 +2134,11 @@ class Scheduler:
                         chat_keys.KEY_LAST_ERROR,
                         message,
                     )
-                    logger.warning('[%s] %s', self.profile_name, message)
+                    self._log_warning_throttled(
+                        key=alert_key,
+                        message=message,
+                        cooldown_seconds=cooldown_seconds,
+                    )
                     await self._notify_error_throttled(
                         key=alert_key,
                         message=message,
