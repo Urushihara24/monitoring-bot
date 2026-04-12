@@ -334,6 +334,85 @@ def test_tracked_products_fallback_to_default_product(tmp_path):
     ]
 
 
+def test_purge_removed_product_runtime_data(tmp_path):
+    db = tmp_path / 'state.db'
+    storage = Storage(db_path=str(db))
+
+    storage.set_runtime_setting(
+        'MODE',
+        'DUMPING',
+        profile_id='ggsel:4682996',
+    )
+    storage.set_runtime_setting(
+        'CHAT_AUTOREPLY_POLICY:4682996',
+        'ON_ORDER',
+        profile_id='ggsel',
+    )
+    storage.set_runtime_setting(
+        'CHAT_AUTOREPLY_RULES:4682996',
+        '{"version":1,"rules":{}}',
+        profile_id='ggsel',
+    )
+    storage.update_state(
+        profile_id='ggsel:4682996',
+        last_price=123.4567,
+    )
+    storage.add_price_history(
+        1.0,
+        2.0,
+        3.0,
+        reason='test',
+        profile_id='ggsel:4682996',
+    )
+    storage.should_send_alert(
+        'x',
+        cooldown_seconds=60,
+        profile_id='ggsel:4682996',
+    )
+
+    stats = storage.purge_product_runtime_data(
+        profile_id='ggsel',
+        product_id=4682996,
+    )
+    assert stats['runtime_profile_settings'] >= 1
+    assert stats['profile_state'] >= 1
+    assert stats['price_history'] >= 1
+    assert stats['alert_state'] >= 1
+    assert stats['parent_chat_keys'] >= 2
+
+    with sqlite3.connect(str(db)) as conn:
+        runtime_rows = conn.execute(
+            '''
+            SELECT COUNT(*) FROM runtime_settings
+            WHERE profile_id = ?
+            ''',
+            ('ggsel:4682996',),
+        ).fetchone()[0]
+        assert runtime_rows == 0
+
+        parent_chat_rows = conn.execute(
+            '''
+            SELECT COUNT(*) FROM runtime_settings
+            WHERE profile_id = ? AND key IN (?, ?)
+            ''',
+            (
+                'ggsel',
+                'CHAT_AUTOREPLY_POLICY:4682996',
+                'CHAT_AUTOREPLY_RULES:4682996',
+            ),
+        ).fetchone()[0]
+        assert parent_chat_rows == 0
+
+        profile_state_rows = conn.execute(
+            '''
+            SELECT COUNT(*) FROM profile_state
+            WHERE profile_id = ?
+            ''',
+            ('ggsel:4682996',),
+        ).fetchone()[0]
+        assert profile_state_rows == 0
+
+
 def test_alert_throttle_per_profile(tmp_path):
     db = tmp_path / 'state.db'
     storage = Storage(db_path=str(db))

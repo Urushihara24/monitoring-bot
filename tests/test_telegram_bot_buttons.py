@@ -1444,6 +1444,7 @@ async def test_pending_remove_product_success_switches_active(monkeypatch):
 
     captured = {}
     cleanup_calls = []
+    purge_calls = []
 
     def fake_remove_tracked_product(*, profile_id='ggsel', product_id=0):
         captured['profile_id'] = profile_id
@@ -1471,6 +1472,19 @@ async def test_pending_remove_product_success_switches_active(monkeypatch):
             or True
         ),
     )
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'purge_product_runtime_data',
+        lambda profile_id='ggsel', product_id=0: (
+            purge_calls.append(
+                {
+                    'profile_id': profile_id,
+                    'product_id': product_id,
+                }
+            )
+            or {}
+        ),
+    )
     update = make_update('active')
 
     await bot.handle_pending_action(100, 1, 'active', update)
@@ -1484,11 +1498,39 @@ async def test_pending_remove_product_success_switches_active(monkeypatch):
             'profile_id': 'ggsel:4697439',
         }
     ]
+    assert purge_calls == [
+        {
+            'profile_id': 'ggsel',
+            'product_id': 4697439,
+        }
+    ]
     assert bot.profile_products['ggsel'] == 5104800
     assert 100 not in bot.pending_actions
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert args[0] == '✅ Товар удалён: 4697439'
+
+
+def test_tracked_products_realigns_active_product(monkeypatch):
+    bot = make_bot()
+    bot.profile_products['ggsel'] = 4682996
+    runtime = make_runtime(['https://example.com/item'])
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'list_tracked_products',
+        lambda **kwargs: [
+            {
+                'product_id': 4697439,
+                'competitor_urls': ['https://example.com/item'],
+                'enabled': True,
+            }
+        ],
+    )
+
+    tracked = bot._tracked_products('ggsel', runtime=runtime)
+
+    assert tracked[0]['product_id'] == 4697439
+    assert bot.profile_products['ggsel'] == 4697439
 
 
 @pytest.mark.asyncio

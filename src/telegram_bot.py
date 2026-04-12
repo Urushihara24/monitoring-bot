@@ -379,11 +379,19 @@ class TelegramBot:
 
     def _tracked_products(self, profile_id: str, runtime=None) -> list[dict]:
         current_runtime = runtime or self._runtime(profile_id)
-        return storage.list_tracked_products(
+        tracked = storage.list_tracked_products(
             profile_id=profile_id,
             default_product_id=self._product_id(profile_id),
             default_urls=getattr(current_runtime, 'COMPETITOR_URLS', []),
         )
+        tracked_ids: list[int] = []
+        for item in tracked:
+            product_id = int(item.get('product_id') or 0)
+            if product_id > 0 and product_id not in tracked_ids:
+                tracked_ids.append(product_id)
+        if tracked_ids and self._product_id(profile_id) not in tracked_ids:
+            self.profile_products[profile_id] = tracked_ids[0]
+        return tracked
 
     def _tracked_product_ids(self, profile_id: str, runtime=None) -> list[int]:
         tracked_products = self._tracked_products(profile_id, runtime=runtime)
@@ -2859,6 +2867,10 @@ class TelegramBot:
                 user_id=user_id,
                 source='telegram',
                 profile_id=target_runtime_profile_id,
+            )
+            storage.purge_product_runtime_data(
+                profile_id=profile_id,
+                product_id=target_product_id,
             )
 
             if self._product_id(profile_id) == target_product_id:

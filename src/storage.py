@@ -1123,6 +1123,77 @@ class Storage:
             conn.commit()
             return cursor.rowcount > 0
 
+    def purge_product_runtime_data(
+        self,
+        *,
+        profile_id: str = DEFAULT_PROFILE,
+        product_id: int,
+    ) -> dict[str, int]:
+        """
+        Удаляет runtime-хвосты удалённого товара:
+        - per-product runtime profile (`<profile>:<product_id>`)
+        - per-product состояние/историю цен
+        - product-scoped chat rules/policy в родительском профиле
+        """
+        profile = self._normalize_profile(profile_id)
+        normalized_product_id = int(product_id or 0)
+        if normalized_product_id <= 0:
+            return {
+                'runtime_profile_settings': 0,
+                'profile_state': 0,
+                'price_history': 0,
+                'alert_state': 0,
+                'parent_chat_keys': 0,
+            }
+
+        runtime_profile = f'{profile}:{normalized_product_id}'
+        policy_key = f'CHAT_AUTOREPLY_POLICY:{normalized_product_id}'
+        rules_key = f'CHAT_AUTOREPLY_RULES:{normalized_product_id}'
+        with sqlite3.connect(str(self.db_path)) as conn:
+            runtime_deleted = conn.execute(
+                '''
+                DELETE FROM runtime_settings
+                WHERE profile_id = ?
+                ''',
+                (runtime_profile,),
+            ).rowcount
+            state_deleted = conn.execute(
+                '''
+                DELETE FROM profile_state
+                WHERE profile_id = ?
+                ''',
+                (runtime_profile,),
+            ).rowcount
+            price_history_deleted = conn.execute(
+                '''
+                DELETE FROM price_history
+                WHERE profile_id = ?
+                ''',
+                (runtime_profile,),
+            ).rowcount
+            alert_deleted = conn.execute(
+                '''
+                DELETE FROM alert_state
+                WHERE profile_id = ?
+                ''',
+                (runtime_profile,),
+            ).rowcount
+            parent_chat_deleted = conn.execute(
+                '''
+                DELETE FROM runtime_settings
+                WHERE profile_id = ? AND key IN (?, ?)
+                ''',
+                (profile, policy_key, rules_key),
+            ).rowcount
+            conn.commit()
+        return {
+            'runtime_profile_settings': runtime_deleted,
+            'profile_state': state_deleted,
+            'price_history': price_history_deleted,
+            'alert_state': alert_deleted,
+            'parent_chat_keys': parent_chat_deleted,
+        }
+
     def get_runtime_config(
         self,
         base_config,
