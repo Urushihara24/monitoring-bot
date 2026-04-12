@@ -375,6 +375,40 @@ def test_parse_url_uses_api_fallback(monkeypatch):
     assert result.method == 'api4_goods'
 
 
+def test_parse_url_prioritizes_api4_for_ggsel_domain(monkeypatch):
+    parser = RSCParser(max_retries=0)
+    calls = {'stealth': 0}
+
+    monkeypatch.setattr(
+        parser,
+        '_parse_with_goods_api',
+        lambda *_a, **_kw: ParseResult(
+            success=True,
+            price=0.3333,
+            method='api4_goods',
+        ),
+    )
+
+    def fake_stealth(*_a, **_kw):
+        calls['stealth'] += 1
+        return ParseResult(
+            success=False,
+            error='should_not_call_stealth',
+            method='stealth_requests',
+        )
+
+    monkeypatch.setattr(parser, '_parse_with_stealth', fake_stealth)
+
+    result = parser.parse_url(
+        'https://ggsel.net/catalog/product/item-123',
+        timeout=3,
+    )
+
+    assert result.success
+    assert result.method == 'api4_goods'
+    assert calls['stealth'] == 0
+
+
 def test_parse_url_failed_preserves_reason(monkeypatch):
     parser = RSCParser(max_retries=0)
     monkeypatch.setattr(

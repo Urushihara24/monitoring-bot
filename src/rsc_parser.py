@@ -890,6 +890,50 @@ class RSCParser:
                 return direct
             self._inc_method_fail(direct.method)
 
+        if self._is_ggsel_domain(url):
+            # Исторически основной источник цены для GGSEL в этом проекте.
+            api_result = self._parse_with_goods_api(url, timeout)
+            if api_result.success:
+                elapsed = time.time() - started
+                api_result.elapsed_seconds = elapsed
+                self.success_count += 1
+                self._inc_method_success(api_result.method)
+                logger.info(
+                    '🎉 ПАРСИНГ УСПЕШЕН (api4_goods): цена=%s₽, время=%.2fs',
+                    api_result.price,
+                    elapsed,
+                )
+                return api_result
+            self._inc_method_fail(api_result.method)
+
+            result = self._parse_with_stealth(url, timeout, cookies)
+            if result.success:
+                elapsed = time.time() - started
+                result.elapsed_seconds = elapsed
+                self.success_count += 1
+                self._inc_method_success(result.method)
+                logger.info(
+                    '🎉 ПАРСИНГ УСПЕШЕН (stealth): цена=%s₽, время=%.2fs',
+                    result.price,
+                    elapsed,
+                )
+                return result
+
+            self._inc_method_fail(result.method)
+            self.fail_count += 1
+            elapsed = time.time() - started
+            if api_result.error:
+                base_error = result.error or 'stealth parse failed'
+                result.error = f'{base_error} | {api_result.error}'
+            result.elapsed_seconds = elapsed
+            logger.warning(
+                '❌ ПАРСИНГ НЕ УДАЛСЯ: время=%.2fs, fail_count=%s, error=%s',
+                elapsed,
+                self.fail_count,
+                result.error,
+            )
+            return result
+
         result = self._parse_with_stealth(url, timeout, cookies)
         if result.success:
             elapsed = time.time() - started
@@ -904,38 +948,8 @@ class RSCParser:
             return result
 
         self._inc_method_fail(result.method)
-
-        if not self._is_ggsel_domain(url):
-            self.fail_count += 1
-            elapsed = time.time() - started
-            result.elapsed_seconds = elapsed
-            logger.warning(
-                '❌ ПАРСИНГ НЕ УДАЛСЯ: время=%.2fs, fail_count=%s, error=%s',
-                elapsed,
-                self.fail_count,
-                result.error,
-            )
-            return result
-
-        api_result = self._parse_with_goods_api(url, timeout)
-        if api_result.success:
-            elapsed = time.time() - started
-            api_result.elapsed_seconds = elapsed
-            self.success_count += 1
-            self._inc_method_success(api_result.method)
-            logger.info(
-                '🎉 ПАРСИНГ УСПЕШЕН (api fallback): цена=%s₽, время=%.2fs',
-                api_result.price,
-                elapsed,
-            )
-            return api_result
-        self._inc_method_fail(api_result.method)
-
         self.fail_count += 1
         elapsed = time.time() - started
-        if api_result.error:
-            base_error = result.error or 'stealth parse failed'
-            result.error = f'{base_error} | {api_result.error}'
         result.elapsed_seconds = elapsed
         logger.warning(
             '❌ ПАРСИНГ НЕ УДАЛСЯ: время=%.2fs, fail_count=%s, error=%s',

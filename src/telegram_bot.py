@@ -1641,9 +1641,26 @@ class TelegramBot:
             f'{competitor_price:.4f}'
             if competitor_price is not None else 'N/A'
         )
+        ggsel_api_hint = ''
         if profile_id == 'ggsel':
-            display_price_label = '💰 Цена API (база)'
+            api_base_price = display_price
+            # Для GGSEL API часто возвращает округлённую "базу" (например 0.3300),
+            # а фактическая выставленная цена стратегии хранится точнее (0.3349).
+            # В статусе основной линией показываем именно рабочую цену.
+            if target_price is not None:
+                display_price = target_price
+                display_price_str = f'{display_price:.4f}'
+            display_price_label = '💰 Моя цена'
             target_price_label = '🎯 Цена по стратегии'
+            if (
+                target_price is not None
+                and api_base_price is not None
+                and abs(float(api_base_price) - float(target_price)) >= 0.0001
+            ):
+                ggsel_api_hint = (
+                    '\n'
+                    f'📡 API (округл.): {self._fmt_price(api_base_price)}₽'
+                )
         else:
             display_price_label = '💰 Моя цена'
             target_price_label = '🎯 Выставлено ботом'
@@ -1681,6 +1698,7 @@ class TelegramBot:
 🧪 Метод парсинга: {parse_method}
 🕓 Последний парс: {parse_at_str}
 📡 Мониторинг: {monitor_mode}
+{ggsel_api_hint}
 {chat_block}
 
 🔔 Авто: {'ВКЛ' if state.get('auto_mode', True) else 'ВЫКЛ'}
