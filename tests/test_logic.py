@@ -117,6 +117,35 @@ def test_follow_sets_same_price_as_competitor_with_4dp():
     assert decision.reason.startswith('follow')
 
 
+def test_follow_ignores_min_max_caps():
+    cfg = make_cfg(
+        MODE='FOLLOW',
+        MIN_PRICE=0.25,
+        MAX_PRICE=0.40,
+        MAX_DOWN_STEP=0.0,
+        HARD_FLOOR_ENABLED=True,
+    )
+    decision_high = calculate_price(
+        competitor_prices=[1.2345],
+        current_price=0.31,
+        last_update=None,
+        config=cfg,
+    )
+    assert decision_high.action == 'update'
+    assert decision_high.price == 1.2345
+    assert 'max_capped' not in decision_high.reason
+
+    decision_low = calculate_price(
+        competitor_prices=[0.1234],
+        current_price=0.31,
+        last_update=None,
+        config=cfg,
+    )
+    assert decision_low.action == 'update'
+    assert decision_low.price == 0.1234
+    assert 'hard_floor_min' not in decision_low.reason
+
+
 def test_raise_uses_showcase_rounding_then_plus_value():
     cfg = make_cfg(MODE='RAISE', MAX_DOWN_STEP=0.0)
     decision = calculate_price(
@@ -143,6 +172,35 @@ def test_dumping_uses_showcase_rounding_then_minus_value():
     assert decision.reason.startswith('dumping_showcase')
 
 
+def test_dumping_ignores_min_max_caps_for_modern_mode():
+    cfg = make_cfg(
+        MODE='DUMPING',
+        MIN_PRICE=0.25,
+        MAX_PRICE=0.40,
+        MAX_DOWN_STEP=0.03,
+        HARD_FLOOR_ENABLED=True,
+    )
+    decision_high = calculate_price(
+        competitor_prices=[1.205],
+        current_price=1.0,
+        last_update=None,
+        config=cfg,
+    )
+    assert decision_high.action == 'update'
+    assert decision_high.price == 1.2049
+    assert 'max_capped' not in decision_high.reason
+
+    decision_low = calculate_price(
+        competitor_prices=[0.10],
+        current_price=0.30,
+        last_update=None,
+        config=cfg,
+    )
+    assert decision_low.action == 'update'
+    assert decision_low.price == 0.0949
+    assert 'hard_floor_min' not in decision_low.reason
+
+
 def test_raise_on_showcase_036_range():
     cfg = make_cfg(MODE='RAISE', MAX_DOWN_STEP=0.0)
     decision = calculate_price(
@@ -153,6 +211,19 @@ def test_raise_on_showcase_036_range():
     )
     assert decision.action == 'update'
     assert decision.price == 0.3649
+
+
+def test_raise_ignores_max_cap_for_modern_mode():
+    cfg = make_cfg(MODE='RAISE', MAX_PRICE=0.40, MAX_DOWN_STEP=0.0)
+    decision = calculate_price(
+        competitor_prices=[1.2005],
+        current_price=1.0,
+        last_update=None,
+        config=cfg,
+    )
+    assert decision.action == 'update'
+    assert decision.price == 1.2049
+    assert 'max_capped' not in decision.reason
 
 
 def test_cooldown_blocks_without_rebound():

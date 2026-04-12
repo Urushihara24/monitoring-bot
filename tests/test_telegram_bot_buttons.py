@@ -1223,6 +1223,7 @@ async def test_pending_manage_products_add(monkeypatch):
     captured = {}
     captured_runtime_urls = {}
     captured_auto_mode = {}
+    captured_mode = {}
 
     def fake_upsert_tracked_product(
         *,
@@ -1268,6 +1269,26 @@ async def test_pending_manage_products_add(monkeypatch):
                 }
             )
         ),
+    )
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_runtime_setting',
+        lambda key, value, user_id=None, source='system', profile_id='ggsel': (
+            captured_mode.update(
+                {
+                    'key': key,
+                    'value': value,
+                    'user_id': user_id,
+                    'source': source,
+                    'profile_id': profile_id,
+                }
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'get_last_setting_change',
+        lambda key, profile_id='ggsel': None,
     )
     monkeypatch.setattr(
         telegram_module.storage,
@@ -1321,6 +1342,13 @@ async def test_pending_manage_products_add(monkeypatch):
         'user_id': 1,
         'source': 'telegram_add_product',
     }
+    assert captured_mode == {
+        'key': 'MODE',
+        'value': 'FOLLOW',
+        'user_id': 1,
+        'source': 'telegram_add_product',
+        'profile_id': 'ggsel:4697439',
+    }
     assert 100 not in bot.pending_actions
     assert 100 not in bot.manage_products_context
     update.message.reply_text.assert_awaited_once()
@@ -1343,6 +1371,7 @@ async def test_pending_manage_products_add_inline_pair(monkeypatch):
     captured = {}
     captured_runtime_urls = {}
     captured_auto_mode = {}
+    captured_mode = {}
 
     def fake_upsert_tracked_product(
         *,
@@ -1391,6 +1420,26 @@ async def test_pending_manage_products_add_inline_pair(monkeypatch):
     )
     monkeypatch.setattr(
         telegram_module.storage,
+        'set_runtime_setting',
+        lambda key, value, user_id=None, source='system', profile_id='ggsel': (
+            captured_mode.update(
+                {
+                    'key': key,
+                    'value': value,
+                    'user_id': user_id,
+                    'source': source,
+                    'profile_id': profile_id,
+                }
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'get_last_setting_change',
+        lambda key, profile_id='ggsel': None,
+    )
+    monkeypatch.setattr(
+        telegram_module.storage,
         'normalize_competitor_urls',
         lambda urls: [u.strip() for u in urls if u.strip()],
     )
@@ -1420,6 +1469,13 @@ async def test_pending_manage_products_add_inline_pair(monkeypatch):
         'profile_id': 'ggsel:4697439',
         'user_id': 1,
         'source': 'telegram_add_product',
+    }
+    assert captured_mode == {
+        'key': 'MODE',
+        'value': 'FOLLOW',
+        'user_id': 1,
+        'source': 'telegram_add_product',
+        'profile_id': 'ggsel:4697439',
     }
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args

@@ -50,6 +50,11 @@ def _normalize_pricing_mode(mode: object) -> str:
     return normalized if normalized in {'FOLLOW', 'DUMPING', 'RAISE'} else 'DUMPING'
 
 
+def _is_legacy_limit_mode(mode: object) -> bool:
+    raw = str(mode or '').strip().upper()
+    return raw in {'FIX', 'FIXED', 'STEP', 'STEP_UP', 'ФИКС', 'ШАГ'}
+
+
 @dataclass
 class PriceDecision:
     """Решение о цене"""
@@ -186,7 +191,9 @@ def calculate_price(
         )
     
     # === ШАГ 4: Рассчитать целевую цену по выбранному режиму ===
-    mode = _normalize_pricing_mode(getattr(config, 'MODE', 'DUMPING'))
+    raw_mode = getattr(config, 'MODE', 'DUMPING')
+    mode = _normalize_pricing_mode(raw_mode)
+    enforce_limits = _is_legacy_limit_mode(raw_mode)
     if mode == 'FOLLOW':
         new_price = _to_price(min_competitor_price_d)
         reason = 'follow'
@@ -194,6 +201,44 @@ def calculate_price(
             'Режим FOLLOW: цена конкурента %s -> %s',
             min_competitor_price,
             new_price,
+        )
+        # Для режима "Следование" не применяем MIN/MAX и hard-floor,
+        # чтобы цена шла строго "знак-в-знак" за конкурентом.
+        if last_update and (now - last_update).total_seconds() < config.COOLDOWN_SECONDS:
+            if not (
+                allow_fast_rebound
+                and current_price is not None
+                and new_price > current_price
+            ):
+                logger.info(f'Cooldown активен ({config.COOLDOWN_SECONDS}s)')
+                return PriceDecision(
+                    action='skip',
+                    price=new_price,
+                    reason=f'cooldown_active_{reason}',
+                    old_price=current_price,
+                    competitor_price=min_competitor_price,
+                )
+            reason = f'fast_rebound_{reason}'
+            logger.info('Cooldown bypass для быстрого отката вверх')
+
+        if current_price is not None:
+            delta = abs(new_price - current_price)
+            if delta < config.IGNORE_DELTA:
+                logger.info(f'Delta {delta} < {config.IGNORE_DELTA} → skip')
+                return PriceDecision(
+                    action='skip',
+                    price=new_price,
+                    reason=f'ignore_delta_{reason}',
+                    old_price=current_price,
+                    competitor_price=min_competitor_price,
+                )
+
+        return PriceDecision(
+            action='update',
+            price=new_price,
+            reason=reason,
+            old_price=current_price,
+            competitor_price=min_competitor_price,
         )
     elif mode == 'RAISE':
         rounded_showcase = min_competitor_price_d.quantize(
@@ -230,19 +275,23 @@ def calculate_price(
             new_price,
         )
     
-    # === ШАГ 5: Проверить MAX_PRICE ===
-    if new_price > config.MAX_PRICE:
-        new_price = _to_price(_d(config.MAX_PRICE))
-        reason += f'_max_capped({config.MAX_PRICE})'
-        logger.info(f'Цена ограничена MAX_PRICE: {config.MAX_PRICE}')
+    # Для современных режимов (FOLLOW/DUMPING/RAISE) не применяем
+    # MIN/MAX/hard-floor ограничения, чтобы цена шла строго по формуле режима.
+    # Legacy-режимы FIXED/STEP_UP сохраняют старую защитную семантику.
+    if enforce_limits:
+        # === ШАГ 5: Проверить MAX_PRICE ===
+        if new_price > config.MAX_PRICE:
+            new_price = _to_price(_d(config.MAX_PRICE))
+            reason += f'_max_capped({config.MAX_PRICE})'
+            logger.info(f'Цена ограничена MAX_PRICE: {config.MAX_PRICE}')
 
-    # === ШАГ 6: Применить hard floor / max-down-step ===
-    new_price, reason = _apply_loss_protection(
-        new_price=new_price,
-        current_price=current_price,
-        reason=reason,
-        config=config,
-    )
+        # === ШАГ 6: Применить hard floor / max-down-step ===
+        new_price, reason = _apply_loss_protection(
+            new_price=new_price,
+            current_price=current_price,
+            reason=reason,
+            config=config,
+        )
 
     # === ШАГ 7: Проверить cooldown ===
     if last_update and (now - last_update).total_seconds() < config.COOLDOWN_SECONDS:

@@ -2781,6 +2781,21 @@ class TelegramBot:
                     '\n🛡️ Для нового товара автоцена выключена '
                     '(включается отдельно).'
                 )
+                mode_change = storage.get_last_setting_change(
+                    'MODE',
+                    profile_id=target_runtime_profile_id,
+                )
+                if mode_change is None:
+                    storage.set_runtime_setting(
+                        'MODE',
+                        'FOLLOW',
+                        user_id=user_id,
+                        source='telegram_add_product',
+                        profile_id=target_runtime_profile_id,
+                    )
+                    auto_hint += (
+                        '\n🎯 Дефолтный режим для нового товара: Следование.'
+                    )
             self.profile_products[profile_id] = product_id
             self._clear_pending_action(chat_id)
 
