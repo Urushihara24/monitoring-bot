@@ -349,9 +349,8 @@ class TelegramBot:
         profile_id: str,
         product_id: int,
     ) -> str:
-        base_product_id = int(self.profile_primary_products.get(profile_id, 0))
         normalized_product_id = int(product_id or 0)
-        if normalized_product_id <= 0 or normalized_product_id == base_product_id:
+        if normalized_product_id <= 0:
             return profile_id
         return f'{profile_id}:{normalized_product_id}'
 
@@ -1564,10 +1563,6 @@ class TelegramBot:
         profile_id = profile
         profile_name = self._profile_name(profile_id)
         product_id = self._product_id(profile_id)
-        runtime_profile_id = self._runtime_profile_id_for_product(
-            profile_id,
-            product_id,
-        )
         state = self._state_for_product(profile_id, product_id)
         runtime = self._runtime_for_product(profile_id, product_id)
         tracked_lines = self._format_tracked_products(profile_id, runtime=runtime)
@@ -1690,11 +1685,7 @@ class TelegramBot:
             display_price_label = '💰 Моя цена'
             target_price_label = '🎯 Выставлено ботом'
         chat_block = ''
-        chat_meta = (
-            self._chat_autoreply_meta(profile_id)
-            if runtime_profile_id == profile_id
-            else None
-        )
+        chat_meta = self._chat_autoreply_meta(profile_id)
         if chat_meta:
             chat_block = (
                 '\n'
@@ -1741,10 +1732,6 @@ class TelegramBot:
         profile_id = self._active_profile(chat_id)
         profile_name = self._profile_name(profile_id)
         product_id = self._product_id(profile_id)
-        runtime_profile_id = self._runtime_profile_id_for_product(
-            profile_id,
-            product_id,
-        )
         state = self._state_for_product(profile_id, product_id)
         runtime = self._runtime_for_product(profile_id, product_id)
         tracked_lines = self._format_tracked_products(profile_id, runtime=runtime)
@@ -1765,11 +1752,7 @@ class TelegramBot:
             else 'ВЫКЛ (нет URL)'
         )
         chat_block = ''
-        chat_meta = (
-            self._chat_autoreply_meta(profile_id)
-            if runtime_profile_id == profile_id
-            else None
-        )
+        chat_meta = self._chat_autoreply_meta(profile_id)
         if chat_meta:
             chat_block = (
                 '\n'

@@ -33,6 +33,42 @@ schedulers: List[Scheduler] = []
 # Флаг остановки
 shutdown_event = asyncio.Event()
 
+_PRODUCT_RUNTIME_MIGRATION_KEYS = (
+    'MIN_PRICE',
+    'MAX_PRICE',
+    'DESIRED_PRICE',
+    'UNDERCUT_VALUE',
+    'MODE',
+    'FIXED_PRICE',
+    'STEP_UP_VALUE',
+    'WEAK_PRICE_CEIL_LIMIT',
+    'POSITION_FILTER_ENABLED',
+    'WEAK_POSITION_THRESHOLD',
+    'WEAK_UNKNOWN_RANK_ENABLED',
+    'WEAK_UNKNOWN_RANK_ABS_GAP',
+    'WEAK_UNKNOWN_RANK_REL_GAP',
+    'COOLDOWN_SECONDS',
+    'IGNORE_DELTA',
+    'CHECK_INTERVAL',
+    'FAST_CHECK_INTERVAL_MIN',
+    'FAST_CHECK_INTERVAL_MAX',
+    'COMPETITOR_COOKIES',
+    'NOTIFY_SKIP',
+    'NOTIFY_SKIP_COOLDOWN_SECONDS',
+    'NOTIFY_COMPETITOR_CHANGE',
+    'COMPETITOR_CHANGE_DELTA',
+    'COMPETITOR_CHANGE_COOLDOWN_SECONDS',
+    'UPDATE_ONLY_ON_COMPETITOR_CHANGE',
+    'NOTIFY_PARSER_ISSUES',
+    'NOTIFY_ERRORS',
+    'PARSER_ISSUE_COOLDOWN_SECONDS',
+    'HARD_FLOOR_ENABLED',
+    'MAX_DOWN_STEP',
+    'FAST_REBOUND_DELTA',
+    'FAST_REBOUND_BYPASS_COOLDOWN',
+    'competitor_urls',
+)
+
 
 def setup_logging():
     """Настройка логирования."""
@@ -113,6 +149,122 @@ def _resolve_startup_prices(
         state_seed_price = None
 
     return log_price, log_currency, state_seed_price
+
+
+def _product_runtime_profile_id(profile_id: str, product_id: int) -> str:
+    normalized_profile_id = (profile_id or '').strip().lower()
+    normalized_product_id = int(product_id or 0)
+    if normalized_product_id <= 0:
+        return normalized_profile_id
+    return f'{normalized_profile_id}:{normalized_product_id}'
+
+
+def _has_meaningful_state(state: dict) -> bool:
+    if not isinstance(state, dict):
+        return False
+    if (state.get('update_count') or 0) > 0:
+        return True
+    if (state.get('skip_count') or 0) > 0:
+        return True
+    return any(
+        state.get(field) is not None
+        for field in (
+            'last_price',
+            'last_update',
+            'last_cycle',
+            'last_target_price',
+            'last_target_competitor_min',
+            'last_competitor_price',
+            'last_competitor_min',
+            'last_competitor_rank',
+            'last_competitor_url',
+            'last_competitor_parse_at',
+            'last_competitor_method',
+            'last_competitor_error',
+            'last_competitor_block_reason',
+            'last_competitor_status_code',
+        )
+    )
+
+
+def _migrate_primary_product_namespace(
+    logger: logging.Logger,
+    *,
+    profile_id: str,
+    product_id: int,
+) -> None:
+    runtime_profile_id = _product_runtime_profile_id(profile_id, product_id)
+    if runtime_profile_id == profile_id:
+        return
+
+    migrated_runtime_keys: list[str] = []
+    for key in _PRODUCT_RUNTIME_MIGRATION_KEYS:
+        existing = storage.get_runtime_setting(
+            key,
+            profile_id=runtime_profile_id,
+            inherit_parent=False,
+        )
+        if existing is not None:
+            continue
+        parent_value = storage.get_runtime_setting(
+            key,
+            profile_id=profile_id,
+            inherit_parent=False,
+        )
+        if parent_value is None:
+            continue
+        storage.set_runtime_setting(
+            key,
+            parent_value,
+            source='startup_primary_migration',
+            profile_id=runtime_profile_id,
+        )
+        migrated_runtime_keys.append(key)
+
+    child_state = storage.get_state(profile_id=runtime_profile_id)
+    parent_state = storage.get_state(profile_id=profile_id)
+    if not _has_meaningful_state(child_state) and _has_meaningful_state(parent_state):
+        migrated_state = {
+            key: parent_state.get(key)
+            for key in (
+                'last_price',
+                'last_update',
+                'last_cycle',
+                'last_target_price',
+                'last_target_competitor_min',
+                'last_competitor_price',
+                'last_competitor_min',
+                'last_competitor_rank',
+                'last_competitor_url',
+                'last_competitor_parse_at',
+                'last_competitor_method',
+                'last_competitor_error',
+                'last_competitor_block_reason',
+                'last_competitor_status_code',
+                'auto_mode',
+                'update_count',
+                'skip_count',
+            )
+            if parent_state.get(key) is not None
+        }
+        if migrated_state:
+            storage.update_state(
+                profile_id=runtime_profile_id,
+                **migrated_state,
+            )
+            logger.info(
+                '[%s] Миграция legacy profile_state -> %s завершена',
+                profile_id.upper(),
+                runtime_profile_id,
+            )
+
+    if migrated_runtime_keys:
+        logger.info(
+            '[%s] Миграция runtime ключей в %s: %s',
+            profile_id.upper(),
+            runtime_profile_id,
+            ', '.join(migrated_runtime_keys),
+        )
 
 
 def _build_profiles(logger: logging.Logger):
@@ -361,11 +513,16 @@ async def main():
             if tracked_product_id <= 0:
                 continue
             tracked_urls = list(tracked.get('competitor_urls', []))
-            runtime_profile_id = (
-                pid
-                if tracked_product_id == primary_product_id
-                else f'{pid}:{tracked_product_id}'
+            runtime_profile_id = _product_runtime_profile_id(
+                pid,
+                tracked_product_id,
             )
+            if tracked_product_id == primary_product_id:
+                _migrate_primary_product_namespace(
+                    logger,
+                    profile_id=pid,
+                    product_id=tracked_product_id,
+                )
             if storage.get_runtime_setting(
                 'competitor_urls',
                 profile_id=runtime_profile_id,
@@ -375,7 +532,7 @@ async def main():
                     tracked_urls,
                     profile_id=runtime_profile_id,
                 )
-            if runtime_profile_id != pid:
+            if tracked_product_id != primary_product_id:
                 auto_mode_change = storage.get_last_setting_change(
                     'auto_mode',
                     profile_id=runtime_profile_id,
@@ -423,14 +580,13 @@ async def main():
             tracked_product_id = int(tracked.get('product_id') or 0)
             if tracked_product_id <= 0:
                 continue
-            runtime_profile_id = (
-                pid
-                if tracked_product_id == primary_product_id
-                else f'{pid}:{tracked_product_id}'
+            runtime_profile_id = _product_runtime_profile_id(
+                pid,
+                tracked_product_id,
             )
             sched_profile_name = (
                 pname
-                if runtime_profile_id == pid
+                if tracked_product_id == primary_product_id
                 else f'{pname} [{tracked_product_id}]'
             )
             schedulers.append(
@@ -442,7 +598,9 @@ async def main():
                     profile_name=sched_profile_name,
                     product_id=tracked_product_id,
                     competitor_urls=tracked.get('competitor_urls', []),
-                    chat_autoreply_enabled=(runtime_profile_id == pid),
+                    chat_autoreply_enabled=(
+                        tracked_product_id == primary_product_id
+                    ),
                 )
             )
 

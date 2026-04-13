@@ -44,6 +44,19 @@ def make_bot() -> TelegramBot:
     return bot
 
 
+def test_runtime_profile_id_for_primary_product_is_product_scoped():
+    bot = TelegramBot(
+        api_clients={'ggsel': object()},
+        profile_products={'ggsel': 4697439},
+        profile_default_urls={'ggsel': []},
+        profile_labels={'ggsel': 'GGSEL'},
+    )
+    assert bot._runtime_profile_id_for_product('ggsel', 4697439) == (
+        'ggsel:4697439'
+    )
+    assert bot._runtime_profile_id_for_product('ggsel', 0) == 'ggsel'
+
+
 def make_update(text: str):
     message = SimpleNamespace(
         text=text,
@@ -421,7 +434,7 @@ async def test_toggle_auto_updates_only_active_profile(monkeypatch):
 
     await bot.toggle_auto(update)
 
-    assert calls == [(False, 'digiseller', 1, 'telegram')]
+    assert calls == [(False, 'digiseller:2', 1, 'telegram')]
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert args[0] == '🔔 Автоцена (DIGISELLER / 2): ВЫКЛ'
