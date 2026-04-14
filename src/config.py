@@ -106,6 +106,10 @@ class Config:
         'GGSEL_CHAT_AUTOREPLY_SMART_NON_EMPTY',
         False,
     )
+    GGSEL_CHAT_AUTOREPLY_REQUIRE_RULES: bool = _env_bool(
+        'GGSEL_CHAT_AUTOREPLY_REQUIRE_RULES',
+        False,
+    )
     GGSEL_CHAT_AUTOREPLY_POLICY: str = os.getenv(
         'GGSEL_CHAT_AUTOREPLY_POLICY',
         'ON_ORDER',
@@ -185,6 +189,10 @@ class Config:
     )
     DIGISELLER_CHAT_AUTOREPLY_SMART_NON_EMPTY: bool = _env_bool(
         'DIGISELLER_CHAT_AUTOREPLY_SMART_NON_EMPTY',
+        False,
+    )
+    DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES: bool = _env_bool(
+        'DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES',
         False,
     )
     DIGISELLER_CHAT_AUTOREPLY_POLICY: str = os.getenv(

@@ -411,6 +411,14 @@ def test_send_chat_message_blocks_probe_payload_for_real_order(monkeypatch):
 
     assert client.send_chat_message(12345, 'smoke_message_ignore') is False
     assert client.send_chat_message(12345, 'permission_probe_ignore') is False
+    assert (
+        client.send_chat_message(
+            12345,
+            'Мы тестируем систему ускорения ответов поддержки. '
+            'Не обращайте внимания на это сообщение :)',
+        )
+        is False
+    )
 
 
 def test_send_chat_message_allows_probe_payload_for_zero_order(monkeypatch):

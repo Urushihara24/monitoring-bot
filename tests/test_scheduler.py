@@ -1277,6 +1277,40 @@ async def test_scheduler_digiseller_chat_autoreply_uses_template(monkeypatch, tm
 
 
 @pytest.mark.asyncio
+async def test_scheduler_chat_autoreply_require_rules_skips_without_rules_or_template(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = True
+    cfg.DIGISELLER_CHAT_TEMPLATE_RU_ALREADY = ''
+    cfg.DIGISELLER_CHAT_TEMPLATE_RU_ADD = ''
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    bot = DummyTelegramBot()
+    api = DummyChatApiClient()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    assert api.sent_messages == []
+    assert bot.notifications == []
+
+
+@pytest.mark.asyncio
 async def test_scheduler_digiseller_chat_autoreply_accepts_chat_product_field(
     monkeypatch,
     tmp_path,

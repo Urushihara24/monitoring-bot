@@ -933,10 +933,21 @@ class GGSELClient:
         normalized_message = raw_message.strip().lower()
         # Защита от случайной отправки сервисных probe-сообщений
         # в реальный заказ.
-        if int(order_id) > 0 and normalized_message in {
+        blocked_probe_messages = {
             'permission_probe_ignore',
             'smoke_message_ignore',
-        }:
+        }
+        blocked_probe_fragments = (
+            'мы тестируем систему ускорения ответов',
+            'не обращайте внимания на это сообщение',
+        )
+        if int(order_id) > 0 and (
+            normalized_message in blocked_probe_messages
+            or any(
+                fragment in normalized_message
+                for fragment in blocked_probe_fragments
+            )
+        ):
             logger.error(
                 'Блокирована отправка probe-сообщения в реальный заказ id_i=%s',
                 order_id,

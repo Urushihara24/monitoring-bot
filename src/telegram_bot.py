@@ -522,6 +522,16 @@ class TelegramBot:
             return normalized in ('1', 'true', 'yes', 'on')
         return bool(self._chat_cfg(profile_id, 'SMART_NON_EMPTY', False))
 
+    def _chat_autoreply_require_rules(self, profile_id: str) -> bool:
+        runtime_raw = storage.get_runtime_setting(
+            'CHAT_AUTOREPLY_REQUIRE_RULES',
+            profile_id=profile_id,
+        )
+        if runtime_raw is not None:
+            normalized = str(runtime_raw).strip().lower()
+            return normalized in ('1', 'true', 'yes', 'on')
+        return bool(self._chat_cfg(profile_id, 'REQUIRE_RULES', False))
+
     def _chat_policy_label(self, value: str) -> str:
         normalized = str(value or '').strip().upper()
         return _CHAT_POLICY_LABELS_RU.get(normalized, _CHAT_POLICY_LABELS_RU['ON_ORDER'])
@@ -628,6 +638,7 @@ class TelegramBot:
             'enabled': enabled,
             'only_empty_chat': self._chat_autoreply_only_empty_chat(profile_id),
             'smart_non_empty': self._chat_autoreply_smart_non_empty(profile_id),
+            'require_rules': self._chat_autoreply_require_rules(profile_id),
             'policy': self._chat_autoreply_policy(
                 profile_id,
                 product_id=active_product_id,
@@ -1695,6 +1706,8 @@ class TelegramBot:
                 f'{"Да" if chat_meta["only_empty_chat"] else "Нет"}\n'
                 f'🧠 Умный непустой чат: '
                 f'{"Да" if chat_meta["smart_non_empty"] else "Нет"}\n'
+                f'🧷 Только по правилам: '
+                f'{"Да" if chat_meta["require_rules"] else "Нет"}\n'
                 f'🧭 Режим отправки: '
                 f'{self._chat_policy_label(chat_meta["policy"])}\n'
                 f'📦 Товары: {chat_meta["products"]}\n'
@@ -1762,6 +1775,8 @@ class TelegramBot:
                 f'{"Да" if chat_meta["only_empty_chat"] else "Нет"}\n'
                 f'🧠 Умный непустой чат: '
                 f'{"Да" if chat_meta["smart_non_empty"] else "Нет"}\n'
+                f'🧷 Только по правилам: '
+                f'{"Да" if chat_meta["require_rules"] else "Нет"}\n'
                 f'🧭 Режим отправки: '
                 f'{self._chat_policy_label(chat_meta["policy"])}\n'
                 f'📦 Товары инструкций: {chat_meta["products"]}\n'
@@ -1789,13 +1804,13 @@ class TelegramBot:
             f'📡 Мониторинг: {monitor_mode}',
             f'🔗 Конкурентов: {len(runtime.COMPETITOR_URLS)}',
             '',
-            f'📉 MIN: {runtime.MIN_PRICE:.4f}₽',
-            f'📈 MAX: {runtime.MAX_PRICE:.4f}₽',
-            f'🎯 Желаемая: {runtime.DESIRED_PRICE:.4f}₽',
-            f'↘️ Шаг: {runtime.UNDERCUT_VALUE:.4f}',
             (
                 '🔁 Обновлять только при изменении конкурента: '
                 f'{"Да" if runtime.UPDATE_ONLY_ON_COMPETITOR_CHANGE else "Нет"}'
+            ),
+            (
+                'ℹ️ В режимах Следование/Демпинг/Повышение '
+                'используется формула режима для активного товара.'
             ),
         ]
         base_lines.extend(

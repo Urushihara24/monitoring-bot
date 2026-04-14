@@ -843,6 +843,22 @@ class Scheduler:
             )
         return bool(self._chat_cfg('SMART_NON_EMPTY', False))
 
+    def _chat_autoreply_require_rules(self) -> bool:
+        if self._chat_profile_prefix() is None:
+            return False
+        runtime_raw = storage.get_runtime_setting(
+            'CHAT_AUTOREPLY_REQUIRE_RULES',
+            profile_id=self.base_profile_id,
+        )
+        if runtime_raw is not None:
+            return str(runtime_raw).strip().lower() in (
+                '1',
+                'true',
+                'yes',
+                'on',
+            )
+        return bool(self._chat_cfg('REQUIRE_RULES', False))
+
     def _chat_autoreply_policy(self, product_id: int) -> str:
         default_policy = str(
             self._chat_cfg(
@@ -2158,6 +2174,7 @@ class Scheduler:
             started_at.isoformat(),
         )
         try:
+            require_rules = self._chat_autoreply_require_rules()
             if hasattr(self.api_client, 'get_chat_perms_status'):
                 perms_ok, perms_desc = self._chat_perms_status_cached()
                 if not perms_ok:
@@ -2559,66 +2576,90 @@ class Scheduler:
                                         )
                                         continue
                         else:
-                            template = self._resolve_chat_template(
-                                locale=locale,
-                                mode=mode,
-                            )
-                            message = self._sanitize_message(template)
-                            message_source = 'template'
-                            if not message:
-                                message = self._pick_selected_option_instruction(
-                                    selected_options_payload,
-                                    mode=mode,
+                            if require_rules:
+                                # Safety-first: без явно настроенных правил
+                                # отправляем только явный шаблон.
+                                template = self._resolve_chat_template(
                                     locale=locale,
-                                )
-                                if message:
-                                    message_source = 'order_selected_option'
-                            if not message:
-                                message = self._pick_instruction_text(
-                                    order_info,
                                     mode=mode,
-                                    locale=locale,
                                 )
-                                if message:
-                                    message_source = 'order_info'
-                            if not message:
-                                for info_lang in self._product_info_locales_to_try(
-                                    locale
-                                ):
-                                    cache_key = (int(product_id), info_lang)
-                                    product_info = product_info_cache.get(cache_key)
-                                    if product_info is None:
-                                        product_info = self.api_client.get_product_info(
-                                            product_id,
-                                            timeout=10,
-                                            lang=info_lang,
-                                        ) or {}
-                                        product_info_cache[cache_key] = product_info
-                                    info_locale = (
-                                        'en'
-                                        if info_lang.lower().startswith('en')
-                                        else 'ru'
+                                message = self._sanitize_message(template)
+                                message_source = 'template'
+                                if not message:
+                                    logger.info(
+                                        '[%s] Пропуск order_id=%s: включен '
+                                        'REQUIRE_RULES и нет правил/шаблона '
+                                        '(product_id=%s)',
+                                        self.profile_name,
+                                        order_id,
+                                        product_id,
                                     )
+                                    continue
+                            else:
+                                template = self._resolve_chat_template(
+                                    locale=locale,
+                                    mode=mode,
+                                )
+                                message = self._sanitize_message(template)
+                                message_source = 'template'
+                                if not message:
                                     message = self._pick_selected_option_instruction(
-                                        product_info,
+                                        selected_options_payload,
                                         mode=mode,
-                                        locale=info_locale,
+                                        locale=locale,
                                     )
                                     if message:
-                                        message_source = (
-                                            f'product_selected_option[{info_lang}]'
-                                        )
-                                        break
+                                        message_source = 'order_selected_option'
+                                if not message:
                                     message = self._pick_instruction_text(
-                                        product_info,
+                                        order_info,
                                         mode=mode,
-                                        locale=info_locale,
+                                        locale=locale,
                                     )
                                     if message:
-                                        message_source = (
-                                            f'product_info[{info_lang}]'
+                                        message_source = 'order_info'
+                                if not message:
+                                    for info_lang in (
+                                        self._product_info_locales_to_try(locale)
+                                    ):
+                                        cache_key = (int(product_id), info_lang)
+                                        product_info = product_info_cache.get(
+                                            cache_key
                                         )
-                                        break
+                                        if product_info is None:
+                                            product_info = self.api_client.get_product_info(
+                                                product_id,
+                                                timeout=10,
+                                                lang=info_lang,
+                                            ) or {}
+                                            product_info_cache[cache_key] = (
+                                                product_info
+                                            )
+                                        info_locale = (
+                                            'en'
+                                            if info_lang.lower().startswith('en')
+                                            else 'ru'
+                                        )
+                                        message = self._pick_selected_option_instruction(
+                                            product_info,
+                                            mode=mode,
+                                            locale=info_locale,
+                                        )
+                                        if message:
+                                            message_source = (
+                                                f'product_selected_option[{info_lang}]'
+                                            )
+                                            break
+                                        message = self._pick_instruction_text(
+                                            product_info,
+                                            mode=mode,
+                                            locale=info_locale,
+                                        )
+                                        if message:
+                                            message_source = (
+                                                f'product_info[{info_lang}]'
+                                            )
+                                            break
 
                         if not message:
                             logger.warning(
