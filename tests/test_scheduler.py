@@ -751,6 +751,7 @@ async def test_scheduler_digiseller_chat_autoreply_sent_once(monkeypatch, tmp_pa
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.DIGISELLER_CHAT_AUTOREPLY_PAGE_SIZE = 50
     cfg.DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES = 2
@@ -791,6 +792,7 @@ async def test_scheduler_chat_autoreply_only_empty_chat_blocks_send(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.DIGISELLER_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT = True
     cfg.COMPETITOR_URLS = []
@@ -838,6 +840,7 @@ async def test_scheduler_chat_autoreply_only_empty_chat_runtime_off_allows_send(
     )
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.DIGISELLER_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT = True
     cfg.COMPETITOR_URLS = []
@@ -874,6 +877,7 @@ async def test_scheduler_chat_autoreply_smart_non_empty_allows_greeting(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.DIGISELLER_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT = True
     cfg.DIGISELLER_CHAT_AUTOREPLY_SMART_NON_EMPTY = True
@@ -911,6 +915,7 @@ async def test_scheduler_chat_autoreply_smart_non_empty_blocks_done_chat(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.DIGISELLER_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT = True
     cfg.DIGISELLER_CHAT_AUTOREPLY_SMART_NON_EMPTY = True
@@ -954,6 +959,7 @@ async def test_scheduler_chat_autoreply_smart_non_empty_allows_buyer_code(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.DIGISELLER_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT = True
     cfg.DIGISELLER_CHAT_AUTOREPLY_SMART_NON_EMPTY = True
@@ -991,6 +997,7 @@ async def test_scheduler_chat_autoreply_smart_non_empty_skips_seller_only(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.DIGISELLER_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT = True
     cfg.DIGISELLER_CHAT_AUTOREPLY_SMART_NON_EMPTY = True
@@ -1033,6 +1040,7 @@ async def test_scheduler_chat_autoreply_policy_first_buyer_message(
     )
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.DIGISELLER_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT = False
     cfg.COMPETITOR_URLS = []
@@ -1074,6 +1082,7 @@ async def test_scheduler_chat_autoreply_policy_code_only_allows_buyer_code(
     )
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.DIGISELLER_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT = False
     cfg.COMPETITOR_URLS = []
@@ -1107,6 +1116,7 @@ async def test_scheduler_ggsel_chat_autoreply_sent_once(monkeypatch, tmp_path):
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.GGSEL_CHAT_AUTOREPLY_ENABLED = True
+    cfg.GGSEL_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.GGSEL_CHAT_AUTOREPLY_PAGE_SIZE = 50
     cfg.GGSEL_CHAT_AUTOREPLY_MAX_PAGES = 2
@@ -1147,6 +1157,7 @@ async def test_scheduler_ggsel_chat_autoreply_uses_chat_product_field(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.GGSEL_CHAT_AUTOREPLY_ENABLED = True
+    cfg.GGSEL_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS = [4697439]
     cfg.COMPETITOR_URLS = []
 
@@ -1192,6 +1203,7 @@ async def test_scheduler_ggsel_chat_autoreply_skips_mismatched_chat_product(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.GGSEL_CHAT_AUTOREPLY_ENABLED = True
+    cfg.GGSEL_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS = [4697439]
     cfg.COMPETITOR_URLS = []
 
@@ -1233,6 +1245,7 @@ async def test_scheduler_digiseller_chat_autoreply_uses_template(monkeypatch, tm
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.DIGISELLER_CHAT_TEMPLATE_EN_ADD = 'Use template EN'
     cfg.COMPETITOR_URLS = []
@@ -1284,6 +1297,7 @@ async def test_scheduler_chat_autoreply_require_rules_skips_without_rules_or_tem
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = True
     cfg.DIGISELLER_CHAT_TEMPLATE_RU_ALREADY = ''
@@ -1318,6 +1332,7 @@ async def test_scheduler_digiseller_chat_autoreply_accepts_chat_product_field(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.COMPETITOR_URLS = []
 
@@ -1361,6 +1376,7 @@ async def test_scheduler_digiseller_chat_autoreply_order_info_locale_fallback(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.COMPETITOR_URLS = []
 
@@ -1412,6 +1428,7 @@ async def test_scheduler_digiseller_chat_autoreply_uses_add_info(monkeypatch, tm
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.COMPETITOR_URLS = []
 
@@ -1455,6 +1472,7 @@ async def test_scheduler_digiseller_chat_autoreply_prefers_locale_specific_field
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.COMPETITOR_URLS = []
 
@@ -1506,6 +1524,7 @@ async def test_scheduler_digiseller_chat_autoreply_prefers_add_info_en_for_add_m
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.COMPETITOR_URLS = []
 
@@ -1558,6 +1577,7 @@ async def test_scheduler_digiseller_chat_autoreply_detects_mode_from_variant_id(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.COMPETITOR_URLS = []
 
@@ -1612,6 +1632,7 @@ async def test_scheduler_digiseller_chat_autoreply_detects_mode_from_bool_choice
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.COMPETITOR_URLS = []
 
@@ -1662,6 +1683,7 @@ async def test_scheduler_digiseller_chat_autoreply_maps_selected_id_to_variant_t
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.COMPETITOR_URLS = []
 
@@ -1716,6 +1738,7 @@ async def test_scheduler_digiseller_chat_autoreply_uses_selected_variant_instruc
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.COMPETITOR_URLS = []
 
@@ -1769,6 +1792,7 @@ async def test_scheduler_digiseller_chat_autoreply_uses_selected_variant_add_inf
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.COMPETITOR_URLS = []
 
@@ -1822,6 +1846,7 @@ async def test_scheduler_digiseller_chat_autoreply_prefers_friend_option_over_ot
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.COMPETITOR_URLS = []
 
@@ -1890,6 +1915,7 @@ async def test_scheduler_digiseller_chat_autoreply_uses_order_info_instruction_f
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.COMPETITOR_URLS = []
 
@@ -1939,6 +1965,7 @@ async def test_scheduler_digiseller_chat_autoreply_product_info_locale_fallback(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.COMPETITOR_URLS = []
 
@@ -1991,6 +2018,7 @@ async def test_scheduler_ggsel_chat_autoreply_uses_selected_variant_add_info(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.GGSEL_CHAT_AUTOREPLY_ENABLED = True
+    cfg.GGSEL_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.COMPETITOR_URLS = []
 
@@ -2048,6 +2076,7 @@ async def test_scheduler_chat_autoreply_rules_use_product_variant_instruction(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.COMPETITOR_URLS = []
 
@@ -2127,6 +2156,7 @@ async def test_scheduler_chat_autoreply_rules_match_by_option_variant_ids(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.COMPETITOR_URLS = []
 
@@ -2208,6 +2238,7 @@ async def test_scheduler_ggsel_rules_match_by_user_data_id(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.GGSEL_CHAT_AUTOREPLY_ENABLED = True
+    cfg.GGSEL_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS = [4697439]
     cfg.COMPETITOR_URLS = []
 
@@ -2270,6 +2301,7 @@ async def test_scheduler_ggsel_rules_match_by_user_data_text(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.GGSEL_CHAT_AUTOREPLY_ENABLED = True
+    cfg.GGSEL_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS = [4697439]
     cfg.COMPETITOR_URLS = []
 
@@ -2334,6 +2366,7 @@ async def test_scheduler_chat_autoreply_rules_without_match_skip_order(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.COMPETITOR_URLS = []
 
@@ -2392,6 +2425,7 @@ async def test_scheduler_chat_autoreply_passes_product_filter_to_list_chats(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639, 5104800]
     cfg.COMPETITOR_URLS = []
 
@@ -2435,6 +2469,7 @@ async def test_scheduler_chat_autoreply_recent_fallback_picks_new_order(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES = 1
     cfg.DIGISELLER_CHAT_AUTOREPLY_RECENT_LOOKBACK_MINUTES = 30
@@ -2487,6 +2522,7 @@ async def test_scheduler_chat_autoreply_skips_order_without_resolved_product_id(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639, 5104800]
     cfg.COMPETITOR_URLS = []
 
@@ -2530,6 +2566,7 @@ async def test_scheduler_digiseller_chat_autoreply_error_not_break_cycle(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.COMPETITOR_URLS = []
 
@@ -2571,6 +2608,7 @@ async def test_scheduler_digiseller_chat_autoreply_perms_fail_fast(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.COMPETITOR_URLS = []
 
@@ -2620,6 +2658,7 @@ async def test_scheduler_digiseller_chat_autoreply_perms_no_response_retry_ok(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.COMPETITOR_URLS = []
 
@@ -2679,6 +2718,7 @@ async def test_scheduler_digiseller_chat_autoreply_perms_rate_limit_cached(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.COMPETITOR_URLS = []
 
@@ -2730,6 +2770,7 @@ async def test_scheduler_digiseller_chat_autoreply_skips_duplicate_by_messages(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.DIGISELLER_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES = True
     cfg.DIGISELLER_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT = False
@@ -2798,6 +2839,7 @@ async def test_scheduler_digiseller_chat_autoreply_cleanup_old_sent_markers(
 
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS = 30
     cfg.DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS = 1
@@ -2880,6 +2922,7 @@ async def test_scheduler_cleanup_removes_legacy_sent_markers_by_history_age(
 
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS = 30
     cfg.DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS = 1
@@ -2935,6 +2978,7 @@ async def test_scheduler_cleanup_accepts_utc_z_timestamp(
 
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS = 30
     cfg.DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS = 1
@@ -2976,6 +3020,7 @@ async def test_scheduler_digiseller_chat_autoreply_respects_interval(
     test_storage = Storage(str(tmp_path / 'state.db'))
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.DIGISELLER_CHAT_AUTOREPLY_INTERVAL_SECONDS = 3600
     cfg.DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES = 1
