@@ -1,4 +1,5 @@
 import logging
+from types import SimpleNamespace
 
 import pytest
 from telegram import ReplyKeyboardMarkup
@@ -183,3 +184,47 @@ async def test_handle_app_error_unknown_logs_error(bot, caplog):
     await bot.handle_app_error(None, context)
 
     assert any('Unhandled telegram exception' in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_send_settings_hides_legacy_price_limits(bot, monkeypatch):
+    monkeypatch.setattr(bot, '_active_profile', lambda _chat_id: 'ggsel')
+    monkeypatch.setattr(bot, '_product_id', lambda _profile_id: 4697439)
+    monkeypatch.setattr(bot, '_state_for_product', lambda *_args, **_kwargs: {
+        'auto_mode': True,
+    })
+    monkeypatch.setattr(
+        bot,
+        '_runtime_for_product',
+        lambda *_args, **_kwargs: SimpleNamespace(
+            COMPETITOR_URLS=['https://example.com/competitor'],
+            MODE='DUMPING',
+            CHECK_INTERVAL=30,
+            UPDATE_ONLY_ON_COMPETITOR_CHANGE=True,
+        ),
+    )
+    monkeypatch.setattr(
+        bot,
+        '_format_tracked_products',
+        lambda *_args, **_kwargs: ['4697439 (основной, активный): 1 URL'],
+    )
+    monkeypatch.setattr(
+        bot,
+        '_format_tracking_pairs',
+        lambda *_args, **_kwargs: ['4697439 ↔ https://example.com/competitor'],
+    )
+    monkeypatch.setattr(
+        bot,
+        '_active_product_slot',
+        lambda *_args, **_kwargs: (1, 1),
+    )
+
+    upd = DummyUpdate(BTN_SETTINGS)
+    await bot.send_settings(101, upd)
+
+    assert upd.message.replies
+    text = upd.message.replies[-1][0]
+    assert 'MIN:' not in text
+    assert 'MAX:' not in text
+    assert 'Желаемая' not in text
+    assert 'Шаг:' not in text

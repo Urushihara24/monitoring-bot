@@ -226,6 +226,67 @@ def test_raise_ignores_max_cap_for_modern_mode():
     assert 'max_capped' not in decision.reason
 
 
+def test_follow_high_price_keeps_exact_value():
+    cfg = make_cfg(
+        MODE='FOLLOW',
+        MIN_PRICE=0.25,
+        MAX_PRICE=0.40,
+        MAX_DOWN_STEP=0.0,
+    )
+    decision = calculate_price(
+        competitor_prices=[590.0000],
+        current_price=599.0000,
+        last_update=None,
+        config=cfg,
+    )
+    assert decision.action == 'update'
+    assert decision.price == 590.0000
+    assert 'max_capped' not in decision.reason
+    assert 'hard_floor_min' not in decision.reason
+
+
+def test_dumping_high_price_uses_showcase_formula_without_caps():
+    cfg = make_cfg(
+        MODE='DUMPING',
+        MIN_PRICE=0.25,
+        MAX_PRICE=0.40,
+        MAX_DOWN_STEP=0.03,
+        HARD_FLOOR_ENABLED=True,
+    )
+    decision = calculate_price(
+        competitor_prices=[590.1234],
+        current_price=600.0000,
+        last_update=None,
+        config=cfg,
+    )
+    assert decision.action == 'update'
+    assert decision.price == 590.1149
+    assert decision.reason.startswith('dumping_showcase')
+    assert 'max_capped' not in decision.reason
+    assert 'hard_floor_min' not in decision.reason
+
+
+def test_raise_high_price_uses_showcase_formula_without_caps():
+    cfg = make_cfg(
+        MODE='RAISE',
+        MIN_PRICE=0.25,
+        MAX_PRICE=0.40,
+        MAX_DOWN_STEP=0.03,
+        HARD_FLOOR_ENABLED=True,
+    )
+    decision = calculate_price(
+        competitor_prices=[590.1299],
+        current_price=580.0000,
+        last_update=None,
+        config=cfg,
+    )
+    assert decision.action == 'update'
+    assert decision.price == 590.1349
+    assert decision.reason.startswith('raise_showcase')
+    assert 'max_capped' not in decision.reason
+    assert 'hard_floor_min' not in decision.reason
+
+
 def test_cooldown_blocks_without_rebound():
     cfg = make_cfg(COOLDOWN_SECONDS=60, MAX_DOWN_STEP=0.0)
     decision = calculate_price(
