@@ -90,6 +90,14 @@ _CHAT_PERMS_CACHE_OK_SECONDS = 300
 _CHAT_PERMS_CACHE_RATE_LIMIT_SECONDS = 900
 _CHAT_PERMS_CACHE_FAIL_SECONDS = 300
 _CHAT_PERMS_CACHE_TRANSIENT_SECONDS = 120
+_OUTBOUND_CHAT_FORBIDDEN_EXACT = {
+    'permission_probe_ignore',
+    'smoke_message_ignore',
+}
+_OUTBOUND_CHAT_FORBIDDEN_FRAGMENTS = (
+    'мы тестируем систему ускорения ответов',
+    'не обращайте внимания на это сообщение',
+)
 
 
 class Scheduler:
@@ -163,6 +171,17 @@ class Scheduler:
         if not raw:
             return ''
         return raw.replace('$$', '$')
+
+    def _is_forbidden_outbound_chat_message(self, message: str) -> bool:
+        normalized = str(message or '').strip().lower()
+        if not normalized:
+            return False
+        if normalized in _OUTBOUND_CHAT_FORBIDDEN_EXACT:
+            return True
+        return any(
+            fragment in normalized
+            for fragment in _OUTBOUND_CHAT_FORBIDDEN_FRAGMENTS
+        )
 
     def _resolve_own_product_url(self) -> Optional[str]:
         """
@@ -2670,6 +2689,18 @@ class Scheduler:
                                 product_id,
                                 locale,
                                 mode,
+                            )
+                            continue
+
+                        if self._is_forbidden_outbound_chat_message(message):
+                            logger.error(
+                                '[%s] Блокирована отправка потенциально '
+                                'служебного текста в order_id=%s '
+                                '(product_id=%s, source=%s)',
+                                self.profile_name,
+                                order_id,
+                                product_id,
+                                message_source or 'unknown',
                             )
                             continue
 

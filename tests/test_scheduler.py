@@ -785,6 +785,66 @@ async def test_scheduler_digiseller_chat_autoreply_sent_once(monkeypatch, tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_scheduler_chat_autoreply_blocks_support_probe_text(
+    monkeypatch,
+    tmp_path,
+    caplog,
+):
+    caplog.set_level('ERROR')
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    class ForbiddenTextApi(DummyChatApiClient):
+        def get_order_info(self, _order_id, **_kwargs):
+            return {
+                'locale': 'ru-RU',
+                'id_d': 5077639,
+                'options': [{'value': 'уже в друзьях'}],
+                'info': (
+                    'Мы тестируем систему ускорения ответов поддержки. '
+                    'Не обращайте внимания на это сообщение :)'
+                ),
+            }
+
+        def get_product_info(self, product_id, timeout=10, lang=None):
+            self.product_info_calls.append((product_id, lang))
+            return {}
+
+    bot = DummyTelegramBot()
+    api = ForbiddenTextApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    assert api.sent_messages == []
+    assert (
+        test_storage.get_runtime_setting(
+            'CHAT_AUTOREPLY_SENT:111',
+            profile_id='digiseller',
+        ) is None
+    )
+    assert any(
+        'Блокирована отправка потенциально служебного текста'
+        in rec.message
+        for rec in caplog.records
+    )
+
+
+@pytest.mark.asyncio
 async def test_scheduler_chat_autoreply_only_empty_chat_blocks_send(
     monkeypatch,
     tmp_path,
