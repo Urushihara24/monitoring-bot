@@ -108,7 +108,7 @@ class Config:
     )
     GGSEL_CHAT_AUTOREPLY_REQUIRE_RULES: bool = _env_bool(
         'GGSEL_CHAT_AUTOREPLY_REQUIRE_RULES',
-        False,
+        True,
     )
     GGSEL_CHAT_AUTOREPLY_POLICY: str = os.getenv(
         'GGSEL_CHAT_AUTOREPLY_POLICY',
@@ -193,7 +193,7 @@ class Config:
     )
     DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES: bool = _env_bool(
         'DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES',
-        False,
+        True,
     )
     DIGISELLER_CHAT_AUTOREPLY_POLICY: str = os.getenv(
         'DIGISELLER_CHAT_AUTOREPLY_POLICY',
