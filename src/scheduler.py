@@ -878,6 +878,38 @@ class Scheduler:
             )
         return bool(self._chat_cfg('REQUIRE_RULES', False))
 
+    def _chat_autoreply_allow_custom_text(self) -> bool:
+        if self._chat_profile_prefix() is None:
+            return True
+        runtime_raw = storage.get_runtime_setting(
+            'CHAT_AUTOREPLY_ALLOW_CUSTOM_TEXT',
+            profile_id=self.base_profile_id,
+        )
+        if runtime_raw is not None:
+            return str(runtime_raw).strip().lower() in (
+                '1',
+                'true',
+                'yes',
+                'on',
+            )
+        return bool(self._chat_cfg('ALLOW_CUSTOM_TEXT', True))
+
+    def _chat_autoreply_allow_template_fallback(self) -> bool:
+        if self._chat_profile_prefix() is None:
+            return True
+        runtime_raw = storage.get_runtime_setting(
+            'CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK',
+            profile_id=self.base_profile_id,
+        )
+        if runtime_raw is not None:
+            return str(runtime_raw).strip().lower() in (
+                '1',
+                'true',
+                'yes',
+                'on',
+            )
+        return bool(self._chat_cfg('ALLOW_TEMPLATE_FALLBACK', True))
+
     def _chat_autoreply_policy(self, product_id: int) -> str:
         default_policy = str(
             self._chat_cfg(
@@ -2194,6 +2226,10 @@ class Scheduler:
         )
         try:
             require_rules = self._chat_autoreply_require_rules()
+            allow_custom_text = self._chat_autoreply_allow_custom_text()
+            allow_template_fallback = (
+                self._chat_autoreply_allow_template_fallback()
+            )
             if hasattr(self.api_client, 'get_chat_perms_status'):
                 perms_ok, perms_desc = self._chat_perms_status_cached()
                 if not perms_ok:
@@ -2532,9 +2568,11 @@ class Scheduler:
                                 )
                                 continue
 
-                            custom_message = self._sanitize_message(
-                                matched_rule.get('text') or ''
-                            )
+                            custom_message = ''
+                            if allow_custom_text:
+                                custom_message = self._sanitize_message(
+                                    matched_rule.get('text') or ''
+                                )
                             if custom_message:
                                 message = custom_message
                                 message_source = 'rule_custom'
@@ -2597,13 +2635,14 @@ class Scheduler:
                         else:
                             if require_rules:
                                 # Safety-first: без явно настроенных правил
-                                # отправляем только явный шаблон.
-                                template = self._resolve_chat_template(
-                                    locale=locale,
-                                    mode=mode,
-                                )
-                                message = self._sanitize_message(template)
-                                message_source = 'template'
+                                # отправляем только явный шаблон (если разрешён).
+                                if allow_template_fallback:
+                                    template = self._resolve_chat_template(
+                                        locale=locale,
+                                        mode=mode,
+                                    )
+                                    message = self._sanitize_message(template)
+                                    message_source = 'template'
                                 if not message:
                                     logger.info(
                                         '[%s] Пропуск order_id=%s: включен '
@@ -2615,12 +2654,13 @@ class Scheduler:
                                     )
                                     continue
                             else:
-                                template = self._resolve_chat_template(
-                                    locale=locale,
-                                    mode=mode,
-                                )
-                                message = self._sanitize_message(template)
-                                message_source = 'template'
+                                if allow_template_fallback:
+                                    template = self._resolve_chat_template(
+                                        locale=locale,
+                                        mode=mode,
+                                    )
+                                    message = self._sanitize_message(template)
+                                    message_source = 'template'
                                 if not message:
                                     message = self._pick_selected_option_instruction(
                                         selected_options_payload,

@@ -110,6 +110,14 @@ class Config:
         'GGSEL_CHAT_AUTOREPLY_REQUIRE_RULES',
         True,
     )
+    GGSEL_CHAT_AUTOREPLY_ALLOW_CUSTOM_TEXT: bool = _env_bool(
+        'GGSEL_CHAT_AUTOREPLY_ALLOW_CUSTOM_TEXT',
+        True,
+    )
+    GGSEL_CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK: bool = _env_bool(
+        'GGSEL_CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK',
+        True,
+    )
     GGSEL_CHAT_AUTOREPLY_POLICY: str = os.getenv(
         'GGSEL_CHAT_AUTOREPLY_POLICY',
         'ON_ORDER',
@@ -193,6 +201,14 @@ class Config:
     )
     DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES: bool = _env_bool(
         'DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES',
+        True,
+    )
+    DIGISELLER_CHAT_AUTOREPLY_ALLOW_CUSTOM_TEXT: bool = _env_bool(
+        'DIGISELLER_CHAT_AUTOREPLY_ALLOW_CUSTOM_TEXT',
+        True,
+    )
+    DIGISELLER_CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK: bool = _env_bool(
+        'DIGISELLER_CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK',
         True,
     )
     DIGISELLER_CHAT_AUTOREPLY_POLICY: str = os.getenv(

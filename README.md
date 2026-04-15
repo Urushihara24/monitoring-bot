@@ -154,6 +154,9 @@ cp .env.example .env
 - `DIGISELLER_CHAT_AUTOREPLY_INTERVAL_SECONDS=30`
 - `DIGISELLER_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES=true`
 - `DIGISELLER_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT=true`
+- `DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES=true`
+- `DIGISELLER_CHAT_AUTOREPLY_ALLOW_CUSTOM_TEXT=false`
+- `DIGISELLER_CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK=false`
 - `DIGISELLER_CHAT_AUTOREPLY_LOOKBACK_MESSAGES=30`
 - `DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS=30`
 - `DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS=24`
@@ -172,10 +175,13 @@ cp .env.example .env
 только в пустой чат заказа (без предыдущих сообщений).
 Перед отправкой бот проверяет права chat API; при нехватке прав
 отправка не выполняется, причина пишется в `/diag` (`Chat perms`).
+При `*_CHAT_AUTOREPLY_ALLOW_CUSTOM_TEXT=false` кастомные тексты правил
+игнорируются (в чат уйдёт только спарсенная инструкция товара по выбранному параметру).
+При `*_CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK=false` шаблонные fallback-сообщения
+не используются.
 Если в заказе у выбранного параметра (option/variant) есть свой текст
 инструкции, бот отправляет именно его (приоритет над общим `info/add_info`).
-Это касается любого выбранного варианта (например `Да. Проверил, в друзьях`
-или `Нет. Добавлю после оплаты`) — если у варианта есть свой текст, уйдёт он.
+Если по выбранному параметру текста нет — отправка пропускается, причина пишется в лог.
 Логика одинакова для DigiSeller и GGSEL при включённом `*_CHAT_AUTOREPLY_ENABLED`.
 
 Аналогичные параметры есть и для GGSEL:
@@ -184,6 +190,9 @@ cp .env.example .env
 - `GGSEL_CHAT_AUTOREPLY_INTERVAL_SECONDS`
 - `GGSEL_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES`
 - `GGSEL_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT`
+- `GGSEL_CHAT_AUTOREPLY_REQUIRE_RULES`
+- `GGSEL_CHAT_AUTOREPLY_ALLOW_CUSTOM_TEXT`
+- `GGSEL_CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK`
 - `GGSEL_CHAT_AUTOREPLY_LOOKBACK_MESSAGES`
 - `GGSEL_CHAT_AUTOREPLY_SENT_TTL_DAYS`
 - `GGSEL_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS`
