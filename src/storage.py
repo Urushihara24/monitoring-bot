@@ -37,6 +37,7 @@ RUNTIME_PRICE_KEYS = {
     'MAX_DOWN_STEP',
     'FAST_REBOUND_DELTA',
 }
+TRACKED_PRODUCTS_EMPTY_KEY = 'TRACKED_PRODUCTS_EMPTY'
 
 logger = logging.getLogger(__name__)
 
@@ -1017,6 +1018,25 @@ class Storage:
         default_urls: Optional[list] = None,
     ) -> list[dict]:
         profile = self._normalize_profile(profile_id)
+        try:
+            raw_explicit_empty = self.get_runtime_setting(
+                TRACKED_PRODUCTS_EMPTY_KEY,
+                profile_id=profile,
+                inherit_parent=False,
+            )
+        except TypeError:
+            # Совместимость с тестовыми monkeypatch-стабами get_runtime_setting,
+            # где не объявлен параметр inherit_parent.
+            raw_explicit_empty = self.get_runtime_setting(
+                TRACKED_PRODUCTS_EMPTY_KEY,
+                profile_id=profile,
+            )
+        explicit_empty = str(raw_explicit_empty or '').strip().lower() in (
+            '1',
+            'true',
+            'yes',
+            'on',
+        )
         with sqlite3.connect(str(self.db_path)) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
@@ -1047,7 +1067,17 @@ class Storage:
             )
 
         if tracked:
+            if explicit_empty:
+                self.set_runtime_setting(
+                    TRACKED_PRODUCTS_EMPTY_KEY,
+                    '0',
+                    source='storage_auto_reset',
+                    profile_id=profile,
+                )
             return tracked
+
+        if explicit_empty:
+            return []
 
         fallback_product_id = int(default_product_id or 0)
         if fallback_product_id <= 0:
@@ -1101,6 +1131,12 @@ class Storage:
                 ),
             )
             conn.commit()
+        self.set_runtime_setting(
+            TRACKED_PRODUCTS_EMPTY_KEY,
+            '0',
+            source='storage_upsert_tracked_product',
+            profile_id=profile,
+        )
 
     def remove_tracked_product(
         self,
@@ -1120,8 +1156,59 @@ class Storage:
                 ''',
                 (profile, normalized_product_id),
             )
+            removed = cursor.rowcount > 0
+            remaining = conn.execute(
+                '''
+                SELECT COUNT(*) FROM tracked_products
+                WHERE profile_id = ? AND enabled = 1
+                ''',
+                (profile,),
+            ).fetchone()[0]
             conn.commit()
-            return cursor.rowcount > 0
+        if removed and remaining <= 0:
+            self.set_runtime_setting(
+                TRACKED_PRODUCTS_EMPTY_KEY,
+                '1',
+                source='storage_remove_last_product',
+                profile_id=profile,
+            )
+        return removed
+
+    def clear_tracked_products(
+        self,
+        *,
+        profile_id: str = DEFAULT_PROFILE,
+    ) -> list[int]:
+        profile = self._normalize_profile(profile_id)
+        with sqlite3.connect(str(self.db_path)) as conn:
+            rows = conn.execute(
+                '''
+                SELECT product_id
+                FROM tracked_products
+                WHERE profile_id = ?
+                ''',
+                (profile,),
+            ).fetchall()
+            conn.execute(
+                '''
+                DELETE FROM tracked_products
+                WHERE profile_id = ?
+                ''',
+                (profile,),
+            )
+            conn.commit()
+        removed_ids = [
+            int(row[0] or 0)
+            for row in rows
+            if int(row[0] or 0) > 0
+        ]
+        self.set_runtime_setting(
+            TRACKED_PRODUCTS_EMPTY_KEY,
+            '1',
+            source='storage_clear_tracked_products',
+            profile_id=profile,
+        )
+        return removed_ids
 
     def purge_product_runtime_data(
         self,

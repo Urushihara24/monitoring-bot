@@ -334,6 +334,42 @@ def test_tracked_products_fallback_to_default_product(tmp_path):
     ]
 
 
+def test_tracked_products_explicit_empty_disables_default_fallback(tmp_path):
+    db = tmp_path / 'state.db'
+    storage = Storage(db_path=str(db))
+
+    storage.set_runtime_setting(
+        'TRACKED_PRODUCTS_EMPTY',
+        '1',
+        profile_id='digiseller',
+    )
+    tracked = storage.list_tracked_products(
+        profile_id='digiseller',
+        default_product_id=5077639,
+        default_urls=['https://plati.market/itm/name/5077639'],
+    )
+    assert tracked == []
+
+
+def test_clear_tracked_products_marks_explicit_empty(tmp_path):
+    db = tmp_path / 'state.db'
+    storage = Storage(db_path=str(db))
+    storage.upsert_tracked_product(
+        profile_id='ggsel',
+        product_id=4697439,
+        competitor_urls=['https://example.com/1'],
+    )
+
+    removed = storage.clear_tracked_products(profile_id='ggsel')
+    assert removed == [4697439]
+
+    assert storage.list_tracked_products(
+        profile_id='ggsel',
+        default_product_id=4697439,
+        default_urls=['https://example.com/1'],
+    ) == []
+
+
 def test_purge_removed_product_runtime_data(tmp_path):
     db = tmp_path / 'state.db'
     storage = Storage(db_path=str(db))

@@ -227,3 +227,29 @@ def test_build_profiles_prefers_ggsel_profile_urls(monkeypatch):
     by_id = {profile['id']: profile for profile in profiles}
 
     assert by_id['ggsel']['competitor_urls'] == ['https://ggsel.example/item']
+
+
+def test_build_profiles_keeps_profile_when_tracked_products_empty(monkeypatch):
+    import src.main as main_module
+
+    _set_profile_config(monkeypatch)
+    monkeypatch.setattr(
+        main_module.storage,
+        'get_competitor_urls',
+        lambda default_urls, profile_id='ggsel': default_urls,
+    )
+    monkeypatch.setattr(
+        main_module.storage,
+        'list_tracked_products',
+        lambda **_kwargs: [],
+    )
+
+    profiles = _build_profiles(logging.getLogger('test-main'))
+    by_id = {profile['id']: profile for profile in profiles}
+
+    assert by_id['ggsel']['tracked_products'] == []
+    assert by_id['ggsel']['product_id'] == 1111
+    assert by_id['ggsel']['competitor_urls'] == []
+    assert by_id['digiseller']['tracked_products'] == []
+    assert by_id['digiseller']['product_id'] == 2222
+    assert by_id['digiseller']['competitor_urls'] == []

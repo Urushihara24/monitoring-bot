@@ -309,28 +309,33 @@ def _build_profiles(logger: logging.Logger):
                 ) or (ggsel_tracked_products[0] if ggsel_tracked_products else None)
             )
             if not primary:
-                logger.warning('[GGSEL] Нет валидного товара для запуска профиля')
+                primary_product_id = int(config.GGSEL_PRODUCT_ID or 0)
+                primary_urls = []
+                logger.warning(
+                    '[GGSEL] Нет товаров в мониторинге, профиль запущен в '
+                    'режиме управления (без scheduler до добавления товара)'
+                )
             else:
                 primary_product_id = int(primary['product_id'])
                 primary_urls = list(primary.get('competitor_urls', []))
-                profiles.append(
-                    {
-                        'id': 'ggsel',
-                        'name': 'GGSEL',
-                        'product_id': primary_product_id,
-                        'competitor_urls': primary_urls,
-                        'tracked_products': ggsel_tracked_products,
-                        'require_api_on_start': config.GGSEL_REQUIRE_API_ON_START,
-                        'client': GGSELClient(
-                            api_key=config.GGSEL_API_KEY,
-                            api_secret=config.GGSEL_API_SECRET,
-                            seller_id=config.GGSEL_SELLER_ID,
-                            base_url=config.GGSEL_BASE_URL,
-                            lang=config.GGSEL_LANG,
-                            access_token=config.GGSEL_ACCESS_TOKEN,
-                        ),
-                    }
-                )
+            profiles.append(
+                {
+                    'id': 'ggsel',
+                    'name': 'GGSEL',
+                    'product_id': primary_product_id,
+                    'competitor_urls': primary_urls,
+                    'tracked_products': ggsel_tracked_products,
+                    'require_api_on_start': config.GGSEL_REQUIRE_API_ON_START,
+                    'client': GGSELClient(
+                        api_key=config.GGSEL_API_KEY,
+                        api_secret=config.GGSEL_API_SECRET,
+                        seller_id=config.GGSEL_SELLER_ID,
+                        base_url=config.GGSEL_BASE_URL,
+                        lang=config.GGSEL_LANG,
+                        access_token=config.GGSEL_ACCESS_TOKEN,
+                    ),
+                }
+            )
 
     if config.DIGISELLER_ENABLED:
         digi_urls = storage.get_competitor_urls(
@@ -371,33 +376,36 @@ def _build_profiles(logger: logging.Logger):
                 ) or (digi_tracked_products[0] if digi_tracked_products else None)
             )
             if not primary:
+                primary_product_id = int(config.DIGISELLER_PRODUCT_ID or 0)
+                primary_urls = []
                 logger.warning(
-                    '[DIGISELLER] Нет валидного товара для запуска профиля'
+                    '[DIGISELLER] Нет товаров в мониторинге, профиль запущен в '
+                    'режиме управления (без scheduler до добавления товара)'
                 )
             else:
                 primary_product_id = int(primary['product_id'])
                 primary_urls = list(primary.get('competitor_urls', []))
-                profiles.append(
-                    {
-                        'id': 'digiseller',
-                        'name': 'DIGISELLER',
-                        'product_id': primary_product_id,
-                        'competitor_urls': primary_urls,
-                        'tracked_products': digi_tracked_products,
-                        'require_api_on_start': (
-                            config.DIGISELLER_REQUIRE_API_ON_START
-                        ),
-                        'client': DigiSellerClient(
-                            api_key=config.DIGISELLER_API_KEY,
-                            api_secret=config.DIGISELLER_API_SECRET,
-                            seller_id=config.DIGISELLER_SELLER_ID,
-                            base_url=config.DIGISELLER_BASE_URL,
-                            lang=config.DIGISELLER_LANG,
-                            access_token=config.DIGISELLER_ACCESS_TOKEN,
-                            default_product_id=config.DIGISELLER_PRODUCT_ID,
-                        ),
-                    }
-                )
+            profiles.append(
+                {
+                    'id': 'digiseller',
+                    'name': 'DIGISELLER',
+                    'product_id': primary_product_id,
+                    'competitor_urls': primary_urls,
+                    'tracked_products': digi_tracked_products,
+                    'require_api_on_start': (
+                        config.DIGISELLER_REQUIRE_API_ON_START
+                    ),
+                    'client': DigiSellerClient(
+                        api_key=config.DIGISELLER_API_KEY,
+                        api_secret=config.DIGISELLER_API_SECRET,
+                        seller_id=config.DIGISELLER_SELLER_ID,
+                        base_url=config.DIGISELLER_BASE_URL,
+                        lang=config.DIGISELLER_LANG,
+                        access_token=config.DIGISELLER_ACCESS_TOKEN,
+                        default_product_id=config.DIGISELLER_PRODUCT_ID,
+                    ),
+                }
+            )
 
     return profiles
 
@@ -569,13 +577,6 @@ async def main():
         pname = profile['name']
         primary_product_id = int(profile.get('product_id') or 0)
         tracked_products = profile.get('tracked_products', [])
-        if not tracked_products and primary_product_id > 0:
-            tracked_products = [
-                {
-                    'product_id': primary_product_id,
-                    'competitor_urls': profile.get('competitor_urls', []),
-                }
-            ]
         for tracked in tracked_products:
             tracked_product_id = int(tracked.get('product_id') or 0)
             if tracked_product_id <= 0:
