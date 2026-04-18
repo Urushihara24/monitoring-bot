@@ -10,6 +10,9 @@ def make_cfg(**kwargs):
         'MAX_PRICE': 10.0,
         'DESIRED_PRICE': 0.35,
         'UNDERCUT_VALUE': 0.0051,
+        'RAISE_VALUE': 0.0049,
+        'SHOWCASE_ROUND_STEP': 0.01,
+        'REBOUND_TO_DESIRED_ON_MIN': False,
         'MODE': 'FIXED',
         'FIXED_PRICE': 0.35,
         'STEP_UP_VALUE': 0.05,
@@ -117,7 +120,7 @@ def test_follow_sets_same_price_as_competitor_with_4dp():
     assert decision.reason.startswith('follow')
 
 
-def test_follow_ignores_min_max_caps():
+def test_follow_respects_min_max_caps():
     cfg = make_cfg(
         MODE='FOLLOW',
         MIN_PRICE=0.25,
@@ -132,8 +135,8 @@ def test_follow_ignores_min_max_caps():
         config=cfg,
     )
     assert decision_high.action == 'update'
-    assert decision_high.price == 1.2345
-    assert 'max_capped' not in decision_high.reason
+    assert decision_high.price == 0.40
+    assert 'max_capped' in decision_high.reason
 
     decision_low = calculate_price(
         competitor_prices=[0.1234],
@@ -142,8 +145,8 @@ def test_follow_ignores_min_max_caps():
         config=cfg,
     )
     assert decision_low.action == 'update'
-    assert decision_low.price == 0.1234
-    assert 'hard_floor_min' not in decision_low.reason
+    assert decision_low.price == 0.25
+    assert 'hard_floor_min' in decision_low.reason
 
 
 def test_raise_uses_showcase_rounding_then_plus_value():
@@ -172,7 +175,7 @@ def test_dumping_uses_showcase_rounding_then_minus_value():
     assert decision.reason.startswith('dumping_showcase')
 
 
-def test_dumping_ignores_min_max_caps_for_modern_mode():
+def test_dumping_respects_min_max_caps_for_modern_mode():
     cfg = make_cfg(
         MODE='DUMPING',
         MIN_PRICE=0.25,
@@ -187,8 +190,8 @@ def test_dumping_ignores_min_max_caps_for_modern_mode():
         config=cfg,
     )
     assert decision_high.action == 'update'
-    assert decision_high.price == 1.2049
-    assert 'max_capped' not in decision_high.reason
+    assert decision_high.price == 0.40
+    assert 'max_capped' in decision_high.reason
 
     decision_low = calculate_price(
         competitor_prices=[0.10],
@@ -197,8 +200,8 @@ def test_dumping_ignores_min_max_caps_for_modern_mode():
         config=cfg,
     )
     assert decision_low.action == 'update'
-    assert decision_low.price == 0.0949
-    assert 'hard_floor_min' not in decision_low.reason
+    assert decision_low.price == 0.27
+    assert 'max_down_step' in decision_low.reason
 
 
 def test_raise_on_showcase_036_range():
@@ -213,7 +216,7 @@ def test_raise_on_showcase_036_range():
     assert decision.price == 0.3649
 
 
-def test_raise_ignores_max_cap_for_modern_mode():
+def test_raise_respects_max_cap_for_modern_mode():
     cfg = make_cfg(MODE='RAISE', MAX_PRICE=0.40, MAX_DOWN_STEP=0.0)
     decision = calculate_price(
         competitor_prices=[1.2005],
@@ -222,11 +225,48 @@ def test_raise_ignores_max_cap_for_modern_mode():
         config=cfg,
     )
     assert decision.action == 'update'
-    assert decision.price == 1.2049
+    assert decision.price == 0.40
+    assert 'max_capped' in decision.reason
+
+
+def test_rebound_to_desired_when_formula_hits_minimum():
+    cfg = make_cfg(
+        MODE='DUMPING',
+        MIN_PRICE=0.25,
+        DESIRED_PRICE=0.35,
+        REBOUND_TO_DESIRED_ON_MIN=True,
+        MAX_DOWN_STEP=0.0,
+    )
+    decision = calculate_price(
+        competitor_prices=[0.10],
+        current_price=0.30,
+        last_update=None,
+        config=cfg,
+    )
+    assert decision.action == 'update'
+    assert decision.price == 0.35
+    assert 'rebound_to_desired' in decision.reason
+
+
+def test_dumping_without_showcase_rounding_uses_exact_competitor():
+    cfg = make_cfg(
+        MODE='DUMPING',
+        SHOWCASE_ROUND_STEP=0.0,
+        UNDERCUT_VALUE=0.0051,
+        MAX_DOWN_STEP=0.0,
+    )
+    decision = calculate_price(
+        competitor_prices=[0.3505],
+        current_price=0.31,
+        last_update=None,
+        config=cfg,
+    )
+    assert decision.action == 'update'
+    assert decision.price == 0.3454
     assert 'max_capped' not in decision.reason
 
 
-def test_follow_high_price_keeps_exact_value():
+def test_follow_high_price_respects_max_cap():
     cfg = make_cfg(
         MODE='FOLLOW',
         MIN_PRICE=0.25,
@@ -240,12 +280,12 @@ def test_follow_high_price_keeps_exact_value():
         config=cfg,
     )
     assert decision.action == 'update'
-    assert decision.price == 590.0000
-    assert 'max_capped' not in decision.reason
+    assert decision.price == 0.4000
+    assert 'max_capped' in decision.reason
     assert 'hard_floor_min' not in decision.reason
 
 
-def test_dumping_high_price_uses_showcase_formula_without_caps():
+def test_dumping_high_price_respects_bounds_and_down_step():
     cfg = make_cfg(
         MODE='DUMPING',
         MIN_PRICE=0.25,
@@ -260,13 +300,13 @@ def test_dumping_high_price_uses_showcase_formula_without_caps():
         config=cfg,
     )
     assert decision.action == 'update'
-    assert decision.price == 590.1149
+    assert decision.price == 0.4000
     assert decision.reason.startswith('dumping_showcase')
-    assert 'max_capped' not in decision.reason
+    assert 'max_capped' in decision.reason
     assert 'hard_floor_min' not in decision.reason
 
 
-def test_raise_high_price_uses_showcase_formula_without_caps():
+def test_raise_high_price_respects_max_cap():
     cfg = make_cfg(
         MODE='RAISE',
         MIN_PRICE=0.25,
@@ -281,9 +321,9 @@ def test_raise_high_price_uses_showcase_formula_without_caps():
         config=cfg,
     )
     assert decision.action == 'update'
-    assert decision.price == 590.1349
+    assert decision.price == 0.4000
     assert decision.reason.startswith('raise_showcase')
-    assert 'max_capped' not in decision.reason
+    assert 'max_capped' in decision.reason
     assert 'hard_floor_min' not in decision.reason
 
 

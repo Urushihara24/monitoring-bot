@@ -18,15 +18,22 @@ from src.telegram_bot import (
     BTN_CHAT_SMART_NON_EMPTY_OFF,
     BTN_CHAT_SMART_NON_EMPTY_ON,
     BTN_CHAT_RULES,
+    BTN_MAX,
     BTN_MODE,
+    BTN_MIN,
     BTN_PRODUCT_NEXT,
     BTN_PRODUCT_PREV,
     BTN_PRODUCT_REMOVE,
     BTN_PRICE,
     BTN_PRODUCTS,
     BTN_PROFILE,
+    BTN_RAISE,
+    BTN_REBOUND_OFF,
+    BTN_REBOUND_ON,
+    BTN_ROUNDING,
     BTN_SETTINGS,
     BTN_STATUS,
+    BTN_UNDERCUT,
     TelegramBot,
 )
 import src.telegram_bot as telegram_module
@@ -69,12 +76,32 @@ def make_update(text: str):
     )
 
 
+def make_callback_update(data: str):
+    message = SimpleNamespace(
+        edit_text=AsyncMock(),
+        reply_text=AsyncMock(),
+    )
+    callback_query = SimpleNamespace(
+        data=data,
+        answer=AsyncMock(),
+        message=message,
+    )
+    return SimpleNamespace(
+        effective_user=SimpleNamespace(id=1),
+        effective_chat=SimpleNamespace(id=100),
+        callback_query=callback_query,
+    )
+
+
 def make_runtime(competitor_urls=None):
     return SimpleNamespace(
         MIN_PRICE=0.2,
         MAX_PRICE=1.0,
         DESIRED_PRICE=0.35,
         UNDERCUT_VALUE=0.0051,
+        RAISE_VALUE=0.0049,
+        SHOWCASE_ROUND_STEP=0.01,
+        REBOUND_TO_DESIRED_ON_MIN=False,
         MODE='STEP_UP',
         CHECK_INTERVAL=30,
         UPDATE_ONLY_ON_COMPETITOR_CHANGE=True,
@@ -180,6 +207,12 @@ def test_settings_keyboard_is_not_overloaded():
     assert BTN_PRODUCT_PREV not in texts
     assert BTN_PRODUCT_NEXT not in texts
     assert BTN_PRICE in texts
+    assert BTN_MIN in texts
+    assert BTN_MAX in texts
+    assert BTN_UNDERCUT in texts
+    assert BTN_RAISE in texts
+    assert BTN_ROUNDING in texts
+    assert BTN_REBOUND_OFF in texts
     assert BTN_MODE in texts
     assert BTN_AUTO_OFF in texts
     assert BTN_AUTO_ON not in texts
@@ -218,7 +251,120 @@ def test_main_keyboard_is_not_overloaded():
     assert BTN_AUTO_OFF not in texts
     settings_texts = keyboard_texts(bot.get_settings_keyboard())
     assert BTN_AUTO_ON not in settings_texts
-    assert BTN_AUTO_OFF in settings_texts
+
+
+@pytest.mark.asyncio
+async def test_products_button_opens_inline_products_menu(monkeypatch):
+    bot = make_bot()
+    monkeypatch.setattr(
+        bot,
+        '_runtime_for_product',
+        lambda *_args, **_kwargs: make_runtime(['https://example.com/item']),
+    )
+    monkeypatch.setattr(
+        bot,
+        '_format_tracked_products',
+        lambda *_args, **_kwargs: ['4697439 active'],
+    )
+    monkeypatch.setattr(bot, '_product_id', lambda _profile: 4697439)
+    monkeypatch.setattr(
+        bot,
+        '_tracked_products',
+        lambda *_args, **_kwargs: [
+            {
+                'product_id': 4697439,
+                'competitor_urls': ['https://example.com/item'],
+                'enabled': True,
+            }
+        ],
+    )
+
+    update = make_update(BTN_PRODUCTS)
+    await bot.handle_message(update, None)
+
+    update.message.reply_text.assert_awaited_once()
+    _args, kwargs = update.message.reply_text.await_args
+    markup = kwargs['reply_markup']
+    assert hasattr(markup, 'inline_keyboard')
+    flat = [
+        button.text
+        for row in markup.inline_keyboard
+        for button in row
+    ]
+    assert '➕ Товар' in flat
+    assert '🔗 Конкурент' in flat
+    assert '✏️ Переименовать' in flat
+    assert '🗑 Удалить активный' in flat
+
+
+@pytest.mark.asyncio
+async def test_products_callback_add_sets_pending_action():
+    bot = make_bot()
+    update = make_callback_update('pm:a')
+
+    await bot.handle_callback_query(update, None)
+
+    assert bot.pending_actions[100] == ('PRODUCT_ADD', 'ggsel')
+    update.callback_query.answer.assert_awaited()
+    update.callback_query.message.reply_text.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_products_callback_select_active_product_refreshes_menu(monkeypatch):
+    bot = make_bot()
+    bot.profile_products['ggsel'] = 4697439
+    monkeypatch.setattr(
+        bot,
+        '_tracked_product_ids',
+        lambda _profile: [4697439, 5104800],
+    )
+    monkeypatch.setattr(
+        bot,
+        '_tracked_products',
+        lambda *_args, **_kwargs: [
+            {'product_id': 4697439, 'competitor_urls': [], 'enabled': True},
+            {'product_id': 5104800, 'competitor_urls': [], 'enabled': True},
+        ],
+    )
+    monkeypatch.setattr(
+        bot,
+        '_runtime_for_product',
+        lambda *_args, **_kwargs: make_runtime([]),
+    )
+    monkeypatch.setattr(bot, '_product_name', lambda _profile, pid: f'P{pid}')
+    monkeypatch.setattr(bot, '_format_tracked_products', lambda *_args, **_kwargs: ['x'])
+    monkeypatch.setattr(bot, '_ensure_product_auto_name', AsyncMock())
+    update = make_callback_update('pm:s:5104800')
+
+    await bot.handle_callback_query(update, None)
+
+    assert bot.profile_products['ggsel'] == 5104800
+    update.callback_query.message.edit_text.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_pending_product_rename_uses_plain_text(monkeypatch):
+    bot = make_bot()
+    bot.pending_actions[100] = ('PRODUCT_RENAME', 'ggsel')
+    bot.pending_action_started_at[100] = time.monotonic()
+    bot.profile_products['ggsel'] = 4697439
+    bot.send_settings = AsyncMock()
+
+    runtime_store = {}
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_runtime_setting',
+        lambda key, value, user_id=None, source='system', profile_id='ggsel': (
+            runtime_store.__setitem__((profile_id, key), value)
+        ),
+    )
+    update = make_update('Новый тестовый товар')
+
+    await bot.handle_pending_action(100, 1, 'Новый тестовый товар', update)
+
+    assert runtime_store[('ggsel', 'PRODUCT_ALIAS:4697439')] == 'Новый тестовый товар'
+    assert 100 not in bot.pending_actions
+    bot.send_settings.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -313,27 +459,38 @@ async def test_profile_button_opens_profile_keyboard():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ('button', 'expected_action'),
-    [
-        (BTN_PRICE, 'DESIRED_PRICE'),
-        (BTN_PRODUCTS, 'MANAGE_PRODUCTS'),
-        (BTN_PRODUCT_REMOVE, 'REMOVE_PRODUCT'),
-    ],
-)
-async def test_settings_buttons_set_pending_actions(button, expected_action):
+async def test_settings_button_price_sets_pending_action():
     bot = make_bot()
     bot._state = lambda _profile: {'auto_mode': True}
     bot._runtime = lambda _profile: SimpleNamespace(
         FAST_CHECK_INTERVAL_MIN=20,
         FAST_CHECK_INTERVAL_MAX=60,
     )
+    update = make_update(BTN_PRICE)
+
+    await bot.handle_message(update, None)
+
+    assert bot.pending_actions[100] == ('DESIRED_PRICE', 'ggsel')
+    update.message.reply_text.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('button', [BTN_PRODUCTS, BTN_PRODUCT_REMOVE])
+async def test_product_buttons_open_inline_manager(button):
+    bot = make_bot()
+    bot._state = lambda _profile: {'auto_mode': True}
+    bot._runtime = lambda _profile: SimpleNamespace(
+        FAST_CHECK_INTERVAL_MIN=20,
+        FAST_CHECK_INTERVAL_MAX=60,
+    )
+    bot._runtime_for_product = lambda *_args, **_kwargs: make_runtime([])
     update = make_update(button)
 
     await bot.handle_message(update, None)
 
-    assert bot.pending_actions[100] == (expected_action, 'ggsel')
     update.message.reply_text.assert_awaited_once()
+    _args, kwargs = update.message.reply_text.await_args
+    assert hasattr(kwargs['reply_markup'], 'inline_keyboard')
 
 
 @pytest.mark.asyncio

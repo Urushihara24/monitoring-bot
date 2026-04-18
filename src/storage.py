@@ -27,6 +27,8 @@ RUNTIME_PRICE_KEYS = {
     'MAX_PRICE',
     'DESIRED_PRICE',
     'UNDERCUT_VALUE',
+    'RAISE_VALUE',
+    'SHOWCASE_ROUND_STEP',
     'FIXED_PRICE',
     'STEP_UP_VALUE',
     'WEAK_PRICE_CEIL_LIMIT',
@@ -1314,6 +1316,24 @@ class Storage:
             'UNDERCUT_VALUE': self._get_float(
                 'UNDERCUT_VALUE',
                 base_config.UNDERCUT_VALUE,
+                profile,
+                inherit_parent=inherit_parent,
+            ),
+            'RAISE_VALUE': self._get_float(
+                'RAISE_VALUE',
+                getattr(base_config, 'RAISE_VALUE', 0.0049),
+                profile,
+                inherit_parent=inherit_parent,
+            ),
+            'SHOWCASE_ROUND_STEP': self._get_float(
+                'SHOWCASE_ROUND_STEP',
+                getattr(base_config, 'SHOWCASE_ROUND_STEP', 0.01),
+                profile,
+                inherit_parent=inherit_parent,
+            ),
+            'REBOUND_TO_DESIRED_ON_MIN': self._get_bool(
+                'REBOUND_TO_DESIRED_ON_MIN',
+                getattr(base_config, 'REBOUND_TO_DESIRED_ON_MIN', False),
                 profile,
                 inherit_parent=inherit_parent,
             ),

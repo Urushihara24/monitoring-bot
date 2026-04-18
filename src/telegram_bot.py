@@ -50,11 +50,18 @@ BTN_BACK = '🔙 Назад'
 
 # Настройки
 BTN_PRICE = '🎯 Цена'
+BTN_MIN = '📉 Мин'
+BTN_MAX = '📈 Макс'
+BTN_UNDERCUT = '↘️ Шаг-'
+BTN_RAISE = '↗️ Шаг+'
+BTN_ROUNDING = '🔘 Округление'
 BTN_PRODUCTS = '📦 Товары'
 BTN_PRODUCT_REMOVE = '🗑 Удалить товар'
 BTN_PRODUCT_PREV = '⬅ Пред. товар'
 BTN_PRODUCT_NEXT = '➡ След. товар'
 BTN_MODE = '🔀 Режим'
+BTN_REBOUND_ON = '🔁 Отскок: ВКЛ'
+BTN_REBOUND_OFF = '🔁 Отскок: ВЫКЛ'
 BTN_CHAT_AUTOREPLY_ON = '💬 Инструкции: ВКЛ'
 BTN_CHAT_AUTOREPLY_OFF = '💬 Инструкции: ВЫКЛ'
 BTN_CHAT_EMPTY_ONLY_ON = '📭 Только пустой чат: ВКЛ'
@@ -187,6 +194,26 @@ class TelegramBot:
         normalized = self._normalize_mode(mode)
         idx = _MODE_SEQUENCE.index(normalized)
         return _MODE_SEQUENCE[(idx + 1) % len(_MODE_SEQUENCE)]
+
+    def _rounding_label(self, step: object) -> str:
+        try:
+            value = float(step or 0)
+        except Exception:
+            value = 0.0
+        if value <= 0:
+            return 'выкл'
+        return f'{value:g}'
+
+    def _next_rounding_step(self, step: object) -> float:
+        sequence = [0.0, 0.0001, 0.01, 1.0]
+        try:
+            current = float(step or 0)
+        except Exception:
+            current = 0.0
+        for idx, candidate in enumerate(sequence):
+            if abs(candidate - current) < 1e-9:
+                return sequence[(idx + 1) % len(sequence)]
+        return sequence[0]
 
     def _active_profile(self, chat_id: Optional[int]) -> str:
         if chat_id is None:
@@ -1154,6 +1181,120 @@ class TelegramBot:
         )
         return InlineKeyboardMarkup(rows)
 
+    def _products_inline_keyboard(
+        self,
+        profile_id: str,
+        *,
+        runtime: Optional[Any] = None,
+        confirm: Optional[str] = None,
+    ) -> InlineKeyboardMarkup:
+        tracked = self._tracked_products(profile_id, runtime=runtime)
+        active_product_id = self._product_id(profile_id)
+        rows: list[list[InlineKeyboardButton]] = []
+
+        for item in tracked:
+            product_id = int(item.get('product_id') or 0)
+            if product_id <= 0:
+                continue
+            prefix = '✅' if product_id == active_product_id else '📦'
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=f'{prefix} {self._product_label(profile_id, product_id)}',
+                        callback_data=f'pm:s:{product_id}',
+                    )
+                ]
+            )
+
+        rows.append(
+            [
+                InlineKeyboardButton('➕ Товар', callback_data='pm:a'),
+                InlineKeyboardButton('🔗 Конкурент', callback_data='pm:u'),
+            ]
+        )
+        rows.append(
+            [
+                InlineKeyboardButton('✏️ Переименовать', callback_data='pm:n'),
+                InlineKeyboardButton('♻️ Сбросить имя', callback_data='pm:c'),
+            ]
+        )
+
+        if confirm == 'active':
+            rows.append(
+                [
+                    InlineKeyboardButton('✅ Да, удалить', callback_data='pm:y:active'),
+                    InlineKeyboardButton('↩️ Отмена', callback_data='pm:r'),
+                ]
+            )
+        elif confirm == 'all':
+            rows.append(
+                [
+                    InlineKeyboardButton('✅ Да, удалить всё', callback_data='pm:y:all'),
+                    InlineKeyboardButton('↩️ Отмена', callback_data='pm:r'),
+                ]
+            )
+        else:
+            rows.append(
+                [
+                    InlineKeyboardButton('🗑 Удалить активный', callback_data='pm:rd'),
+                    InlineKeyboardButton('🧹 Удалить все', callback_data='pm:ra'),
+                ]
+            )
+
+        rows.append(
+            [
+                InlineKeyboardButton('🔄 Обновить', callback_data='pm:r'),
+                InlineKeyboardButton('✅ Готово', callback_data='pm:d'),
+            ]
+        )
+        return InlineKeyboardMarkup(rows)
+
+    def _format_products_management_text(
+        self,
+        profile_id: str,
+        *,
+        runtime: Optional[Any] = None,
+        confirm: Optional[str] = None,
+    ) -> str:
+        tracked_lines = self._format_tracked_products(profile_id, runtime=runtime)
+        active_product_id = self._product_id(profile_id)
+        active_label = (
+            self._product_label(profile_id, active_product_id)
+            if active_product_id
+            else 'не выбран'
+        )
+        lines = [
+            '📦 Управление товарами',
+            '',
+            f'Площадка: {self._profile_name(profile_id)}',
+            f'Активный товар: {active_label}',
+            '',
+            'Товары в профиле:',
+            *tracked_lines,
+            '',
+            'Кнопки ниже:',
+            '- выбрать активный товар',
+            '- добавить товар',
+            '- привязать URL конкурента к активному товару',
+            '- переименовать товар',
+            '- удалить активный товар или весь список',
+        ]
+        if confirm == 'active':
+            lines.extend(
+                [
+                    '',
+                    '⚠️ Подтверди удаление активного товара кнопкой ниже.',
+                ]
+            )
+        elif confirm == 'all':
+            lines.extend(
+                [
+                    '',
+                    '⚠️ Подтверди полную очистку списка товаров кнопкой ниже.',
+                ]
+            )
+        return '\n'.join(lines)
+
     # ================================
     # Keyboards
     # ================================
@@ -1175,12 +1316,22 @@ class TelegramBot:
         profile_id: Optional[str] = None,
     ):
         profile = profile_id or self.default_profile
+        runtime = self._runtime_for_product(profile, self._product_id(profile))
         state = self._state_for_product(profile, self._product_id(profile))
         auto_enabled = bool(state.get('auto_mode', True))
         auto_toggle_button = BTN_AUTO_OFF if auto_enabled else BTN_AUTO_ON
+        rebound_enabled = bool(
+            getattr(runtime, 'REBOUND_TO_DESIRED_ON_MIN', False)
+        )
+        rebound_toggle_button = (
+            BTN_REBOUND_ON if rebound_enabled else BTN_REBOUND_OFF
+        )
         rows = [
             [auto_toggle_button],
             [BTN_PRICE, BTN_MODE],
+            [BTN_MIN, BTN_MAX],
+            [BTN_UNDERCUT, BTN_RAISE],
+            [BTN_ROUNDING, rebound_toggle_button],
             [BTN_PRODUCTS, BTN_PRODUCT_REMOVE],
         ]
         if self._chat_autoreply_supported(profile):
@@ -1523,34 +1674,77 @@ class TelegramBot:
                 update=update,
             )
             return
-        if text == BTN_PRODUCTS:
+        if text == BTN_MIN:
             await self._prompt_pending_action(
                 chat_id=chat_id,
                 profile_id=profile_id,
-                action='MANAGE_PRODUCTS',
-                prompt=(
-                    'Отправь ID товара для добавления/выбора.\n'
-                    'Или сразу пару: <product_id> <url_конкурента>\n'
-                    'Список: list\n'
-                    'Задать имя: name <product_id|active> <название>\n'
-                    'Сбросить имя: clearname <product_id|active>\n'
-                    'Пример:\n'
-                    '4697439 https://ggsel.net/catalog/product/102124601'
-                ),
+                action='MIN_PRICE',
+                prompt='Введи нижний порог цены:',
                 update=update,
             )
             return
-        if text == BTN_PRODUCT_REMOVE:
+        if text == BTN_MAX:
             await self._prompt_pending_action(
                 chat_id=chat_id,
                 profile_id=profile_id,
-                action='REMOVE_PRODUCT',
-                prompt=(
-                    'Отправь ID товара для удаления.\n'
-                    'Или отправь `active`, чтобы удалить активный товар.\n'
-                    'Или отправь `all`, чтобы удалить все товары профиля.'
-                ),
+                action='MAX_PRICE',
+                prompt='Введи верхний порог цены:',
                 update=update,
+            )
+            return
+        if text == BTN_UNDERCUT:
+            await self._prompt_pending_action(
+                chat_id=chat_id,
+                profile_id=profile_id,
+                action='UNDERCUT_VALUE',
+                prompt='Введи шаг понижения (например 0.0051 или 0.51):',
+                update=update,
+            )
+            return
+        if text == BTN_RAISE:
+            await self._prompt_pending_action(
+                chat_id=chat_id,
+                profile_id=profile_id,
+                action='RAISE_VALUE',
+                prompt='Введи шаг повышения (например 0.0049 или 0.49):',
+                update=update,
+            )
+            return
+        if text == BTN_ROUNDING:
+            await self.cycle_rounding_step(chat_id, user_id, update)
+            return
+        if text == BTN_REBOUND_ON:
+            await self.set_rebound_to_desired(chat_id, user_id, update, enabled=True)
+            return
+        if text == BTN_REBOUND_OFF:
+            await self.set_rebound_to_desired(chat_id, user_id, update, enabled=False)
+            return
+        if text == BTN_PRODUCTS:
+            runtime = self._runtime_for_product(profile_id, self._product_id(profile_id))
+            await update.message.reply_text(
+                self._format_products_management_text(
+                    profile_id,
+                    runtime=runtime,
+                ),
+                reply_markup=self._products_inline_keyboard(
+                    profile_id,
+                    runtime=runtime,
+                ),
+            )
+            return
+        if text == BTN_PRODUCT_REMOVE:
+            runtime = self._runtime_for_product(profile_id, self._product_id(profile_id))
+            await update.message.reply_text(
+                self._format_products_management_text(
+                    profile_id,
+                    runtime=runtime,
+                    confirm='active',
+                ),
+                reply_markup=self._products_inline_keyboard(
+                    profile_id,
+                    runtime=runtime,
+                    confirm='active',
+                ),
             )
             return
         if text == BTN_PRODUCT_PREV:
@@ -1635,6 +1829,9 @@ class TelegramBot:
             return
 
         data = (query.data or '').strip()
+        if data.startswith('pm:'):
+            await self._handle_products_callback_query(update, query, data)
+            return
         if not data.startswith('cr:'):
             await query.answer()
             return
@@ -1724,6 +1921,237 @@ class TelegramBot:
             await query.answer('Включено' if enabled else 'Выключено')
             await self._refresh_chat_rules_message(chat_id, query)
             return
+
+        await query.answer()
+
+    async def _refresh_products_message(
+        self,
+        *,
+        query,
+        profile_id: str,
+        confirm: Optional[str] = None,
+    ) -> None:
+        runtime = self._runtime_for_product(profile_id, self._product_id(profile_id))
+        text = self._format_products_management_text(
+            profile_id,
+            runtime=runtime,
+            confirm=confirm,
+        )
+        markup = self._products_inline_keyboard(
+            profile_id,
+            runtime=runtime,
+            confirm=confirm,
+        )
+        if query.message:
+            await query.message.edit_text(text, reply_markup=markup)
+
+    async def _handle_products_callback_query(
+        self,
+        update: Update,
+        query,
+        data: str,
+    ) -> None:
+        chat_id = update.effective_chat.id
+        profile_id = self._active_profile(chat_id)
+        user_id = update.effective_user.id
+        parts = data.split(':')
+        action = parts[1] if len(parts) > 1 else ''
+
+        if action == 'd':
+            await query.answer('Готово')
+            if query.message:
+                await query.message.reply_text(
+                    '✅ Управление товарами закрыто',
+                    reply_markup=self.get_main_keyboard(profile_id),
+                )
+            return
+
+        if action == 'r':
+            await query.answer('Обновлено')
+            await self._refresh_products_message(query=query, profile_id=profile_id)
+            return
+
+        if action == 's':
+            try:
+                product_id = int(parts[2])
+            except Exception:
+                await query.answer('Некорректный товар', show_alert=True)
+                return
+            tracked_ids = self._tracked_product_ids(profile_id)
+            if product_id not in tracked_ids:
+                await query.answer('Товар уже отсутствует', show_alert=True)
+                await self._refresh_products_message(
+                    query=query,
+                    profile_id=profile_id,
+                )
+                return
+            self.profile_products[profile_id] = product_id
+            await self._ensure_product_auto_name(profile_id, product_id)
+            await query.answer('Активный товар выбран')
+            await self._refresh_products_message(query=query, profile_id=profile_id)
+            return
+
+        if action == 'a':
+            self._set_pending_action(chat_id, 'PRODUCT_ADD', profile_id)
+            await query.answer('Жду ID товара')
+            if query.message:
+                await query.message.reply_text(
+                    'Отправь ID товара для добавления или выбора.',
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+            return
+
+        if action == 'u':
+            if not self._product_id(profile_id):
+                await query.answer('Сначала выбери товар', show_alert=True)
+                return
+            self._set_pending_action(chat_id, 'PRODUCT_ADD_URL', profile_id)
+            await query.answer('Жду URL конкурента')
+            if query.message:
+                await query.message.reply_text(
+                    (
+                        'Отправь URL конкурента для активного товара.\n'
+                        'Можно отправить несколько URL через пробел или запятую.'
+                    ),
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+            return
+
+        if action == 'n':
+            if not self._product_id(profile_id):
+                await query.answer('Сначала выбери товар', show_alert=True)
+                return
+            self._set_pending_action(chat_id, 'PRODUCT_RENAME', profile_id)
+            await query.answer('Жду новое имя')
+            if query.message:
+                await query.message.reply_text(
+                    'Отправь новое имя для активного товара.',
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+            return
+
+        if action == 'c':
+            product_id = self._product_id(profile_id)
+            if product_id <= 0:
+                await query.answer('Сначала выбери товар', show_alert=True)
+                return
+            self._set_product_alias(
+                profile_id,
+                product_id,
+                '',
+                user_id=user_id,
+                source='telegram_product_alias_clear',
+            )
+            await self._ensure_product_auto_name(profile_id, product_id)
+            await query.answer('Имя сброшено')
+            await self._refresh_products_message(query=query, profile_id=profile_id)
+            return
+
+        if action == 'rd':
+            await query.answer('Подтверди удаление')
+            await self._refresh_products_message(
+                query=query,
+                profile_id=profile_id,
+                confirm='active',
+            )
+            return
+
+        if action == 'ra':
+            await query.answer('Подтверди очистку')
+            await self._refresh_products_message(
+                query=query,
+                profile_id=profile_id,
+                confirm='all',
+            )
+            return
+
+        if action == 'y':
+            scope = parts[2] if len(parts) > 2 else ''
+            if scope == 'active':
+                target_product_id = self._product_id(profile_id)
+                tracked_ids = self._tracked_product_ids(profile_id)
+                if target_product_id <= 0 or target_product_id not in tracked_ids:
+                    await query.answer('Товар не найден', show_alert=True)
+                    await self._refresh_products_message(
+                        query=query,
+                        profile_id=profile_id,
+                    )
+                    return
+                target_runtime_profile_id = self._runtime_profile_id_for_product(
+                    profile_id,
+                    target_product_id,
+                )
+                removed = storage.remove_tracked_product(
+                    profile_id=profile_id,
+                    product_id=target_product_id,
+                )
+                if removed:
+                    storage.delete_runtime_setting(
+                        'competitor_urls',
+                        user_id=user_id,
+                        source='telegram',
+                        profile_id=target_runtime_profile_id,
+                    )
+                    storage.purge_product_runtime_data(
+                        profile_id=profile_id,
+                        product_id=target_product_id,
+                    )
+                    storage.delete_runtime_setting(
+                        self._product_alias_key(target_product_id),
+                        user_id=user_id,
+                        source='telegram',
+                        profile_id=profile_id,
+                    )
+                    storage.delete_runtime_setting(
+                        self._product_auto_name_key(target_product_id),
+                        user_id=user_id,
+                        source='telegram',
+                        profile_id=profile_id,
+                    )
+                remaining_ids = self._tracked_product_ids(profile_id)
+                self.profile_products[profile_id] = remaining_ids[0] if remaining_ids else 0
+                await query.answer('Активный товар удалён')
+                await self._refresh_products_message(query=query, profile_id=profile_id)
+                return
+            if scope == 'all':
+                tracked_ids = self._tracked_product_ids(profile_id)
+                removed_ids = storage.clear_tracked_products(profile_id=profile_id)
+                cleanup_ids = sorted({
+                    int(pid)
+                    for pid in (removed_ids or tracked_ids)
+                    if int(pid or 0) > 0
+                })
+                for candidate_product_id in cleanup_ids:
+                    target_runtime_profile_id = self._runtime_profile_id_for_product(
+                        profile_id,
+                        candidate_product_id,
+                    )
+                    storage.delete_runtime_setting(
+                        'competitor_urls',
+                        user_id=user_id,
+                        source='telegram',
+                        profile_id=target_runtime_profile_id,
+                    )
+                    storage.purge_product_runtime_data(
+                        profile_id=profile_id,
+                        product_id=candidate_product_id,
+                    )
+                    storage.delete_runtime_setting(
+                        self._product_alias_key(candidate_product_id),
+                        user_id=user_id,
+                        source='telegram',
+                        profile_id=profile_id,
+                    )
+                    storage.delete_runtime_setting(
+                        self._product_auto_name_key(candidate_product_id),
+                        user_id=user_id,
+                        source='telegram',
+                        profile_id=profile_id,
+                    )
+                self.profile_products[profile_id] = 0
+                await query.answer('Список очищен')
+                await self._refresh_products_message(query=query, profile_id=profile_id)
+                return
 
         await query.answer()
 
@@ -1859,6 +2287,15 @@ class TelegramBot:
             f'{competitor_price:.4f}'
             if competitor_price is not None else 'N/A'
         )
+        min_price = float(getattr(runtime, 'MIN_PRICE', 0.0) or 0.0)
+        max_price = float(getattr(runtime, 'MAX_PRICE', 0.0) or 0.0)
+        desired_price = float(getattr(runtime, 'DESIRED_PRICE', 0.0) or 0.0)
+        undercut_value = float(getattr(runtime, 'UNDERCUT_VALUE', 0.0) or 0.0)
+        raise_value = float(getattr(runtime, 'RAISE_VALUE', 0.0049) or 0.0049)
+        round_step = getattr(runtime, 'SHOWCASE_ROUND_STEP', 0.01)
+        rebound_on_min = bool(
+            getattr(runtime, 'REBOUND_TO_DESIRED_ON_MIN', False)
+        )
         if profile_id == 'ggsel':
             display_price_label = '💰 Моя цена'
             target_price_label = '🎯 Цена по стратегии'
@@ -1901,6 +2338,11 @@ class TelegramBot:
 
 🔔 Авто: {'ВКЛ' if state.get('auto_mode', True) else 'ВЫКЛ'}
 🎯 Режим: {self._mode_label(runtime.MODE)}
+📉 Мин / 📈 Макс: {min_price:.4f}₽ / {max_price:.4f}₽
+🎯 Рекомендуемая: {desired_price:.4f}₽
+↘️ Шаг- / ↗️ Шаг+: {undercut_value:.4f} / {raise_value:.4f}
+🔘 Округление витрины: {self._rounding_label(round_step)}
+🔁 Отскок на минимуме: {'Да' if rebound_on_min else 'Нет'}
 🕐 Обновление: {update_str}
 ⏲️ Интервал: {runtime.CHECK_INTERVAL}s
 """
@@ -1933,6 +2375,15 @@ class TelegramBot:
             f'АКТИВЕН ({len(runtime.COMPETITOR_URLS)} URL)'
             if monitor_enabled
             else 'ВЫКЛ (нет URL)'
+        )
+        min_price = float(getattr(runtime, 'MIN_PRICE', 0.0) or 0.0)
+        max_price = float(getattr(runtime, 'MAX_PRICE', 0.0) or 0.0)
+        desired_price = float(getattr(runtime, 'DESIRED_PRICE', 0.0) or 0.0)
+        undercut_value = float(getattr(runtime, 'UNDERCUT_VALUE', 0.0) or 0.0)
+        raise_value = float(getattr(runtime, 'RAISE_VALUE', 0.0049) or 0.0049)
+        round_step = getattr(runtime, 'SHOWCASE_ROUND_STEP', 0.01)
+        rebound_on_min = bool(
+            getattr(runtime, 'REBOUND_TO_DESIRED_ON_MIN', False)
         )
         chat_block = ''
         chat_meta = self._chat_autoreply_meta(profile_id)
@@ -1977,14 +2428,25 @@ class TelegramBot:
             f'📡 Мониторинг: {monitor_mode}',
             f'🔗 Конкурентов: {len(runtime.COMPETITOR_URLS)}',
             '',
+            f'📉 MIN: {min_price:.4f}₽',
+            f'📈 MAX: {max_price:.4f}₽',
+            f'🎯 Рекомендуемая: {desired_price:.4f}₽',
+            f'↘️ Шаг-: {undercut_value:.4f}',
+            f'↗️ Шаг+: {raise_value:.4f}',
+            (
+                '🔘 Округление витрины: '
+                f'{self._rounding_label(round_step)}'
+            ),
+            (
+                '🔁 Отскок к рекомендуемой на минимуме: '
+                f'{"Да" if rebound_on_min else "Нет"}'
+            ),
+            '',
             (
                 '🔁 Обновлять только при изменении конкурента: '
                 f'{"Да" if runtime.UPDATE_ONLY_ON_COMPETITOR_CHANGE else "Нет"}'
             ),
-            (
-                'ℹ️ В режимах Следование/Демпинг/Повышение '
-                'используется формула режима для активного товара.'
-            ),
+            'ℹ️ Пороги и шаги применяются отдельно для активного товара.',
         ]
         base_lines.extend(
             [
@@ -2611,6 +3073,72 @@ class TelegramBot:
         )
         await self.send_settings(chat_id, update)
 
+    async def cycle_rounding_step(
+        self,
+        chat_id: int,
+        user_id: int,
+        update: Update,
+    ):
+        if not update.message:
+            return
+        profile_id = self._active_profile(chat_id)
+        product_id = self._product_id(profile_id)
+        runtime_profile_id = self._runtime_profile_id_for_product(
+            profile_id,
+            product_id,
+        )
+        runtime = self._runtime_for_product(profile_id, product_id)
+        new_step = self._next_rounding_step(
+            getattr(runtime, 'SHOWCASE_ROUND_STEP', 0.01)
+        )
+        storage.set_runtime_setting(
+            'SHOWCASE_ROUND_STEP',
+            str(new_step),
+            user_id=user_id,
+            source='telegram',
+            profile_id=runtime_profile_id,
+        )
+        await update.message.reply_text(
+            (
+                f'✅ Округление витрины ({self._profile_name(profile_id)} / '
+                f'{product_id}): {self._rounding_label(new_step)}'
+            ),
+            reply_markup=self.get_settings_keyboard(profile_id),
+        )
+        await self.send_settings(chat_id, update)
+
+    async def set_rebound_to_desired(
+        self,
+        chat_id: int,
+        user_id: int,
+        update: Update,
+        *,
+        enabled: bool,
+    ):
+        if not update.message:
+            return
+        profile_id = self._active_profile(chat_id)
+        product_id = self._product_id(profile_id)
+        runtime_profile_id = self._runtime_profile_id_for_product(
+            profile_id,
+            product_id,
+        )
+        storage.set_runtime_setting(
+            'REBOUND_TO_DESIRED_ON_MIN',
+            'true' if enabled else 'false',
+            user_id=user_id,
+            source='telegram',
+            profile_id=runtime_profile_id,
+        )
+        await update.message.reply_text(
+            (
+                f'✅ Отскок к рекомендуемой цене ({self._profile_name(profile_id)} / '
+                f'{product_id}): {"ВКЛ" if enabled else "ВЫКЛ"}'
+            ),
+            reply_markup=self.get_settings_keyboard(profile_id),
+        )
+        await self.send_settings(chat_id, update)
+
     async def handle_pending_action(
         self,
         chat_id: int,
@@ -2648,7 +3176,14 @@ class TelegramBot:
         )
         runtime = self._runtime_for_product(profile_id, product_id)
 
-        if action in {'DESIRED_PRICE', 'UNDERCUT_VALUE', 'MIN_PRICE', 'MAX_PRICE'}:
+        if action in {
+            'DESIRED_PRICE',
+            'UNDERCUT_VALUE',
+            'RAISE_VALUE',
+            'MIN_PRICE',
+            'MAX_PRICE',
+            'SHOWCASE_ROUND_STEP',
+        }:
             try:
                 value = float(text.replace(',', '.'))
             except ValueError:
@@ -2657,9 +3192,30 @@ class TelegramBot:
                     reply_markup=self.get_settings_keyboard(profile_id),
                 )
                 return
-            if value <= 0:
+            if action == 'SHOWCASE_ROUND_STEP':
+                if value < 0:
+                    await update.message.reply_text(
+                        '❌ Значение должно быть >= 0',
+                        reply_markup=self.get_settings_keyboard(profile_id),
+                    )
+                    return
+            elif value <= 0:
                 await update.message.reply_text(
                     '❌ Значение должно быть > 0',
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+            runtime_min = float(getattr(runtime, 'MIN_PRICE', 0.0) or 0.0)
+            runtime_max = float(getattr(runtime, 'MAX_PRICE', 0.0) or 0.0)
+            if action == 'MIN_PRICE' and runtime_max > 0 and value > runtime_max:
+                await update.message.reply_text(
+                    '❌ MIN_PRICE не может быть больше MAX_PRICE',
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+            if action == 'MAX_PRICE' and runtime_min > 0 and value < runtime_min:
+                await update.message.reply_text(
+                    '❌ MAX_PRICE не может быть меньше MIN_PRICE',
                     reply_markup=self.get_settings_keyboard(profile_id),
                 )
                 return
@@ -3072,6 +3628,157 @@ class TelegramBot:
                     f'{auto_hint}'
                     'ℹ️ Бот мониторит все товары из списка, '
                     'активный товар нужен только для редактирования.'
+                ),
+                reply_markup=self.get_settings_keyboard(profile_id),
+            )
+            await self.send_settings(chat_id, update)
+            return
+
+        if action == 'PRODUCT_ADD':
+            normalized = text.strip()
+            try:
+                product_id = int(float(normalized.replace(',', '.')))
+            except Exception:
+                await update.message.reply_text(
+                    '❌ Отправь корректный ID товара',
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+            if product_id <= 0:
+                await update.message.reply_text(
+                    '❌ ID товара должен быть > 0',
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+
+            tracked = self._tracked_products(profile_id, runtime=runtime)
+            tracked_ids = {
+                int(item.get('product_id') or 0)
+                for item in tracked
+            }
+            is_new_product = product_id not in tracked_ids
+            target_runtime_profile_id = self._runtime_profile_id_for_product(
+                profile_id,
+                product_id,
+            )
+            if is_new_product:
+                storage.upsert_tracked_product(
+                    profile_id=profile_id,
+                    product_id=product_id,
+                    competitor_urls=[],
+                )
+                if target_runtime_profile_id != profile_id:
+                    storage.set_auto_mode(
+                        False,
+                        profile_id=target_runtime_profile_id,
+                        user_id=user_id,
+                        source='telegram_add_product',
+                    )
+                    mode_change = storage.get_last_setting_change(
+                        'MODE',
+                        profile_id=target_runtime_profile_id,
+                    )
+                    if mode_change is None:
+                        storage.set_runtime_setting(
+                            'MODE',
+                            'FOLLOW',
+                            user_id=user_id,
+                            source='telegram_add_product',
+                            profile_id=target_runtime_profile_id,
+                        )
+            self.profile_products[profile_id] = product_id
+            self._clear_pending_action(chat_id)
+            await self._ensure_product_auto_name(profile_id, product_id)
+            await update.message.reply_text(
+                (
+                    f'✅ Товар выбран: {self._product_label(profile_id, product_id)}\n'
+                    'Если нужно, теперь кнопкой `🔗 Конкурент` привяжи URL конкурента.'
+                ),
+                reply_markup=self.get_settings_keyboard(profile_id),
+            )
+            await self.send_settings(chat_id, update)
+            return
+
+        if action == 'PRODUCT_ADD_URL':
+            normalized = text.strip()
+            raw_urls = [
+                item for item in re.split(r'[\s,]+', normalized) if item.strip()
+            ]
+            normalized_urls = storage.normalize_competitor_urls(raw_urls)
+            if not normalized_urls:
+                await update.message.reply_text(
+                    '❌ Не найдено валидных URL (http/https)',
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+            product_id = self._product_id(profile_id)
+            if product_id <= 0:
+                await update.message.reply_text(
+                    '❌ Сначала выбери активный товар',
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+            tracked = self._tracked_products(profile_id, runtime=runtime)
+            existing_urls = []
+            for item in tracked:
+                if int(item.get('product_id') or 0) == product_id:
+                    existing_urls = list(item.get('competitor_urls', []) or [])
+                    break
+            merged_urls = storage.normalize_competitor_urls(
+                existing_urls + normalized_urls
+            )
+            storage.upsert_tracked_product(
+                profile_id=profile_id,
+                product_id=product_id,
+                competitor_urls=merged_urls,
+            )
+            storage.set_competitor_urls(
+                merged_urls,
+                user_id=user_id,
+                source='telegram',
+                profile_id=self._runtime_profile_id_for_product(
+                    profile_id,
+                    product_id,
+                ),
+            )
+            self._clear_pending_action(chat_id)
+            await update.message.reply_text(
+                (
+                    f'✅ Конкурент(ы) обновлены для {self._product_label(profile_id, product_id)}\n'
+                    f'Добавлено URL: {len(normalized_urls)}'
+                ),
+                reply_markup=self.get_settings_keyboard(profile_id),
+            )
+            await self.send_settings(chat_id, update)
+            return
+
+        if action == 'PRODUCT_RENAME':
+            alias_text = re.sub(r'\s+', ' ', str(text or '').strip()).strip()
+            product_id = self._product_id(profile_id)
+            if product_id <= 0:
+                await update.message.reply_text(
+                    '❌ Сначала выбери активный товар',
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+            if not alias_text:
+                await update.message.reply_text(
+                    '❌ Имя не должно быть пустым',
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+                return
+            self._set_product_alias(
+                profile_id,
+                product_id,
+                alias_text,
+                user_id=user_id,
+                source='telegram_product_alias',
+            )
+            self._clear_pending_action(chat_id)
+            await update.message.reply_text(
+                (
+                    '✅ Имя товара сохранено:\n'
+                    f'{self._product_label(profile_id, product_id)}'
                 ),
                 reply_markup=self.get_settings_keyboard(profile_id),
             )

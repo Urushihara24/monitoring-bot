@@ -35,6 +35,14 @@ def _to_price(value: Decimal) -> float:
     return float(value.quantize(PRICE_PRECISION, rounding=ROUND_HALF_UP))
 
 
+def _round_to_step(value: Decimal, step: Decimal) -> Decimal:
+    if step <= 0:
+        return value
+    return (
+        (value / step).quantize(Decimal('1'), rounding=ROUND_HALF_UP) * step
+    )
+
+
 def _normalize_pricing_mode(mode: object) -> str:
     normalized = str(mode or '').strip().upper()
     aliases = {
@@ -193,7 +201,6 @@ def calculate_price(
     # === ШАГ 4: Рассчитать целевую цену по выбранному режиму ===
     raw_mode = getattr(config, 'MODE', 'DUMPING')
     mode = _normalize_pricing_mode(raw_mode)
-    enforce_limits = _is_legacy_limit_mode(raw_mode)
     if mode == 'FOLLOW':
         new_price = _to_price(min_competitor_price_d)
         reason = 'follow'
@@ -202,96 +209,56 @@ def calculate_price(
             min_competitor_price,
             new_price,
         )
-        # Для режима "Следование" не применяем MIN/MAX и hard-floor,
-        # чтобы цена шла строго "знак-в-знак" за конкурентом.
-        if last_update and (now - last_update).total_seconds() < config.COOLDOWN_SECONDS:
-            if not (
-                allow_fast_rebound
-                and current_price is not None
-                and new_price > current_price
-            ):
-                logger.info(f'Cooldown активен ({config.COOLDOWN_SECONDS}s)')
-                return PriceDecision(
-                    action='skip',
-                    price=new_price,
-                    reason=f'cooldown_active_{reason}',
-                    old_price=current_price,
-                    competitor_price=min_competitor_price,
-                )
-            reason = f'fast_rebound_{reason}'
-            logger.info('Cooldown bypass для быстрого отката вверх')
-
-        if current_price is not None:
-            delta = abs(new_price - current_price)
-            if delta < config.IGNORE_DELTA:
-                logger.info(f'Delta {delta} < {config.IGNORE_DELTA} → skip')
-                return PriceDecision(
-                    action='skip',
-                    price=new_price,
-                    reason=f'ignore_delta_{reason}',
-                    old_price=current_price,
-                    competitor_price=min_competitor_price,
-                )
-
-        return PriceDecision(
-            action='update',
-            price=new_price,
-            reason=reason,
-            old_price=current_price,
-            competitor_price=min_competitor_price,
-        )
     elif mode == 'RAISE':
-        rounded_showcase = min_competitor_price_d.quantize(
-            SHOWCASE_PRECISION,
-            rounding=ROUND_HALF_UP,
+        round_step = _d(max(getattr(config, 'SHOWCASE_ROUND_STEP', 0.01), 0.0))
+        showcase_anchor = (
+            _round_to_step(min_competitor_price_d, round_step)
+            if round_step > 0
+            else min_competitor_price_d
         )
-        new_price = _to_price(rounded_showcase + RAISE_OFFSET)
+        raise_value_d = _d(getattr(config, 'RAISE_VALUE', float(RAISE_OFFSET)))
+        new_price = _to_price(showcase_anchor + raise_value_d)
         reason = (
             'raise_showcase('
-            f'{float(rounded_showcase)}+'
-            f'{float(RAISE_OFFSET)})'
+            f'{float(showcase_anchor)}+'
+            f'{float(raise_value_d)})'
         )
         logger.info(
-            'Режим RAISE: витрина %s + %s = %s',
-            float(rounded_showcase),
-            float(RAISE_OFFSET),
+            'Режим RAISE: база %s + %s = %s (round_step=%s)',
+            float(showcase_anchor),
+            float(raise_value_d),
             new_price,
+            float(round_step),
         )
     else:
-        rounded_showcase = min_competitor_price_d.quantize(
-            SHOWCASE_PRECISION,
-            rounding=ROUND_HALF_UP,
+        round_step = _d(max(getattr(config, 'SHOWCASE_ROUND_STEP', 0.01), 0.0))
+        showcase_anchor = (
+            _round_to_step(min_competitor_price_d, round_step)
+            if round_step > 0
+            else min_competitor_price_d
         )
-        new_price = _to_price(rounded_showcase - DUMPING_OFFSET)
+        undercut_value_d = _d(config.UNDERCUT_VALUE)
+        new_price = _to_price(showcase_anchor - undercut_value_d)
         reason = (
             'dumping_showcase('
-            f'{float(rounded_showcase)}-'
-            f'{float(DUMPING_OFFSET)})'
+            f'{float(showcase_anchor)}-'
+            f'{float(undercut_value_d)})'
         )
         logger.info(
-            'Режим DUMPING: витрина %s - %s = %s',
-            float(rounded_showcase),
-            float(DUMPING_OFFSET),
+            'Режим DUMPING: база %s - %s = %s (round_step=%s)',
+            float(showcase_anchor),
+            float(undercut_value_d),
             new_price,
+            float(round_step),
         )
-    
-    # Для современных режимов (FOLLOW/DUMPING/RAISE) не применяем
-    # MIN/MAX/hard-floor ограничения, чтобы цена шла строго по формуле режима.
-    # Legacy-режимы FIXED/STEP_UP сохраняют старую защитную семантику.
-    if enforce_limits:
-        # === ШАГ 5: Проверить MAX_PRICE ===
-        if new_price > config.MAX_PRICE:
-            new_price = _to_price(_d(config.MAX_PRICE))
-            reason += f'_max_capped({config.MAX_PRICE})'
-            logger.info(f'Цена ограничена MAX_PRICE: {config.MAX_PRICE}')
 
-        # === ШАГ 6: Применить hard floor / max-down-step ===
-        new_price, reason = _apply_loss_protection(
-            new_price=new_price,
-            current_price=current_price,
-            reason=reason,
-            config=config,
-        )
+    # === ШАГ 5: Применить пороги / отскок / защиту ===
+    new_price, reason = _apply_loss_protection(
+        new_price=new_price,
+        current_price=current_price,
+        reason=reason,
+        config=config,
+    )
 
     # === ШАГ 7: Проверить cooldown ===
     if last_update and (now - last_update).total_seconds() < config.COOLDOWN_SECONDS:
@@ -350,8 +317,21 @@ def _apply_loss_protection(
     if getattr(config, 'HARD_FLOOR_ENABLED', True):
         min_price = _d(config.MIN_PRICE)
         if candidate < min_price:
-            candidate = min_price
-            reason_out += f'_hard_floor_min({config.MIN_PRICE})'
+            if getattr(config, 'REBOUND_TO_DESIRED_ON_MIN', False):
+                desired_price = _d(getattr(config, 'DESIRED_PRICE', config.MIN_PRICE))
+                rebound_candidate = desired_price
+                if rebound_candidate < min_price:
+                    rebound_candidate = min_price
+                max_price = _d(config.MAX_PRICE)
+                if rebound_candidate > max_price:
+                    rebound_candidate = max_price
+                candidate = rebound_candidate
+                reason_out += (
+                    f'_rebound_to_desired({float(rebound_candidate)})'
+                )
+            else:
+                candidate = min_price
+                reason_out += f'_hard_floor_min({config.MIN_PRICE})'
 
     # Ограничение резкого снижения за цикл.
     max_down_step = max(getattr(config, 'MAX_DOWN_STEP', 0.0), 0.0)

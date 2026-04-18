@@ -32,6 +32,9 @@ def test_build_profile_runtime_defaults_for_digiseller():
         DIGISELLER_MAX_PRICE=0.88,
         DIGISELLER_DESIRED_PRICE=0.55,
         DIGISELLER_UNDERCUT_VALUE=0.0051,
+        DIGISELLER_RAISE_VALUE=0.0049,
+        DIGISELLER_SHOWCASE_ROUND_STEP=0.01,
+        DIGISELLER_REBOUND_TO_DESIRED_ON_MIN=True,
         DIGISELLER_MODE='step_up',
         DIGISELLER_FIXED_PRICE=0.6,
         DIGISELLER_STEP_UP_VALUE=0.07,
@@ -45,6 +48,9 @@ def test_build_profile_runtime_defaults_for_digiseller():
     assert defaults['MAX_PRICE'] == '0.88'
     assert defaults['DESIRED_PRICE'] == '0.55'
     assert defaults['UNDERCUT_VALUE'] == '0.0051'
+    assert defaults['RAISE_VALUE'] == '0.0049'
+    assert defaults['SHOWCASE_ROUND_STEP'] == '0.01'
+    assert defaults['REBOUND_TO_DESIRED_ON_MIN'] == 'true'
     assert defaults['MODE'] == 'DUMPING'
     assert defaults['FIXED_PRICE'] == '0.6'
     assert defaults['STEP_UP_VALUE'] == '0.07'
@@ -83,6 +89,7 @@ def test_build_profile_runtime_defaults_reads_missing_attrs_from_env(monkeypatch
     monkeypatch.setenv('DIGISELLER_IGNORE_DELTA', '0.001')
     monkeypatch.setenv('DIGISELLER_HARD_FLOOR_ENABLED', 'false')
     monkeypatch.setenv('DIGISELLER_WEAK_POSITION_THRESHOLD', '25')
+    monkeypatch.setenv('DIGISELLER_SHOWCASE_ROUND_STEP', '0')
     monkeypatch.setenv('DIGISELLER_MODE', 'fixed')
 
     defaults = build_profile_runtime_defaults(cfg, 'digiseller')
@@ -90,6 +97,7 @@ def test_build_profile_runtime_defaults_reads_missing_attrs_from_env(monkeypatch
     assert defaults['IGNORE_DELTA'] == '0.001'
     assert defaults['HARD_FLOOR_ENABLED'] == 'false'
     assert defaults['WEAK_POSITION_THRESHOLD'] == '25'
+    assert defaults['SHOWCASE_ROUND_STEP'] == '0.0'
     assert defaults['MODE'] == 'DUMPING'
 
 

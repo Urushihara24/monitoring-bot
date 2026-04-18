@@ -22,6 +22,10 @@ def validate_runtime_config(cfg) -> Tuple[bool, List[str]]:
         errors.append('MIN_PRICE не может быть больше MAX_PRICE')
     if cfg.UNDERCUT_VALUE <= 0:
         errors.append('UNDERCUT_VALUE должен быть > 0')
+    if getattr(cfg, 'RAISE_VALUE', 0) <= 0:
+        errors.append('RAISE_VALUE должен быть > 0')
+    if getattr(cfg, 'SHOWCASE_ROUND_STEP', 0) < 0:
+        errors.append('SHOWCASE_ROUND_STEP не может быть отрицательным')
     mode_value = str(getattr(cfg, 'MODE', '') or '').strip().upper()
     mode_value = mode_aliases.get(mode_value, mode_value)
     if mode_value not in ('FOLLOW', 'DUMPING', 'RAISE'):

@@ -2,7 +2,7 @@ import logging
 from types import SimpleNamespace
 
 import pytest
-from telegram import ReplyKeyboardMarkup
+from telegram import InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.error import TimedOut
 
 from src.telegram_bot import (
@@ -124,20 +124,21 @@ async def test_product_switch_buttons_dispatch(bot, monkeypatch, button, step):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ('button', 'expected_action'),
-    [
-        (BTN_PRICE, 'DESIRED_PRICE'),
-        (BTN_PRODUCTS, 'MANAGE_PRODUCTS'),
-        (BTN_PRODUCT_REMOVE, 'REMOVE_PRODUCT'),
-    ],
-)
-async def test_buttons_set_pending_actions(bot, button, expected_action):
-    upd = DummyUpdate(button, chat_id=555)
+async def test_price_button_sets_pending_action(bot):
+    upd = DummyUpdate(BTN_PRICE, chat_id=555)
     await bot.handle_message(upd, None)
-    assert bot.pending_actions[555] == (expected_action, 'ggsel')
+    assert bot.pending_actions[555] == ('DESIRED_PRICE', 'ggsel')
     assert upd.message.replies
     assert isinstance(upd.message.replies[-1][1], ReplyKeyboardMarkup)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('button', [BTN_PRODUCTS, BTN_PRODUCT_REMOVE])
+async def test_product_buttons_open_inline_manager(bot, button):
+    upd = DummyUpdate(button, chat_id=555)
+    await bot.handle_message(upd, None)
+    assert upd.message.replies
+    assert isinstance(upd.message.replies[-1][1], InlineKeyboardMarkup)
 
 
 @pytest.mark.asyncio
@@ -187,7 +188,7 @@ async def test_handle_app_error_unknown_logs_error(bot, caplog):
 
 
 @pytest.mark.asyncio
-async def test_send_settings_hides_legacy_price_limits(bot, monkeypatch):
+async def test_send_settings_shows_price_controls(bot, monkeypatch):
     monkeypatch.setattr(bot, '_active_profile', lambda _chat_id: 'ggsel')
     monkeypatch.setattr(bot, '_product_id', lambda _profile_id: 4697439)
     monkeypatch.setattr(bot, '_state_for_product', lambda *_args, **_kwargs: {
@@ -199,6 +200,13 @@ async def test_send_settings_hides_legacy_price_limits(bot, monkeypatch):
         lambda *_args, **_kwargs: SimpleNamespace(
             COMPETITOR_URLS=['https://example.com/competitor'],
             MODE='DUMPING',
+            MIN_PRICE=0.25,
+            MAX_PRICE=0.40,
+            DESIRED_PRICE=0.35,
+            UNDERCUT_VALUE=0.0051,
+            RAISE_VALUE=0.0049,
+            SHOWCASE_ROUND_STEP=0.01,
+            REBOUND_TO_DESIRED_ON_MIN=True,
             CHECK_INTERVAL=30,
             UPDATE_ONLY_ON_COMPETITOR_CHANGE=True,
         ),
@@ -224,7 +232,8 @@ async def test_send_settings_hides_legacy_price_limits(bot, monkeypatch):
 
     assert upd.message.replies
     text = upd.message.replies[-1][0]
-    assert 'MIN:' not in text
-    assert 'MAX:' not in text
-    assert 'Желаемая' not in text
-    assert 'Шаг:' not in text
+    assert 'MIN: 0.2500₽' in text
+    assert 'MAX: 0.4000₽' in text
+    assert 'Рекомендуемая: 0.3500₽' in text
+    assert 'Шаг-: 0.0051' in text
+    assert 'Шаг+: 0.0049' in text

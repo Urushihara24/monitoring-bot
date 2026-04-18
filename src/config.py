@@ -261,6 +261,15 @@ class Config:
     DIGISELLER_UNDERCUT_VALUE: Optional[float] = _env_optional_float(
         'DIGISELLER_UNDERCUT_VALUE'
     )
+    DIGISELLER_RAISE_VALUE: Optional[float] = _env_optional_float(
+        'DIGISELLER_RAISE_VALUE'
+    )
+    DIGISELLER_SHOWCASE_ROUND_STEP: Optional[float] = _env_optional_float(
+        'DIGISELLER_SHOWCASE_ROUND_STEP'
+    )
+    DIGISELLER_REBOUND_TO_DESIRED_ON_MIN: Optional[bool] = _env_optional_bool(
+        'DIGISELLER_REBOUND_TO_DESIRED_ON_MIN'
+    )
     DIGISELLER_MODE: Optional[str] = _env_optional_str('DIGISELLER_MODE')
     DIGISELLER_FIXED_PRICE: Optional[float] = _env_optional_float(
         'DIGISELLER_FIXED_PRICE'
@@ -357,6 +366,19 @@ class Config:
     DESIRED_PRICE: float = float(os.getenv('DESIRED_PRICE', '0.35'))
     # Насколько быть ниже конкурента (пример: 0.30 -> 0.2949)
     UNDERCUT_VALUE: float = float(os.getenv('UNDERCUT_VALUE', '0.0051'))
+    # Насколько быть выше конкурента в режиме повышения.
+    RAISE_VALUE: float = float(os.getenv('RAISE_VALUE', '0.0049'))
+    # Шаг округления витринной цены конкурента перед расчётом.
+    # 0 = без округления, 0.01 = до копеек, 1 = до рубля и т.д.
+    SHOWCASE_ROUND_STEP: float = float(
+        os.getenv('SHOWCASE_ROUND_STEP', '0.01')
+    )
+    # Если формула упирается в минимум, можно сразу вернуть цену
+    # на рекомендуемую (DESIRED_PRICE), а не застревать на MIN_PRICE.
+    REBOUND_TO_DESIRED_ON_MIN: bool = _env_bool(
+        'REBOUND_TO_DESIRED_ON_MIN',
+        False,
+    )
     
     # Режим ценообразования:
     # FOLLOW / DUMPING / RAISE

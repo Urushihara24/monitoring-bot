@@ -8,6 +8,8 @@ def make_cfg(**kwargs):
         'MIN_PRICE': 0.25,
         'MAX_PRICE': 10.0,
         'UNDERCUT_VALUE': 0.0051,
+        'RAISE_VALUE': 0.0049,
+        'SHOWCASE_ROUND_STEP': 0.01,
         'MODE': 'FIXED',
         'CHECK_INTERVAL': 30,
         'FAST_CHECK_INTERVAL_MIN': 20,
