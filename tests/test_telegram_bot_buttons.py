@@ -24,6 +24,7 @@ from src.telegram_bot import (
     BTN_PRODUCT_NEXT,
     BTN_PRODUCT_PREV,
     BTN_PRODUCT_REMOVE,
+    BTN_PRICE_GUARD,
     BTN_PRICE,
     BTN_PRODUCTS,
     BTN_PROFILE,
@@ -207,12 +208,13 @@ def test_settings_keyboard_is_not_overloaded():
     assert BTN_PRODUCT_PREV not in texts
     assert BTN_PRODUCT_NEXT not in texts
     assert BTN_PRICE in texts
-    assert BTN_MIN in texts
-    assert BTN_MAX in texts
-    assert BTN_UNDERCUT in texts
-    assert BTN_RAISE in texts
-    assert BTN_ROUNDING in texts
-    assert BTN_REBOUND_OFF in texts
+    assert BTN_PRICE_GUARD in texts
+    assert BTN_MIN not in texts
+    assert BTN_MAX not in texts
+    assert BTN_UNDERCUT not in texts
+    assert BTN_RAISE not in texts
+    assert BTN_ROUNDING not in texts
+    assert BTN_REBOUND_OFF not in texts
     assert BTN_MODE in texts
     assert BTN_AUTO_OFF in texts
     assert BTN_AUTO_ON not in texts
@@ -343,6 +345,63 @@ async def test_products_callback_select_active_product_refreshes_menu(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_price_guard_button_opens_inline_panel():
+    bot = make_bot()
+    update = make_update(BTN_PRICE_GUARD)
+
+    await bot.handle_message(update, None)
+
+    update.message.reply_text.assert_awaited_once()
+    _args, kwargs = update.message.reply_text.await_args
+    markup = kwargs['reply_markup']
+    assert hasattr(markup, 'inline_keyboard')
+    flat = [button.text for row in markup.inline_keyboard for button in row]
+    assert BTN_MIN in flat
+    assert BTN_MAX in flat
+    assert BTN_UNDERCUT in flat
+    assert BTN_RAISE in flat
+
+
+@pytest.mark.asyncio
+async def test_price_guard_rounding_callback_isolated_for_active_product(monkeypatch):
+    bot = make_bot()
+    bot.profile_products['ggsel'] = 999
+    bot._runtime_for_product = lambda _profile, _product: SimpleNamespace(
+        SHOWCASE_ROUND_STEP=0.01,
+        REBOUND_TO_DESIRED_ON_MIN=False,
+        MIN_PRICE=0.25,
+        MAX_PRICE=0.40,
+        UNDERCUT_VALUE=0.0051,
+        RAISE_VALUE=0.0049,
+    )
+    captured = {}
+
+    def fake_set_runtime_setting(
+        key,
+        value,
+        user_id=None,
+        source='system',
+        profile_id='ggsel',
+    ):
+        captured['key'] = key
+        captured['value'] = value
+        captured['profile_id'] = profile_id
+
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_runtime_setting',
+        fake_set_runtime_setting,
+    )
+    update = make_callback_update('pc:round')
+
+    await bot.handle_callback_query(update, None)
+
+    assert captured['key'] == 'SHOWCASE_ROUND_STEP'
+    assert captured['profile_id'] == 'ggsel:999'
+    update.callback_query.message.edit_text.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_pending_product_rename_uses_plain_text(monkeypatch):
     bot = make_bot()
     bot.pending_actions[100] = ('PRODUCT_RENAME', 'ggsel')
@@ -379,6 +438,7 @@ async def test_main_buttons_route_to_handlers():
     bot.set_chat_autoreply_smart_non_empty = AsyncMock()
     bot.cycle_chat_autoreply_policy = AsyncMock()
     bot.start_chat_rules = AsyncMock()
+    bot.open_price_guard_panel = AsyncMock()
     bot.send_settings = AsyncMock()
 
     status = make_update(BTN_STATUS)
@@ -396,6 +456,10 @@ async def test_main_buttons_route_to_handlers():
     settings = make_update(BTN_SETTINGS)
     await bot.handle_message(settings, None)
     bot.send_settings.assert_awaited_once_with(100, settings)
+
+    price_guard = make_update(BTN_PRICE_GUARD)
+    await bot.handle_message(price_guard, None)
+    bot.open_price_guard_panel.assert_awaited_once_with(100, price_guard)
 
     chat_on = make_update(BTN_CHAT_AUTOREPLY_ON)
     await bot.handle_message(chat_on, None)

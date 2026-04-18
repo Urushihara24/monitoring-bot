@@ -50,6 +50,7 @@ BTN_BACK = '🔙 Назад'
 
 # Настройки
 BTN_PRICE = '🎯 Цена'
+BTN_PRICE_GUARD = '🧮 Лимиты и шаги'
 BTN_MIN = '📉 Мин'
 BTN_MAX = '📈 Макс'
 BTN_UNDERCUT = '↘️ Шаг-'
@@ -1316,22 +1317,13 @@ class TelegramBot:
         profile_id: Optional[str] = None,
     ):
         profile = profile_id or self.default_profile
-        runtime = self._runtime_for_product(profile, self._product_id(profile))
         state = self._state_for_product(profile, self._product_id(profile))
         auto_enabled = bool(state.get('auto_mode', True))
         auto_toggle_button = BTN_AUTO_OFF if auto_enabled else BTN_AUTO_ON
-        rebound_enabled = bool(
-            getattr(runtime, 'REBOUND_TO_DESIRED_ON_MIN', False)
-        )
-        rebound_toggle_button = (
-            BTN_REBOUND_ON if rebound_enabled else BTN_REBOUND_OFF
-        )
         rows = [
             [auto_toggle_button],
             [BTN_PRICE, BTN_MODE],
-            [BTN_MIN, BTN_MAX],
-            [BTN_UNDERCUT, BTN_RAISE],
-            [BTN_ROUNDING, rebound_toggle_button],
+            [BTN_PRICE_GUARD],
             [BTN_PRODUCTS, BTN_PRODUCT_REMOVE],
         ]
         if self._chat_autoreply_supported(profile):
@@ -1361,6 +1353,89 @@ class TelegramBot:
             rows.append([BTN_CHAT_POLICY, BTN_CHAT_RULES])
         rows.append([BTN_BACK])
         return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+
+    def _price_guard_inline_keyboard(
+        self,
+        *,
+        profile_id: str,
+    ) -> InlineKeyboardMarkup:
+        product_id = self._product_id(profile_id)
+        runtime = self._runtime_for_product(profile_id, product_id)
+        round_step = getattr(runtime, 'SHOWCASE_ROUND_STEP', 0.01)
+        rebound_enabled = bool(
+            getattr(runtime, 'REBOUND_TO_DESIRED_ON_MIN', False)
+        )
+        rebound_label = '🔁 Отскок: ВКЛ' if rebound_enabled else '🔁 Отскок: ВЫКЛ'
+        rounding_label = f'🔘 Округление: {self._rounding_label(round_step)}'
+        rows = [
+            [
+                InlineKeyboardButton(BTN_MIN, callback_data='pc:min'),
+                InlineKeyboardButton(BTN_MAX, callback_data='pc:max'),
+            ],
+            [
+                InlineKeyboardButton(BTN_UNDERCUT, callback_data='pc:under'),
+                InlineKeyboardButton(BTN_RAISE, callback_data='pc:raise'),
+            ],
+            [
+                InlineKeyboardButton(
+                    rounding_label,
+                    callback_data='pc:round',
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    rebound_label,
+                    callback_data='pc:rebound',
+                ),
+            ],
+            [
+                InlineKeyboardButton('✅ Готово', callback_data='pc:done'),
+            ],
+        ]
+        return InlineKeyboardMarkup(rows)
+
+    def _format_price_guard_text(self, profile_id: str) -> str:
+        product_id = self._product_id(profile_id)
+        runtime = self._runtime_for_product(profile_id, product_id)
+        min_price = float(getattr(runtime, 'MIN_PRICE', 0.0) or 0.0)
+        max_price = float(getattr(runtime, 'MAX_PRICE', 0.0) or 0.0)
+        undercut = float(getattr(runtime, 'UNDERCUT_VALUE', 0.0051) or 0.0051)
+        raise_value = float(getattr(runtime, 'RAISE_VALUE', 0.0049) or 0.0049)
+        round_step = getattr(runtime, 'SHOWCASE_ROUND_STEP', 0.01)
+        rebound_enabled = bool(
+            getattr(runtime, 'REBOUND_TO_DESIRED_ON_MIN', False)
+        )
+        return '\n'.join(
+            [
+                '🧮 Лимиты и шаги',
+                '',
+                f'Профиль: {self._profile_name(profile_id)}',
+                f'Товар: {product_id}',
+                '',
+                f'📉 Мин: {min_price:.4f}',
+                f'📈 Макс: {max_price:.4f}',
+                f'↘️ Шаг-: {undercut:.4f}',
+                f'↗️ Шаг+: {raise_value:.4f}',
+                f'🔘 Округление: {self._rounding_label(round_step)}',
+                (
+                    f'🔁 Отскок к рекомендуемой: '
+                    f'{"ВКЛ" if rebound_enabled else "ВЫКЛ"}'
+                ),
+                '',
+                'Изменения применяются только к активному товару.',
+            ]
+        )
+
+    async def open_price_guard_panel(self, chat_id: int, update: Update):
+        if not update.message:
+            return
+        profile_id = self._active_profile(chat_id)
+        await update.message.reply_text(
+            self._format_price_guard_text(profile_id),
+            reply_markup=self._price_guard_inline_keyboard(
+                profile_id=profile_id,
+            ),
+        )
 
     def get_profile_keyboard(self):
         profile_rows = [[self._profile_button(pid)] for pid in self.available_profiles]
@@ -1674,6 +1749,9 @@ class TelegramBot:
                 update=update,
             )
             return
+        if text == BTN_PRICE_GUARD:
+            await self.open_price_guard_panel(chat_id, update)
+            return
         if text == BTN_MIN:
             await self._prompt_pending_action(
                 chat_id=chat_id,
@@ -1832,6 +1910,9 @@ class TelegramBot:
         if data.startswith('pm:'):
             await self._handle_products_callback_query(update, query, data)
             return
+        if data.startswith('pc:'):
+            await self._handle_price_guard_callback_query(update, query, data)
+            return
         if not data.startswith('cr:'):
             await query.answer()
             return
@@ -1920,6 +2001,113 @@ class TelegramBot:
             )
             await query.answer('Включено' if enabled else 'Выключено')
             await self._refresh_chat_rules_message(chat_id, query)
+            return
+
+        await query.answer()
+
+    async def _refresh_price_guard_message(
+        self,
+        *,
+        query,
+        profile_id: str,
+    ) -> None:
+        text = self._format_price_guard_text(profile_id)
+        markup = self._price_guard_inline_keyboard(profile_id=profile_id)
+        if query.message:
+            await query.message.edit_text(text, reply_markup=markup)
+
+    async def _handle_price_guard_callback_query(
+        self,
+        update: Update,
+        query,
+        data: str,
+    ) -> None:
+        chat_id = update.effective_chat.id
+        user_id = update.effective_user.id
+        profile_id = self._active_profile(chat_id)
+        parts = data.split(':')
+        action = parts[1] if len(parts) > 1 else ''
+        if action == 'done':
+            await query.answer('Готово')
+            if query.message:
+                await query.message.reply_text(
+                    '✅ Лимиты и шаги закрыты',
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+            return
+
+        if action in {'min', 'max', 'under', 'raise'}:
+            action_map = {
+                'min': ('MIN_PRICE', 'Введи нижний порог цены:'),
+                'max': ('MAX_PRICE', 'Введи верхний порог цены:'),
+                'under': (
+                    'UNDERCUT_VALUE',
+                    'Введи шаг понижения (например 0.0051 или 0.51):',
+                ),
+                'raise': (
+                    'RAISE_VALUE',
+                    'Введи шаг повышения (например 0.0049 или 0.49):',
+                ),
+            }
+            pending_action, prompt = action_map[action]
+            self._set_pending_action(chat_id, pending_action, profile_id)
+            await query.answer('Жду значение')
+            if query.message:
+                await query.message.reply_text(
+                    prompt,
+                    reply_markup=self.get_settings_keyboard(profile_id),
+                )
+            return
+
+        if action == 'round':
+            product_id = self._product_id(profile_id)
+            runtime_profile_id = self._runtime_profile_id_for_product(
+                profile_id,
+                product_id,
+            )
+            runtime = self._runtime_for_product(profile_id, product_id)
+            new_step = self._next_rounding_step(
+                getattr(runtime, 'SHOWCASE_ROUND_STEP', 0.01)
+            )
+            storage.set_runtime_setting(
+                'SHOWCASE_ROUND_STEP',
+                str(new_step),
+                user_id=user_id,
+                source='telegram',
+                profile_id=runtime_profile_id,
+            )
+            await query.answer(f'Округление: {self._rounding_label(new_step)}')
+            await self._refresh_price_guard_message(
+                query=query,
+                profile_id=profile_id,
+            )
+            return
+
+        if action == 'rebound':
+            product_id = self._product_id(profile_id)
+            runtime_profile_id = self._runtime_profile_id_for_product(
+                profile_id,
+                product_id,
+            )
+            runtime = self._runtime_for_product(profile_id, product_id)
+            enabled = bool(
+                getattr(runtime, 'REBOUND_TO_DESIRED_ON_MIN', False)
+            )
+            new_enabled = not enabled
+            storage.set_runtime_setting(
+                'REBOUND_TO_DESIRED_ON_MIN',
+                'true' if new_enabled else 'false',
+                user_id=user_id,
+                source='telegram',
+                profile_id=runtime_profile_id,
+            )
+            await query.answer(
+                f'Отскок: {"ВКЛ" if new_enabled else "ВЫКЛ"}'
+            )
+            await self._refresh_price_guard_message(
+                query=query,
+                profile_id=profile_id,
+            )
             return
 
         await query.answer()
