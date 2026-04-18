@@ -1384,7 +1384,7 @@ class TelegramBot:
             [auto_toggle_button],
             [BTN_PRICE, BTN_MODE],
             [BTN_PRICE_GUARD],
-            [BTN_PRODUCTS, BTN_PRODUCT_REMOVE],
+            [BTN_PRODUCT_REMOVE],
         ]
         if self._chat_autoreply_supported(profile):
             chat_enabled = self._chat_autoreply_enabled(profile)

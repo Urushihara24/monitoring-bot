@@ -202,7 +202,7 @@ def test_settings_keyboard_is_not_overloaded():
     texts = keyboard_texts(bot.get_settings_keyboard())
     assert '📤 Экспорт' not in texts
     assert '📥 Импорт' not in texts
-    assert BTN_PRODUCTS in texts
+    assert BTN_PRODUCTS not in texts
     assert BTN_PRODUCT_REMOVE in texts
     assert BTN_PRODUCT_PREV not in texts
     assert BTN_PRODUCT_NEXT not in texts
