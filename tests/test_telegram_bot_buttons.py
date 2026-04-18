@@ -30,7 +30,6 @@ from src.telegram_bot import (
     BTN_PROFILE,
     BTN_RAISE,
     BTN_REBOUND_OFF,
-    BTN_REBOUND_ON,
     BTN_ROUNDING,
     BTN_SETTINGS,
     BTN_STATUS,
