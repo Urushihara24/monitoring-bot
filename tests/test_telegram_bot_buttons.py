@@ -1122,9 +1122,7 @@ async def test_status_shows_digiseller_chat_autoreply_block(monkeypatch):
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert '💬 Авто-инструкции: ВКЛ' in args[0]
-    assert '📭 Только пустой чат: Да' in args[0]
     assert '🧭 Режим отправки: Только при коде' in args[0]
-    assert '📦 Товары: 5077639, 5104800' in args[0]
     assert '📨 Отправлено: 7' in args[0]
     assert '🕓 Последняя отправка:' in args[0]
     assert '10:01:00Z' not in args[0]
@@ -1192,8 +1190,6 @@ async def test_status_shows_ggsel_chat_autoreply_block(monkeypatch):
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert '💬 Авто-инструкции: ВКЛ' in args[0]
-    assert '📭 Только пустой чат: Да' in args[0]
-    assert '📦 Товары: 4697439' in args[0]
     assert '📨 Отправлено: 4' in args[0]
 
 

@@ -2501,15 +2501,6 @@ class TelegramBot:
             f'{competitor_price:.4f}'
             if competitor_price is not None else 'N/A'
         )
-        min_price = float(getattr(runtime, 'MIN_PRICE', 0.0) or 0.0)
-        max_price = float(getattr(runtime, 'MAX_PRICE', 0.0) or 0.0)
-        desired_price = float(getattr(runtime, 'DESIRED_PRICE', 0.0) or 0.0)
-        undercut_value = float(getattr(runtime, 'UNDERCUT_VALUE', 0.0) or 0.0)
-        raise_value = float(getattr(runtime, 'RAISE_VALUE', 0.0049) or 0.0049)
-        round_step = getattr(runtime, 'SHOWCASE_ROUND_STEP', 0.01)
-        rebound_on_min = bool(
-            getattr(runtime, 'REBOUND_TO_DESIRED_ON_MIN', False)
-        )
         if profile_id == 'ggsel':
             display_price_label = '💰 Моя цена'
             target_price_label = '🎯 Цена по стратегии'
@@ -2519,22 +2510,19 @@ class TelegramBot:
         chat_block = ''
         chat_meta = self._chat_autoreply_meta(profile_id)
         if chat_meta:
-            chat_block = (
-                '\n'
-                f'💬 Авто-инструкции: '
-                f'{"ВКЛ" if chat_meta["enabled"] else "ВЫКЛ"}\n'
-                f'📭 Только пустой чат: '
-                f'{"Да" if chat_meta["only_empty_chat"] else "Нет"}\n'
-                f'🧠 Умный непустой чат: '
-                f'{"Да" if chat_meta["smart_non_empty"] else "Нет"}\n'
-                f'🧷 Только по правилам: '
-                f'{"Да" if chat_meta["require_rules"] else "Нет"}\n'
-                f'🧭 Режим отправки: '
-                f'{self._chat_policy_label(chat_meta["policy"])}\n'
-                f'📦 Товары: {chat_meta["products"]}\n'
-                f'📨 Отправлено: {chat_meta["sent_count"]}\n'
-                f'🕓 Последняя отправка: {chat_meta["last_sent"]}'
-            )
+            if chat_meta["enabled"]:
+                chat_block = (
+                    '\n'
+                    f'💬 Авто-инструкции: ВКЛ\n'
+                    f'🧷 Только по правилам: '
+                    f'{"Да" if chat_meta["require_rules"] else "Нет"}\n'
+                    f'🧭 Режим отправки: '
+                    f'{self._chat_policy_label(chat_meta["policy"])}\n'
+                    f'📨 Отправлено: {chat_meta["sent_count"]}\n'
+                    f'🕓 Последняя отправка: {chat_meta["last_sent"]}'
+                )
+            else:
+                chat_block = '\n💬 Авто-инструкции: ВЫКЛ'
 
         text = f"""📊 Статус
 
@@ -2552,11 +2540,6 @@ class TelegramBot:
 
 🔔 Авто: {'ВКЛ' if state.get('auto_mode', True) else 'ВЫКЛ'}
 🎯 Режим: {self._mode_label(runtime.MODE)}
-📉 Мин / 📈 Макс: {min_price:.4f}₽ / {max_price:.4f}₽
-🎯 Рекомендуемая: {desired_price:.4f}₽
-↘️ Шаг- / ↗️ Шаг+: {undercut_value:.4f} / {raise_value:.4f}
-🔘 Округление витрины: {self._rounding_label(round_step)}
-🔁 Отскок на минимуме: {'Да' if rebound_on_min else 'Нет'}
 🕐 Обновление: {update_str}
 ⏲️ Интервал: {runtime.CHECK_INTERVAL}s
 """
@@ -2602,27 +2585,23 @@ class TelegramBot:
         chat_block = ''
         chat_meta = self._chat_autoreply_meta(profile_id)
         if chat_meta:
-            chat_block = (
-                '\n'
-                f'💬 Авто-инструкции: '
-                f'{"ВКЛ" if chat_meta["enabled"] else "ВЫКЛ"}\n'
-                f'📭 Только пустой чат: '
-                f'{"Да" if chat_meta["only_empty_chat"] else "Нет"}\n'
-                f'🧠 Умный непустой чат: '
-                f'{"Да" if chat_meta["smart_non_empty"] else "Нет"}\n'
-                f'🧷 Только по правилам: '
-                f'{"Да" if chat_meta["require_rules"] else "Нет"}\n'
-                f'🧭 Режим отправки: '
-                f'{self._chat_policy_label(chat_meta["policy"])}\n'
-                f'📦 Товары инструкций: {chat_meta["products"]}\n'
-                f'📨 Отправлено всего: {chat_meta["sent_count"]}\n'
-                f'🧷 Дубликатов пропущено: {chat_meta["duplicate_count"]}\n'
-                f'🔎 Dedupe: {"ON" if chat_meta["dedupe"] else "OFF"} '
-                f'(lookback={chat_meta["lookback"]})\n'
-                f'⏱️ Интервал чатов: {chat_meta["interval_seconds"]}s\n'
-                f'🧹 Последняя очистка: {chat_meta["last_cleanup"]}\n'
-                f'🕓 Последний запуск: {chat_meta["last_run"]}'
-            )
+            if chat_meta["enabled"]:
+                chat_block = (
+                    '\n'
+                    f'💬 Авто-инструкции: ВКЛ\n'
+                    f'📭 Только пустой чат: '
+                    f'{"Да" if chat_meta["only_empty_chat"] else "Нет"}\n'
+                    f'🧠 Умный непустой чат: '
+                    f'{"Да" if chat_meta["smart_non_empty"] else "Нет"}\n'
+                    f'🧷 Только по правилам: '
+                    f'{"Да" if chat_meta["require_rules"] else "Нет"}\n'
+                    f'🧭 Режим отправки: '
+                    f'{self._chat_policy_label(chat_meta["policy"])}\n'
+                    f'📨 Отправлено: {chat_meta["sent_count"]}\n'
+                    f'🕓 Последний запуск: {chat_meta["last_run"]}'
+                )
+            else:
+                chat_block = '\n💬 Авто-инструкции: ВЫКЛ'
 
         base_lines = [
             '⚙️ Настройки',
@@ -2632,21 +2611,16 @@ class TelegramBot:
                 '🆔 Активный товар (для редактирования): '
                 f'{self._product_label(profile_id, product_id)}'
             ),
-            f'🔁 Товар в списке: {active_product_slot_text}',
-            f'📦 Товаров в мониторинге: {tracked_count}',
-            '🛰 Мониторинг по товарам: ВСЕ ИЗ СПИСКА',
+            f'📦 Товаров в мониторинге: {tracked_count} (активный: {active_product_slot_text})',
+            f'🔗 Активная пара: {pair_lines[0] if pair_lines else "не задана"}',
             '',
             f'🔔 Автоцена: {"ВКЛ" if state.get("auto_mode", True) else "ВЫКЛ"}',
             f'🔹 Режим: {self._mode_label(runtime.MODE)}',
             f'⏱️ CHECK_INTERVAL: {runtime.CHECK_INTERVAL}s',
-            f'📡 Мониторинг: {monitor_mode}',
-            f'🔗 Конкурентов: {len(runtime.COMPETITOR_URLS)}',
+            f'📡 Мониторинг: {monitor_mode} | URL: {len(runtime.COMPETITOR_URLS)}',
             '',
-            f'📉 MIN: {min_price:.4f}₽',
-            f'📈 MAX: {max_price:.4f}₽',
-            f'🎯 Рекомендуемая: {desired_price:.4f}₽',
-            f'↘️ Шаг-: {undercut_value:.4f}',
-            f'↗️ Шаг+: {raise_value:.4f}',
+            f'🧮 Лимиты: {min_price:.4f}₽ .. {max_price:.4f}₽',
+            f'🎯 Рекомендуемая: {desired_price:.4f}₽ | ↘️ {undercut_value:.4f} | ↗️ {raise_value:.4f}',
             (
                 '🔘 Округление витрины: '
                 f'{self._rounding_label(round_step)}'
@@ -2660,13 +2634,12 @@ class TelegramBot:
                 '🔁 Обновлять только при изменении конкурента: '
                 f'{"Да" if runtime.UPDATE_ONLY_ON_COMPETITOR_CHANGE else "Нет"}'
             ),
-            'ℹ️ Пороги и шаги применяются отдельно для активного товара.',
+            'ℹ️ Настройки применяются только к активному товару.',
         ]
         base_lines.extend(
             [
                 '',
                 f'📦 Список товаров: {", ".join(tracked_lines)}',
-                f'🔗 Пары: {" | ".join(pair_lines)}',
             ]
         )
 

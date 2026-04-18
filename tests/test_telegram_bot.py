@@ -232,8 +232,5 @@ async def test_send_settings_shows_price_controls(bot, monkeypatch):
 
     assert upd.message.replies
     text = upd.message.replies[-1][0]
-    assert 'MIN: 0.2500₽' in text
-    assert 'MAX: 0.4000₽' in text
-    assert 'Рекомендуемая: 0.3500₽' in text
-    assert 'Шаг-: 0.0051' in text
-    assert 'Шаг+: 0.0049' in text
+    assert '🧮 Лимиты: 0.2500₽ .. 0.4000₽' in text
+    assert '🎯 Рекомендуемая: 0.3500₽ | ↘️ 0.0051 | ↗️ 0.0049' in text
