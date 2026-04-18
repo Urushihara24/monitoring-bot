@@ -1176,6 +1176,14 @@ class Storage:
                 source='storage_remove_last_product',
                 profile_id=profile,
             )
+        if removed:
+            # Важно: удаление товара из tracked_products должно чистить
+            # product-scoped runtime-хвосты, иначе "наследие" старой пары
+            # может внезапно всплыть в статусе/настройках.
+            self.purge_product_runtime_data(
+                profile_id=profile,
+                product_id=normalized_product_id,
+            )
         return removed
 
     def clear_tracked_products(
@@ -1212,6 +1220,11 @@ class Storage:
             source='storage_clear_tracked_products',
             profile_id=profile,
         )
+        for product_id in removed_ids:
+            self.purge_product_runtime_data(
+                profile_id=profile,
+                product_id=product_id,
+            )
         return removed_ids
 
     def purge_product_runtime_data(

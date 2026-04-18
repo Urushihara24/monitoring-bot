@@ -370,6 +370,89 @@ def test_clear_tracked_products_marks_explicit_empty(tmp_path):
     ) == []
 
 
+def test_remove_tracked_product_purges_runtime_tail(tmp_path):
+    db = tmp_path / 'state.db'
+    storage = Storage(db_path=str(db))
+
+    storage.upsert_tracked_product(
+        profile_id='ggsel',
+        product_id=4682996,
+        competitor_urls=['https://example.com/4682996'],
+    )
+    storage.set_runtime_setting(
+        'MODE',
+        'DUMPING',
+        profile_id='ggsel:4682996',
+    )
+    storage.set_runtime_setting(
+        'CHAT_AUTOREPLY_POLICY:4682996',
+        'ON_ORDER',
+        profile_id='ggsel',
+    )
+    storage.set_runtime_setting(
+        'CHAT_AUTOREPLY_RULES:4682996',
+        '{"version":1,"rules":{}}',
+        profile_id='ggsel',
+    )
+
+    assert storage.remove_tracked_product(
+        profile_id='ggsel',
+        product_id=4682996,
+    )
+
+    with sqlite3.connect(str(db)) as conn:
+        scoped_rows = conn.execute(
+            '''
+            SELECT COUNT(*) FROM runtime_settings
+            WHERE profile_id = ?
+            ''',
+            ('ggsel:4682996',),
+        ).fetchone()[0]
+        parent_rows = conn.execute(
+            '''
+            SELECT COUNT(*) FROM runtime_settings
+            WHERE profile_id = ? AND key IN (?, ?)
+            ''',
+            (
+                'ggsel',
+                'CHAT_AUTOREPLY_POLICY:4682996',
+                'CHAT_AUTOREPLY_RULES:4682996',
+            ),
+        ).fetchone()[0]
+    assert scoped_rows == 0
+    assert parent_rows == 0
+
+
+def test_clear_tracked_products_purges_runtime_tails(tmp_path):
+    db = tmp_path / 'state.db'
+    storage = Storage(db_path=str(db))
+
+    for pid in (4682996, 4682997):
+        storage.upsert_tracked_product(
+            profile_id='ggsel',
+            product_id=pid,
+            competitor_urls=[f'https://example.com/{pid}'],
+        )
+        storage.set_runtime_setting(
+            'MODE',
+            'DUMPING',
+            profile_id=f'ggsel:{pid}',
+        )
+
+    removed = storage.clear_tracked_products(profile_id='ggsel')
+    assert removed == [4682996, 4682997]
+
+    with sqlite3.connect(str(db)) as conn:
+        scoped_rows = conn.execute(
+            '''
+            SELECT COUNT(*) FROM runtime_settings
+            WHERE profile_id IN (?, ?)
+            ''',
+            ('ggsel:4682996', 'ggsel:4682997'),
+        ).fetchone()[0]
+    assert scoped_rows == 0
+
+
 def test_purge_removed_product_runtime_data(tmp_path):
     db = tmp_path / 'state.db'
     storage = Storage(db_path=str(db))
