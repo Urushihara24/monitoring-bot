@@ -2439,7 +2439,6 @@ class TelegramBot:
         state = self._state_for_product(profile_id, product_id)
         runtime = self._runtime_for_product(profile_id, product_id)
         runtime_source = self._product_runtime_source(profile_id, product_id)
-        runtime_source = self._product_runtime_source(profile_id, product_id)
         tracked_lines = self._format_tracked_products(profile_id, runtime=runtime)
         tracked_count = len(tracked_lines) if tracked_lines != ['нет'] else 0
         active_product_slot, active_product_total = self._active_product_slot(
