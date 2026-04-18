@@ -344,6 +344,47 @@ async def test_products_callback_select_active_product_refreshes_menu(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_products_callback_select_active_product_clears_pending(monkeypatch):
+    bot = make_bot()
+    bot.profile_products['ggsel'] = 4697439
+    bot.pending_actions[100] = ('MIN_PRICE', 'ggsel')
+    bot.pending_action_started_at[100] = time.monotonic()
+    monkeypatch.setattr(
+        bot,
+        '_tracked_product_ids',
+        lambda _profile: [4697439, 5104800],
+    )
+    monkeypatch.setattr(
+        bot,
+        '_tracked_products',
+        lambda *_args, **_kwargs: [
+            {'product_id': 4697439, 'competitor_urls': [], 'enabled': True},
+            {'product_id': 5104800, 'competitor_urls': [], 'enabled': True},
+        ],
+    )
+    monkeypatch.setattr(
+        bot,
+        '_runtime_for_product',
+        lambda *_args, **_kwargs: make_runtime([]),
+    )
+    monkeypatch.setattr(bot, '_product_name', lambda _profile, pid: f'P{pid}')
+    monkeypatch.setattr(
+        bot,
+        '_format_tracked_products',
+        lambda *_args, **_kwargs: ['x'],
+    )
+    monkeypatch.setattr(bot, '_ensure_product_auto_name', AsyncMock())
+    update = make_callback_update('pm:s:5104800')
+
+    await bot.handle_callback_query(update, None)
+
+    assert bot.profile_products['ggsel'] == 5104800
+    assert 100 not in bot.pending_actions
+    assert 100 not in bot.pending_action_started_at
+    update.callback_query.message.edit_text.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_price_guard_button_opens_inline_panel():
     bot = make_bot()
     update = make_update(BTN_PRICE_GUARD)

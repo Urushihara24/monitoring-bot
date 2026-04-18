@@ -2173,9 +2173,20 @@ class TelegramBot:
                     profile_id=profile_id,
                 )
                 return
+            had_pending = chat_id in self.pending_actions
+            if had_pending:
+                # Если пользователь переключает товар во время незавершённого
+                # ввода, сбрасываем pending, чтобы значение не записалось
+                # в другую товарную пару.
+                self._clear_pending_action(chat_id)
             self.profile_products[profile_id] = product_id
             await self._ensure_product_auto_name(profile_id, product_id)
-            await query.answer('Активный товар выбран')
+            answer_text = (
+                'Активный товар выбран (ввод сброшен)'
+                if had_pending
+                else 'Активный товар выбран'
+            )
+            await query.answer(answer_text)
             await self._refresh_products_message(query=query, profile_id=profile_id)
             return
 
