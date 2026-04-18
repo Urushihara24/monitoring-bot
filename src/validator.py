@@ -4,15 +4,11 @@
 
 from typing import List, Tuple
 
+from .pricing_mode import MODE_SET, normalize_pricing_mode
+
 
 def validate_runtime_config(cfg) -> Tuple[bool, List[str]]:
     errors: List[str] = []
-    mode_aliases = {
-        'FOLLOW_EXACT': 'FOLLOW',
-        'FOLLOW_PLUS': 'RAISE',
-        'FIXED': 'DUMPING',
-        'STEP_UP': 'DUMPING',
-    }
 
     if cfg.MIN_PRICE <= 0:
         errors.append('MIN_PRICE должен быть > 0')
@@ -26,9 +22,9 @@ def validate_runtime_config(cfg) -> Tuple[bool, List[str]]:
         errors.append('RAISE_VALUE должен быть > 0')
     if getattr(cfg, 'SHOWCASE_ROUND_STEP', 0) < 0:
         errors.append('SHOWCASE_ROUND_STEP не может быть отрицательным')
-    mode_value = str(getattr(cfg, 'MODE', '') or '').strip().upper()
-    mode_value = mode_aliases.get(mode_value, mode_value)
-    if mode_value not in ('FOLLOW', 'DUMPING', 'RAISE'):
+    raw_mode = str(getattr(cfg, 'MODE', '') or '').strip().upper()
+    mode_value = normalize_pricing_mode(raw_mode, fallback='__INVALID__')
+    if mode_value not in MODE_SET:
         errors.append(
             'MODE должен быть FOLLOW, DUMPING или RAISE'
         )

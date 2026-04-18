@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 
 from .config import Config
+from .pricing_mode import normalize_pricing_mode
 
 logger = logging.getLogger(__name__)
 PRICE_PRECISION = Decimal('0.0001')
@@ -41,26 +42,6 @@ def _round_to_step(value: Decimal, step: Decimal) -> Decimal:
     return (
         (value / step).quantize(Decimal('1'), rounding=ROUND_HALF_UP) * step
     )
-
-
-def _normalize_pricing_mode(mode: object) -> str:
-    normalized = str(mode or '').strip().upper()
-    aliases = {
-        'FOLLOW_EXACT': 'FOLLOW',
-        'FOLLOW_PLUS': 'RAISE',
-        'FIXED': 'DUMPING',
-        'STEP_UP': 'DUMPING',
-        'СЛЕДОВАНИЕ': 'FOLLOW',
-        'ДЕМПИНГ': 'DUMPING',
-        'ПОВЫШЕНИЕ': 'RAISE',
-    }
-    normalized = aliases.get(normalized, normalized)
-    return normalized if normalized in {'FOLLOW', 'DUMPING', 'RAISE'} else 'DUMPING'
-
-
-def _is_legacy_limit_mode(mode: object) -> bool:
-    raw = str(mode or '').strip().upper()
-    return raw in {'FIX', 'FIXED', 'STEP', 'STEP_UP', 'ФИКС', 'ШАГ'}
 
 
 @dataclass
@@ -200,7 +181,7 @@ def calculate_price(
     
     # === ШАГ 4: Рассчитать целевую цену по выбранному режиму ===
     raw_mode = getattr(config, 'MODE', 'DUMPING')
-    mode = _normalize_pricing_mode(raw_mode)
+    mode = normalize_pricing_mode(raw_mode)
     if mode == 'FOLLOW':
         new_price = _to_price(min_competitor_price_d)
         reason = 'follow'
@@ -312,6 +293,7 @@ def _apply_loss_protection(
     """
     candidate = _d(new_price)
     reason_out = reason
+    rebound_applied = False
 
     # Hard floor: цена не может уйти ниже MIN_PRICE.
     if getattr(config, 'HARD_FLOOR_ENABLED', True):
@@ -326,6 +308,7 @@ def _apply_loss_protection(
                 if rebound_candidate > max_price:
                     rebound_candidate = max_price
                 candidate = rebound_candidate
+                rebound_applied = True
                 reason_out += (
                     f'_rebound_to_desired({float(rebound_candidate)})'
                 )
@@ -338,6 +321,7 @@ def _apply_loss_protection(
     if (
         max_down_step > 0
         and current_price is not None
+        and not rebound_applied
         and candidate < _d(current_price)
     ):
         max_allowed = _d(current_price) - _d(max_down_step)

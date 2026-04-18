@@ -248,6 +248,27 @@ def test_rebound_to_desired_when_formula_hits_minimum():
     assert 'rebound_to_desired' in decision.reason
 
 
+def test_rebound_to_desired_bypasses_max_down_step():
+    cfg = make_cfg(
+        MODE='DUMPING',
+        MIN_PRICE=0.25,
+        DESIRED_PRICE=0.35,
+        MAX_PRICE=1.0,
+        MAX_DOWN_STEP=0.03,
+        REBOUND_TO_DESIRED_ON_MIN=True,
+    )
+    decision = calculate_price(
+        competitor_prices=[0.20],
+        current_price=0.90,
+        last_update=None,
+        config=cfg,
+    )
+    assert decision.action == 'update'
+    assert decision.price == 0.35
+    assert 'rebound_to_desired' in decision.reason
+    assert 'max_down_step' not in decision.reason
+
+
 def test_dumping_without_showcase_rounding_uses_exact_competitor():
     cfg = make_cfg(
         MODE='DUMPING',
@@ -264,6 +285,34 @@ def test_dumping_without_showcase_rounding_uses_exact_competitor():
     assert decision.action == 'update'
     assert decision.price == 0.3454
     assert 'max_capped' not in decision.reason
+
+
+def test_dumping_cycle_after_rebound_when_competitor_raises():
+    cfg = make_cfg(
+        MODE='DUMPING',
+        MIN_PRICE=0.25,
+        DESIRED_PRICE=0.35,
+        MAX_PRICE=1.0,
+        REBOUND_TO_DESIRED_ON_MIN=True,
+        MAX_DOWN_STEP=0.0,
+    )
+    rebound = calculate_price(
+        competitor_prices=[0.20],
+        current_price=0.30,
+        last_update=None,
+        config=cfg,
+    )
+    assert rebound.price == 0.35
+
+    next_cycle = calculate_price(
+        competitor_prices=[0.40],
+        current_price=0.35,
+        last_update=None,
+        config=cfg,
+    )
+    assert next_cycle.action == 'update'
+    assert next_cycle.price == 0.3949
+    assert next_cycle.reason.startswith('dumping_showcase')
 
 
 def test_follow_high_price_respects_max_cap():

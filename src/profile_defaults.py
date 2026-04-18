@@ -7,6 +7,8 @@ from __future__ import annotations
 import os
 from typing import Dict
 
+from .pricing_mode import normalize_pricing_mode
+
 
 _DIGISELLER_RUNTIME_TYPES = {
     'MIN_PRICE': 'float',
@@ -57,25 +59,7 @@ def _coerce_raw_value(raw: str, value_type: str):
         if value_type == 'float':
             return float(normalized)
         if value_type == 'mode':
-            mode = normalized.upper()
-            aliases = {
-                'FIX': 'DUMPING',
-                'FIXED': 'DUMPING',
-                'STEP': 'DUMPING',
-                'STEP_UP': 'DUMPING',
-                'FOLLOW': 'FOLLOW',
-                'FOLLOW_EXACT': 'FOLLOW',
-                'FOLLOW_MINUS': 'RAISE',
-                'FOLLOW_ADD': 'RAISE',
-                'FOLLOW_PLUS': 'RAISE',
-                'RAISE': 'RAISE',
-                'ФИКС': 'DUMPING',
-                'ШАГ': 'DUMPING',
-                'СЛЕДОВАНИЕ': 'FOLLOW',
-                'СЛЕДОВАТЬ': 'FOLLOW',
-                'ПОВЫШЕНИЕ': 'RAISE',
-            }
-            return aliases.get(mode, mode)
+            return normalize_pricing_mode(normalized)
         return normalized
     except ValueError:
         return None

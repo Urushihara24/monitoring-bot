@@ -13,6 +13,8 @@ from types import SimpleNamespace
 from typing import List, Optional
 from urllib.parse import urlsplit, urlunsplit
 
+from .pricing_mode import normalize_pricing_mode
+
 DEFAULT_PROFILE = 'ggsel'
 PRICE_PRECISION = Decimal('0.0001')
 STATE_PRICE_FIELDS = {
@@ -1599,20 +1601,7 @@ class Storage:
         return value.strip().lower() in ('1', 'true', 'yes', 'on')
 
     def _normalize_mode(self, mode: str) -> str:
-        normalized = str(mode or '').strip().upper()
-        aliases = {
-            'FOLLOW_EXACT': 'FOLLOW',
-            'FOLLOW_PLUS': 'RAISE',
-            'FIXED': 'DUMPING',
-            'STEP_UP': 'DUMPING',
-            'СЛЕДОВАНИЕ': 'FOLLOW',
-            'ДЕМПИНГ': 'DUMPING',
-            'ПОВЫШЕНИЕ': 'RAISE',
-        }
-        normalized = aliases.get(normalized, normalized)
-        if normalized not in {'FOLLOW', 'DUMPING', 'RAISE'}:
-            return 'DUMPING'
-        return normalized
+        return normalize_pricing_mode(mode)
 
     def get_settings_history(
         self,

@@ -34,6 +34,11 @@ from telegram.ext import (
 
 from . import chat_autoreply as chat_keys
 from .config import config
+from .pricing_mode import (
+    next_pricing_mode,
+    normalize_pricing_mode,
+    pricing_mode_label,
+)
 from .profile_smoke import run_profile_smoke
 from .storage import DEFAULT_PROFILE, storage
 from .validator import validate_runtime_config
@@ -71,17 +76,6 @@ BTN_CHAT_SMART_NON_EMPTY_ON = '🧠 Умный непустой: ВКЛ'
 BTN_CHAT_SMART_NON_EMPTY_OFF = '🧠 Умный непустой: ВЫКЛ'
 BTN_CHAT_POLICY = '🧭 Режим отправки'
 BTN_CHAT_RULES = '📝 Правила инстр.'
-
-_MODE_SEQUENCE = [
-    'FOLLOW',
-    'DUMPING',
-    'RAISE',
-]
-_MODE_LABELS_RU = {
-    'FOLLOW': 'Следование',
-    'DUMPING': 'Демпинг',
-    'RAISE': 'Повышение',
-}
 
 _CHAT_PROFILE_PREFIX = {
     'ggsel': 'GGSEL',
@@ -174,27 +168,13 @@ class TelegramBot:
         return self.profile_labels.get(profile_id, profile_id.upper())
 
     def _normalize_mode(self, mode: object) -> str:
-        normalized = str(mode or '').strip().upper()
-        aliases = {
-            'FOLLOW_EXACT': 'FOLLOW',
-            'FOLLOW_PLUS': 'RAISE',
-            'FIXED': 'DUMPING',
-            'STEP_UP': 'DUMPING',
-            'СЛЕДОВАНИЕ': 'FOLLOW',
-            'ДЕМПИНГ': 'DUMPING',
-            'ПОВЫШЕНИЕ': 'RAISE',
-        }
-        normalized = aliases.get(normalized, normalized)
-        return normalized if normalized in _MODE_SEQUENCE else 'DUMPING'
+        return normalize_pricing_mode(mode)
 
     def _mode_label(self, mode: object) -> str:
-        normalized = self._normalize_mode(mode)
-        return _MODE_LABELS_RU.get(normalized, normalized)
+        return pricing_mode_label(mode)
 
     def _next_mode(self, mode: object) -> str:
-        normalized = self._normalize_mode(mode)
-        idx = _MODE_SEQUENCE.index(normalized)
-        return _MODE_SEQUENCE[(idx + 1) % len(_MODE_SEQUENCE)]
+        return next_pricing_mode(mode)
 
     def _rounding_label(self, step: object) -> str:
         try:
@@ -529,6 +509,86 @@ class TelegramBot:
             source=source,
             profile_id=profile_id,
         )
+
+    def _cleanup_removed_product_runtime(
+        self,
+        *,
+        profile_id: str,
+        product_id: int,
+        user_id: int,
+        source: str,
+    ) -> None:
+        runtime_profile_id = self._runtime_profile_id_for_product(
+            profile_id,
+            product_id,
+        )
+        storage.delete_runtime_setting(
+            'competitor_urls',
+            user_id=user_id,
+            source=source,
+            profile_id=runtime_profile_id,
+        )
+        storage.purge_product_runtime_data(
+            profile_id=profile_id,
+            product_id=product_id,
+        )
+        storage.delete_runtime_setting(
+            self._product_alias_key(product_id),
+            user_id=user_id,
+            source=source,
+            profile_id=profile_id,
+        )
+        storage.delete_runtime_setting(
+            self._product_auto_name_key(product_id),
+            user_id=user_id,
+            source=source,
+            profile_id=profile_id,
+        )
+
+    def _remove_product_with_cleanup(
+        self,
+        *,
+        profile_id: str,
+        product_id: int,
+        user_id: int,
+        source: str,
+    ) -> bool:
+        removed = storage.remove_tracked_product(
+            profile_id=profile_id,
+            product_id=product_id,
+        )
+        if not removed:
+            return False
+        self._cleanup_removed_product_runtime(
+            profile_id=profile_id,
+            product_id=product_id,
+            user_id=user_id,
+            source=source,
+        )
+        return True
+
+    def _clear_products_with_cleanup(
+        self,
+        *,
+        profile_id: str,
+        user_id: int,
+        source: str,
+        fallback_ids: Optional[list[int]] = None,
+    ) -> list[int]:
+        removed_ids = storage.clear_tracked_products(profile_id=profile_id)
+        cleanup_ids = sorted({
+            int(pid)
+            for pid in (removed_ids or fallback_ids or [])
+            if int(pid or 0) > 0
+        })
+        for product_id in cleanup_ids:
+            self._cleanup_removed_product_runtime(
+                profile_id=profile_id,
+                product_id=product_id,
+                user_id=user_id,
+                source=source,
+            )
+        return cleanup_ids
 
     def _get_product_alias(self, profile_id: str, product_id: int) -> str:
         key = self._product_alias_key(product_id)
@@ -2276,37 +2336,19 @@ class TelegramBot:
                         profile_id=profile_id,
                     )
                     return
-                target_runtime_profile_id = self._runtime_profile_id_for_product(
-                    profile_id,
-                    target_product_id,
-                )
-                removed = storage.remove_tracked_product(
+                removed = self._remove_product_with_cleanup(
                     profile_id=profile_id,
                     product_id=target_product_id,
+                    user_id=user_id,
+                    source='telegram',
                 )
-                if removed:
-                    storage.delete_runtime_setting(
-                        'competitor_urls',
-                        user_id=user_id,
-                        source='telegram',
-                        profile_id=target_runtime_profile_id,
-                    )
-                    storage.purge_product_runtime_data(
-                        profile_id=profile_id,
-                        product_id=target_product_id,
-                    )
-                    storage.delete_runtime_setting(
-                        self._product_alias_key(target_product_id),
-                        user_id=user_id,
-                        source='telegram',
+                if not removed:
+                    await query.answer('Не удалось удалить товар', show_alert=True)
+                    await self._refresh_products_message(
+                        query=query,
                         profile_id=profile_id,
                     )
-                    storage.delete_runtime_setting(
-                        self._product_auto_name_key(target_product_id),
-                        user_id=user_id,
-                        source='telegram',
-                        profile_id=profile_id,
-                    )
+                    return
                 remaining_ids = self._tracked_product_ids(profile_id)
                 self.profile_products[profile_id] = remaining_ids[0] if remaining_ids else 0
                 await query.answer('Активный товар удалён')
@@ -2314,39 +2356,12 @@ class TelegramBot:
                 return
             if scope == 'all':
                 tracked_ids = self._tracked_product_ids(profile_id)
-                removed_ids = storage.clear_tracked_products(profile_id=profile_id)
-                cleanup_ids = sorted({
-                    int(pid)
-                    for pid in (removed_ids or tracked_ids)
-                    if int(pid or 0) > 0
-                })
-                for candidate_product_id in cleanup_ids:
-                    target_runtime_profile_id = self._runtime_profile_id_for_product(
-                        profile_id,
-                        candidate_product_id,
-                    )
-                    storage.delete_runtime_setting(
-                        'competitor_urls',
-                        user_id=user_id,
-                        source='telegram',
-                        profile_id=target_runtime_profile_id,
-                    )
-                    storage.purge_product_runtime_data(
-                        profile_id=profile_id,
-                        product_id=candidate_product_id,
-                    )
-                    storage.delete_runtime_setting(
-                        self._product_alias_key(candidate_product_id),
-                        user_id=user_id,
-                        source='telegram',
-                        profile_id=profile_id,
-                    )
-                    storage.delete_runtime_setting(
-                        self._product_auto_name_key(candidate_product_id),
-                        user_id=user_id,
-                        source='telegram',
-                        profile_id=profile_id,
-                    )
+                self._clear_products_with_cleanup(
+                    profile_id=profile_id,
+                    user_id=user_id,
+                    source='telegram',
+                    fallback_ids=tracked_ids,
+                )
                 self.profile_products[profile_id] = 0
                 await query.answer('Список очищен')
                 await self._refresh_products_message(query=query, profile_id=profile_id)
@@ -4003,78 +4018,14 @@ class TelegramBot:
                 await self.send_settings(chat_id, update)
                 return
 
-            def _remove_single_product(product_id_to_remove: int) -> bool:
-                removed_local = storage.remove_tracked_product(
-                    profile_id=profile_id,
-                    product_id=product_id_to_remove,
-                )
-                if not removed_local:
-                    return False
-                target_runtime_profile_id = self._runtime_profile_id_for_product(
-                    profile_id,
-                    product_id_to_remove,
-                )
-                storage.delete_runtime_setting(
-                    'competitor_urls',
-                    user_id=user_id,
-                    source='telegram',
-                    profile_id=target_runtime_profile_id,
-                )
-                storage.purge_product_runtime_data(
-                    profile_id=profile_id,
-                    product_id=product_id_to_remove,
-                )
-                storage.delete_runtime_setting(
-                    self._product_alias_key(product_id_to_remove),
-                    user_id=user_id,
-                    source='telegram',
-                    profile_id=profile_id,
-                )
-                storage.delete_runtime_setting(
-                    self._product_auto_name_key(product_id_to_remove),
-                    user_id=user_id,
-                    source='telegram',
-                    profile_id=profile_id,
-                )
-                return True
-
             normalized_lower = normalized.lower()
             if normalized_lower in {'all', 'все'}:
-                removed_ids = storage.clear_tracked_products(
+                cleanup_ids = self._clear_products_with_cleanup(
                     profile_id=profile_id,
+                    user_id=user_id,
+                    source='telegram',
+                    fallback_ids=tracked_ids,
                 )
-                cleanup_ids = sorted({
-                    int(pid)
-                    for pid in (removed_ids or tracked_ids)
-                    if int(pid or 0) > 0
-                })
-                for candidate_product_id in cleanup_ids:
-                    target_runtime_profile_id = self._runtime_profile_id_for_product(
-                        profile_id,
-                        candidate_product_id,
-                    )
-                    storage.delete_runtime_setting(
-                        'competitor_urls',
-                        user_id=user_id,
-                        source='telegram',
-                        profile_id=target_runtime_profile_id,
-                    )
-                    storage.purge_product_runtime_data(
-                        profile_id=profile_id,
-                        product_id=candidate_product_id,
-                    )
-                    storage.delete_runtime_setting(
-                        self._product_alias_key(candidate_product_id),
-                        user_id=user_id,
-                        source='telegram',
-                        profile_id=profile_id,
-                    )
-                    storage.delete_runtime_setting(
-                        self._product_auto_name_key(candidate_product_id),
-                        user_id=user_id,
-                        source='telegram',
-                        profile_id=profile_id,
-                    )
                 self.profile_products[profile_id] = 0
                 self._clear_pending_action(chat_id)
                 await update.message.reply_text(
@@ -4118,35 +4069,19 @@ class TelegramBot:
                 )
                 return
 
-            removed = _remove_single_product(target_product_id)
+            removed = self._remove_product_with_cleanup(
+                profile_id=profile_id,
+                product_id=target_product_id,
+                user_id=user_id,
+                source='telegram',
+            )
             if not removed:
                 if len(tracked_ids) == 1 and tracked_ids[0] == target_product_id:
-                    storage.clear_tracked_products(profile_id=profile_id)
-                    target_runtime_profile_id = self._runtime_profile_id_for_product(
-                        profile_id,
-                        target_product_id,
-                    )
-                    storage.delete_runtime_setting(
-                        'competitor_urls',
+                    self._clear_products_with_cleanup(
+                        profile_id=profile_id,
                         user_id=user_id,
                         source='telegram',
-                        profile_id=target_runtime_profile_id,
-                    )
-                    storage.purge_product_runtime_data(
-                        profile_id=profile_id,
-                        product_id=target_product_id,
-                    )
-                    storage.delete_runtime_setting(
-                        self._product_alias_key(target_product_id),
-                        user_id=user_id,
-                        source='telegram',
-                        profile_id=profile_id,
-                    )
-                    storage.delete_runtime_setting(
-                        self._product_auto_name_key(target_product_id),
-                        user_id=user_id,
-                        source='telegram',
-                        profile_id=profile_id,
+                        fallback_ids=[target_product_id],
                     )
                 else:
                     await update.message.reply_text(
