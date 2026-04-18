@@ -37,20 +37,74 @@ def _parse_runtime_iso(value: str | None):
         return None
 
 
+def _runtime_bool(value: str | None, default: bool) -> bool:
+    raw = (value or '').strip().lower()
+    if not raw:
+        return default
+    return raw in {'1', 'true', 'yes', 'on'}
+
+
+def _tracked_product_profile_ids(base_profile_id: str) -> list[str]:
+    if base_profile_id == 'ggsel':
+        default_product_id = int(getattr(config, 'GGSEL_PRODUCT_ID', 0) or 0)
+        default_urls = list(getattr(config, 'COMPETITOR_URLS', []) or [])
+    elif base_profile_id == 'digiseller':
+        default_product_id = int(
+            getattr(config, 'DIGISELLER_PRODUCT_ID', 0) or 0
+        )
+        default_urls = list(
+            getattr(config, 'DIGISELLER_COMPETITOR_URLS', []) or []
+        )
+    else:
+        default_product_id = 0
+        default_urls = []
+
+    tracked = storage.list_tracked_products(
+        profile_id=base_profile_id,
+        default_product_id=default_product_id,
+        default_urls=default_urls,
+    )
+    product_profiles: list[str] = []
+    for row in tracked:
+        product_id = int(row.get('product_id') or 0)
+        if product_id <= 0:
+            continue
+        product_profiles.append(f'{base_profile_id}:{product_id}')
+    return product_profiles
+
+
+def _resolve_latest_cycle(base_profile_id: str):
+    candidates = [base_profile_id]
+    for profile_id in _tracked_product_profile_ids(base_profile_id):
+        if profile_id not in candidates:
+            candidates.append(profile_id)
+
+    latest_profile = candidates[0]
+    latest_cycle = None
+    for candidate in candidates:
+        state = storage.get_state(profile_id=candidate)
+        cycle = state.get('last_cycle')
+        if not cycle:
+            continue
+        if latest_cycle is None or cycle > latest_cycle:
+            latest_cycle = cycle
+            latest_profile = candidate
+    return latest_profile, latest_cycle
+
+
 def check_profile_cycle(profile_id: str, max_age_seconds: int) -> bool:
-    state = storage.get_state(profile_id=profile_id)
-    last_cycle = state.get('last_cycle')
+    checked_profile, last_cycle = _resolve_latest_cycle(profile_id)
     if not last_cycle:
-        print(f'[{profile_id}] ⚠ last_cycle: нет данных')
+        print(f'[{profile_id}] ⚠ last_cycle: нет данных (checked={checked_profile})')
         return True
     age = (datetime.now() - last_cycle).total_seconds()
     if age > max_age_seconds:
         print(
             f'[{profile_id}] ⚠ last_cycle устарел: '
-            f'{int(age)}s > {max_age_seconds}s'
+            f'{int(age)}s > {max_age_seconds}s (checked={checked_profile})'
         )
         return False
-    print(f'[{profile_id}] ✅ heartbeat {int(age)}s')
+    print(f'[{profile_id}] ✅ heartbeat {int(age)}s (checked={checked_profile})')
     return True
 
 
@@ -98,7 +152,15 @@ def check_digiseller_chat_autoreply(
 ) -> bool:
     if not config.DIGISELLER_ENABLED:
         return True
-    if not bool(getattr(config, 'DIGISELLER_CHAT_AUTOREPLY_ENABLED', False)):
+    runtime_enabled_raw = storage.get_runtime_setting(
+        'CHAT_AUTOREPLY_ENABLED',
+        profile_id='digiseller',
+    )
+    chat_enabled = _runtime_bool(
+        runtime_enabled_raw,
+        bool(getattr(config, 'DIGISELLER_CHAT_AUTOREPLY_ENABLED', False)),
+    )
+    if not chat_enabled:
         return True
 
     last_run_raw = storage.get_runtime_setting(

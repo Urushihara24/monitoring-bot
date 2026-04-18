@@ -85,3 +85,45 @@ def test_check_digiseller_chat_autoreply_fails_on_stale_run(monkeypatch):
         fail_on_error=False,
     )
     assert ok is False
+
+
+def test_check_profile_cycle_uses_latest_product_scoped_heartbeat(monkeypatch):
+    monkeypatch.setattr(hc.config, 'GGSEL_PRODUCT_ID', 4697439)
+    monkeypatch.setattr(
+        hc.storage,
+        'list_tracked_products',
+        lambda **_kw: [{'product_id': 4697439, 'competitor_urls': [], 'enabled': True}],
+    )
+
+    now = hc.datetime.now()
+
+    def fake_get_state(profile_id='ggsel'):
+        if profile_id == 'ggsel':
+            return {'last_cycle': now.replace(year=2000)}
+        if profile_id == 'ggsel:4697439':
+            return {'last_cycle': now}
+        return {'last_cycle': None}
+
+    monkeypatch.setattr(hc.storage, 'get_state', fake_get_state)
+    assert hc.check_profile_cycle('ggsel', max_age_seconds=300) is True
+
+
+def test_check_digiseller_chat_autoreply_runtime_disable_skips_stale_check(monkeypatch):
+    monkeypatch.setattr(hc.config, 'DIGISELLER_ENABLED', True)
+    monkeypatch.setattr(hc.config, 'DIGISELLER_CHAT_AUTOREPLY_ENABLED', True)
+
+    def fake_get_runtime_setting(key, default=None, profile_id='ggsel'):
+        if key == 'CHAT_AUTOREPLY_ENABLED':
+            return 'false'
+        if key == 'CHAT_AUTOREPLY_LAST_RUN_AT':
+            return '2000-01-01T00:00:00'
+        if key == 'CHAT_AUTOREPLY_LAST_ERROR':
+            return ''
+        return default
+
+    monkeypatch.setattr(hc.storage, 'get_runtime_setting', fake_get_runtime_setting)
+    ok = hc.check_digiseller_chat_autoreply(
+        max_age_seconds=60,
+        fail_on_error=True,
+    )
+    assert ok is True
