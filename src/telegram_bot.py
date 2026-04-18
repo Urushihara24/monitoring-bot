@@ -35,7 +35,6 @@ from telegram.ext import (
 from . import chat_autoreply as chat_keys
 from .config import config
 from .pricing_mode import (
-    next_pricing_mode,
     normalize_pricing_mode,
     pricing_mode_label,
 )
@@ -178,14 +177,8 @@ class TelegramBot:
     def _profile_name(self, profile_id: str) -> str:
         return self.profile_labels.get(profile_id, profile_id.upper())
 
-    def _normalize_mode(self, mode: object) -> str:
-        return normalize_pricing_mode(mode)
-
     def _mode_label(self, mode: object) -> str:
         return pricing_mode_label(mode)
-
-    def _next_mode(self, mode: object) -> str:
-        return next_pricing_mode(mode)
 
     def _next_mode_for_profile(self, profile_id: str, mode: object) -> str:
         if profile_id == 'ggsel':
