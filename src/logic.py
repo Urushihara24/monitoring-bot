@@ -220,13 +220,19 @@ def calculate_price(
         )
         undercut_value_d = _d(config.UNDERCUT_VALUE)
         new_price = _to_price(showcase_anchor - undercut_value_d)
+        reason_prefix = (
+            'showcase_cycle_dumping'
+            if mode == 'SHOWCASE_CYCLE'
+            else 'dumping_showcase'
+        )
         reason = (
-            'dumping_showcase('
+            f'{reason_prefix}('
             f'{float(showcase_anchor)}-'
             f'{float(undercut_value_d)})'
         )
         logger.info(
-            'Режим DUMPING: база %s - %s = %s (round_step=%s)',
+            'Режим %s: база %s - %s = %s (round_step=%s)',
+            mode,
             float(showcase_anchor),
             float(undercut_value_d),
             new_price,

@@ -20,6 +20,7 @@ from dotenv import dotenv_values
 from . import chat_autoreply as chat_keys
 from .config import config
 from .logic import calculate_price
+from .pricing_mode import normalize_pricing_mode
 from .rsc_parser import ParseResult, rsc_parser
 from .storage import DEFAULT_PROFILE, storage
 from .validator import validate_runtime_config
@@ -3192,6 +3193,46 @@ class Scheduler:
                 getattr(runtime, 'UPDATE_ONLY_ON_COMPETITOR_CHANGE', True)
                 and not competitor_changed
             ):
+                mode = normalize_pricing_mode(getattr(runtime, 'MODE', 'DUMPING'))
+                # GGSEL-only: "витринный цикл" —
+                # если конкурент не изменился и мы уже отработали демпинг вниз,
+                # откатываемся на рекомендуемую цену.
+                if (
+                    mode == 'SHOWCASE_CYCLE'
+                    and self.base_profile_id == 'ggsel'
+                    and decision.action == 'update'
+                ):
+                    ignore_delta = getattr(runtime, 'IGNORE_DELTA', 0.001)
+                    desired_price = float(
+                        getattr(runtime, 'DESIRED_PRICE', decision.price or 0.0)
+                        or 0.0
+                    )
+                    if (
+                        desired_price > 0
+                        and current_price is not None
+                        and current_price < (desired_price - ignore_delta)
+                    ):
+                        decision.price = desired_price
+                        decision.reason = (
+                            'showcase_cycle_restore_desired'
+                        )
+                        logger.info(
+                            '[%s] Витринный цикл: конкурент не изменился, '
+                            'откат к рекомендуемой %.4f',
+                            self.profile_name,
+                            desired_price,
+                        )
+                    else:
+                        logger.info(
+                            '[%s] Витринный цикл: откат не требуется '
+                            '(current=%.4f, desired=%.4f)',
+                            self.profile_name,
+                            float(current_price or 0.0),
+                            desired_price,
+                        )
+                        storage.increment_skip_count(profile_id=self.profile_id)
+                        return
+
                 ignore_delta = getattr(runtime, 'IGNORE_DELTA', 0.001)
                 change_delta = getattr(runtime, 'COMPETITOR_CHANGE_DELTA', 0.0001)
                 if decision.action != 'update' or decision.price is None:

@@ -100,6 +100,17 @@ _CHAT_POLICY_LABELS_RU = {
     'FIRST_BUYER_MESSAGE': 'После 1-го сообщения',
     'CODE_ONLY': 'Только при коде',
 }
+_PRODUCT_RUNTIME_KEYS = (
+    'MODE',
+    'MIN_PRICE',
+    'MAX_PRICE',
+    'DESIRED_PRICE',
+    'UNDERCUT_VALUE',
+    'RAISE_VALUE',
+    'SHOWCASE_ROUND_STEP',
+    'REBOUND_TO_DESIRED_ON_MIN',
+    'UPDATE_ONLY_ON_COMPETITOR_CHANGE',
+)
 
 
 class TelegramBot:
@@ -175,6 +186,19 @@ class TelegramBot:
 
     def _next_mode(self, mode: object) -> str:
         return next_pricing_mode(mode)
+
+    def _next_mode_for_profile(self, profile_id: str, mode: object) -> str:
+        if profile_id == 'ggsel':
+            sequence = ('FOLLOW', 'DUMPING', 'RAISE', 'SHOWCASE_CYCLE')
+        else:
+            sequence = ('FOLLOW', 'DUMPING', 'RAISE')
+        current = normalize_pricing_mode(
+            mode,
+            fallback='DUMPING',
+            allowed=sequence,
+        )
+        idx = sequence.index(current)
+        return sequence[(idx + 1) % len(sequence)]
 
     def _rounding_label(self, step: object) -> str:
         try:
@@ -383,6 +407,32 @@ class TelegramBot:
             product_id,
         )
         return self._state(runtime_profile_id)
+
+    def _product_runtime_source(self, profile_id: str, product_id: int) -> str:
+        runtime_profile_id = self._runtime_profile_id_for_product(
+            profile_id,
+            product_id,
+        )
+        explicit_count = 0
+        for key in _PRODUCT_RUNTIME_KEYS:
+            try:
+                raw = storage.get_runtime_setting(
+                    key,
+                    profile_id=runtime_profile_id,
+                    inherit_parent=False,
+                )
+            except TypeError:
+                raw = storage.get_runtime_setting(
+                    key,
+                    profile_id=runtime_profile_id,
+                )
+            if raw is not None and str(raw).strip() != '':
+                explicit_count += 1
+        if explicit_count == 0:
+            return 'унаследованные'
+        if explicit_count == len(_PRODUCT_RUNTIME_KEYS):
+            return 'товарные'
+        return f'смешанные ({explicit_count}/{len(_PRODUCT_RUNTIME_KEYS)})'
 
     def _tracked_products(self, profile_id: str, runtime=None) -> list[dict]:
         current_runtime = runtime or self._runtime(profile_id)
@@ -2388,6 +2438,8 @@ class TelegramBot:
         product_id = self._product_id(profile_id)
         state = self._state_for_product(profile_id, product_id)
         runtime = self._runtime_for_product(profile_id, product_id)
+        runtime_source = self._product_runtime_source(profile_id, product_id)
+        runtime_source = self._product_runtime_source(profile_id, product_id)
         tracked_lines = self._format_tracked_products(profile_id, runtime=runtime)
         tracked_count = len(tracked_lines) if tracked_lines != ['нет'] else 0
         active_product_slot, active_product_total = self._active_product_slot(
@@ -2528,6 +2580,7 @@ class TelegramBot:
 
 🧭 Площадка: {profile_name}
 🆔 Активный товар: {self._product_label(profile_id, product_id)} ({active_product_slot_text})
+🧷 Источник параметров: {runtime_source}
 📦 Товаров в мониторинге: {tracked_count}
 {display_price_label}: {display_price_str}₽
 {target_price_label}: {target_price_str}₽
@@ -2556,6 +2609,7 @@ class TelegramBot:
         product_id = self._product_id(profile_id)
         state = self._state_for_product(profile_id, product_id)
         runtime = self._runtime_for_product(profile_id, product_id)
+        runtime_source = self._product_runtime_source(profile_id, product_id)
         tracked_lines = self._format_tracked_products(profile_id, runtime=runtime)
         pair_lines = self._format_tracking_pairs(profile_id, runtime=runtime)
         tracked_count = len(tracked_lines) if tracked_lines != ['нет'] else 0
@@ -2611,6 +2665,7 @@ class TelegramBot:
                 '🆔 Активный товар (для редактирования): '
                 f'{self._product_label(profile_id, product_id)}'
             ),
+            f'🧷 Источник параметров: {runtime_source}',
             f'📦 Товаров в мониторинге: {tracked_count} (активный: {active_product_slot_text})',
             f'🔗 Активная пара: {pair_lines[0] if pair_lines else "не задана"}',
             '',
@@ -3243,7 +3298,7 @@ class TelegramBot:
             product_id,
         )
         runtime = self._runtime_for_product(profile_id, product_id)
-        new_mode = self._next_mode(runtime.MODE)
+        new_mode = self._next_mode_for_profile(profile_id, runtime.MODE)
         storage.set_runtime_setting(
             'MODE',
             new_mode,

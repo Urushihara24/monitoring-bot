@@ -175,6 +175,19 @@ def test_dumping_uses_showcase_rounding_then_minus_value():
     assert decision.reason.startswith('dumping_showcase')
 
 
+def test_showcase_cycle_mode_uses_dumping_phase_price():
+    cfg = make_cfg(MODE='SHOWCASE_CYCLE', MAX_DOWN_STEP=0.0)
+    decision = calculate_price(
+        competitor_prices=[0.3505],
+        current_price=0.40,
+        last_update=None,
+        config=cfg,
+    )
+    assert decision.action == 'update'
+    assert decision.price == 0.3449
+    assert decision.reason.startswith('showcase_cycle_dumping')
+
+
 def test_dumping_respects_min_max_caps_for_modern_mode():
     cfg = make_cfg(
         MODE='DUMPING',

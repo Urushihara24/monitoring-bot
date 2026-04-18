@@ -655,11 +655,21 @@ async def test_toggle_mode_cycles_through_follow_modes(monkeypatch):
 
     bot._runtime = lambda _profile: SimpleNamespace(MODE='RAISE')
     await bot.toggle_mode(100, 1, update)
+    assert captured[-1][1] == 'SHOWCASE_CYCLE'
+
+    bot._runtime = lambda _profile: SimpleNamespace(MODE='SHOWCASE_CYCLE')
+    await bot.toggle_mode(100, 1, update)
     assert captured[-1][1] == 'FOLLOW'
 
     bot._runtime = lambda _profile: SimpleNamespace(MODE='FOLLOW')
     await bot.toggle_mode(100, 1, update)
     assert captured[-1][1] == 'DUMPING'
+
+
+def test_next_mode_for_digiseller_skips_showcase_cycle():
+    bot = make_bot()
+    assert bot._next_mode_for_profile('digiseller', 'DUMPING') == 'RAISE'
+    assert bot._next_mode_for_profile('digiseller', 'RAISE') == 'FOLLOW'
 
 
 @pytest.mark.asyncio
