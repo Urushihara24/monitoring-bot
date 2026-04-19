@@ -93,6 +93,13 @@ def _resolve_latest_cycle(base_profile_id: str):
 
 
 def check_profile_cycle(profile_id: str, max_age_seconds: int) -> bool:
+    tracked_profiles = _tracked_product_profile_ids(profile_id)
+    # Если в профиле нет товаров для мониторинга (режим управления),
+    # scheduler по товарам не крутится — heartbeat тут невалиден.
+    if not tracked_profiles:
+        print(f'[{profile_id}] ℹ нет товаров в мониторинге, heartbeat пропущен')
+        return True
+
     checked_profile, last_cycle = _resolve_latest_cycle(profile_id)
     if not last_cycle:
         print(f'[{profile_id}] ⚠ last_cycle: нет данных (checked={checked_profile})')

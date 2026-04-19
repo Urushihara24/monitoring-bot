@@ -108,6 +108,22 @@ def test_check_profile_cycle_uses_latest_product_scoped_heartbeat(monkeypatch):
     assert hc.check_profile_cycle('ggsel', max_age_seconds=300) is True
 
 
+def test_check_profile_cycle_skips_when_no_tracked_products(monkeypatch):
+    monkeypatch.setattr(
+        hc.storage,
+        'list_tracked_products',
+        lambda **_kw: [],
+    )
+    monkeypatch.setattr(
+        hc.storage,
+        'get_state',
+        lambda profile_id='ggsel': {
+            'last_cycle': hc.datetime.now().replace(year=2000),
+        },
+    )
+    assert hc.check_profile_cycle('ggsel', max_age_seconds=300) is True
+
+
 def test_check_digiseller_chat_autoreply_runtime_disable_skips_stale_check(monkeypatch):
     monkeypatch.setattr(hc.config, 'DIGISELLER_ENABLED', True)
     monkeypatch.setattr(hc.config, 'DIGISELLER_CHAT_AUTOREPLY_ENABLED', True)
