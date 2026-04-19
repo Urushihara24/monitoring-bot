@@ -2605,6 +2605,7 @@ class TelegramBot:
         tracked_lines = self._format_tracked_products(profile_id, runtime=runtime)
         pair_lines = self._format_tracking_pairs(profile_id, runtime=runtime)
         tracked_count = len(tracked_lines) if tracked_lines != ['нет'] else 0
+        has_active_pair = tracked_count > 0 and product_id > 0
         active_product_slot, active_product_total = self._active_product_slot(
             profile_id,
             runtime=runtime,
@@ -2655,33 +2656,43 @@ class TelegramBot:
             f'🧭 Активная площадка: {profile_name}',
             (
                 '🆔 Активный товар (для редактирования): '
-                f'{self._product_label(profile_id, product_id)}'
+                f'{self._product_label(profile_id, product_id) if has_active_pair else "не выбран"}'
             ),
             f'🧷 Источник параметров: {runtime_source}',
             f'📦 Товаров в мониторинге: {tracked_count} (активный: {active_product_slot_text})',
-            f'🔗 Активная пара: {pair_lines[0] if pair_lines else "не задана"}',
+            f'🔗 Активная пара: {pair_lines[0] if has_active_pair and pair_lines else "не задана"}',
             '',
             f'🔔 Автоцена: {"ВКЛ" if state.get("auto_mode", True) else "ВЫКЛ"}',
-            f'🔹 Режим: {self._mode_label(runtime.MODE)}',
+            f'🔹 Режим: {self._mode_label(runtime.MODE) if has_active_pair else "—"}',
             f'⏱️ CHECK_INTERVAL: {runtime.CHECK_INTERVAL}s',
             f'📡 Мониторинг: {monitor_mode} | URL: {len(runtime.COMPETITOR_URLS)}',
             '',
-            f'🧮 Лимиты: {min_price:.4f}₽ .. {max_price:.4f}₽',
-            f'🎯 Рекомендуемая: {desired_price:.4f}₽ | ↘️ {undercut_value:.4f} | ↗️ {raise_value:.4f}',
+            (
+                f'🧮 Лимиты: {min_price:.4f}₽ .. {max_price:.4f}₽'
+                if has_active_pair else '🧮 Лимиты: —'
+            ),
+            (
+                f'🎯 Рекомендуемая: {desired_price:.4f}₽ | ↘️ {undercut_value:.4f} | ↗️ {raise_value:.4f}'
+                if has_active_pair else '🎯 Рекомендуемая/шаги: —'
+            ),
             (
                 '🔘 Округление витрины: '
-                f'{self._rounding_label(round_step)}'
+                f'{self._rounding_label(round_step) if has_active_pair else "—"}'
             ),
             (
                 '🔁 Отскок к рекомендуемой на минимуме: '
-                f'{"Да" if rebound_on_min else "Нет"}'
+                f'{"Да" if rebound_on_min else "Нет" if has_active_pair else "—"}'
             ),
             '',
             (
                 '🔁 Обновлять только при изменении конкурента: '
-                f'{"Да" if runtime.UPDATE_ONLY_ON_COMPETITOR_CHANGE else "Нет"}'
+                f'{"Да" if runtime.UPDATE_ONLY_ON_COMPETITOR_CHANGE else "Нет" if has_active_pair else "—"}'
             ),
-            'ℹ️ Настройки применяются только к активному товару.',
+            (
+                'ℹ️ Настройки применяются только к активному товару.'
+                if has_active_pair
+                else 'ℹ️ Товаров нет: добавь пару в разделе «📦 Товары».'
+            ),
         ]
         base_lines.extend(
             [

@@ -368,6 +368,25 @@ def test_clear_tracked_products_marks_explicit_empty(tmp_path):
         default_product_id=4697439,
         default_urls=['https://example.com/1'],
     ) == []
+    assert storage.get_state(profile_id='ggsel')['auto_mode'] is False
+
+
+def test_remove_last_tracked_product_disables_auto_mode(tmp_path):
+    db = tmp_path / 'state.db'
+    storage = Storage(db_path=str(db))
+    storage.upsert_tracked_product(
+        profile_id='ggsel',
+        product_id=4697439,
+        competitor_urls=['https://example.com/1'],
+    )
+    storage.set_auto_mode(enabled=True, profile_id='ggsel', source='test')
+
+    removed = storage.remove_tracked_product(
+        profile_id='ggsel',
+        product_id=4697439,
+    )
+    assert removed is True
+    assert storage.get_state(profile_id='ggsel')['auto_mode'] is False
 
 
 def test_remove_tracked_product_purges_runtime_tail(tmp_path):

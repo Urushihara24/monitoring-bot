@@ -1176,6 +1176,13 @@ class Storage:
                 source='storage_remove_last_product',
                 profile_id=profile,
             )
+            # Fail-safe: когда товаров не осталось, автоцена должна быть
+            # выключена, чтобы не возникало ощущения "бот сам включился".
+            self.set_auto_mode(
+                enabled=False,
+                profile_id=profile,
+                source='storage_remove_last_product',
+            )
         if removed:
             # Важно: удаление товара из tracked_products должно чистить
             # product-scoped runtime-хвосты, иначе "наследие" старой пары
@@ -1219,6 +1226,12 @@ class Storage:
             '1',
             source='storage_clear_tracked_products',
             profile_id=profile,
+        )
+        # После полной очистки списка товаров принудительно выключаем автоцену.
+        self.set_auto_mode(
+            enabled=False,
+            profile_id=profile,
+            source='storage_clear_tracked_products',
         )
         for product_id in removed_ids:
             self.purge_product_runtime_data(
