@@ -1,6 +1,8 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 import sqlite3
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -283,6 +285,311 @@ def test_read_current_price_ggsel_fallbacks_to_public_before_my_price(
     assert scheduler._read_current_price(runtime=runtime) == 0.3349
     assert api.public_calls == 1
     assert api.my_price_calls == 0
+
+
+def test_runtime_urls_for_product_scoped_scheduler_follow_tracked_products(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.COMPETITOR_URLS = ['https://global.example/fallback']
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    test_storage.upsert_tracked_product(
+        profile_id='ggsel',
+        product_id=123,
+        competitor_urls=['https://tracked.example/item'],
+    )
+
+    scheduler = scheduler_mod.Scheduler(
+        api_client=DummyApiClient(),
+        telegram_bot=DummyTelegramBot(),
+        profile_id='ggsel:123',
+        base_profile_id='ggsel',
+        profile_name='GGSEL [123]',
+        product_id=123,
+        competitor_urls=['https://stale.example/item'],
+    )
+
+    assert scheduler._runtime().COMPETITOR_URLS == ['https://tracked.example/item']
+
+    test_storage.remove_tracked_product(profile_id='ggsel', product_id=123)
+    assert scheduler._runtime().COMPETITOR_URLS == []
+    assert scheduler._is_tracked_product_active() is False
+
+
+def test_runtime_urls_for_base_profile_scheduler_keep_constructor_default(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.COMPETITOR_URLS = ['https://global.example/fallback']
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    scheduler = scheduler_mod.Scheduler(
+        api_client=DummyApiClient(),
+        telegram_bot=DummyTelegramBot(),
+        profile_id='ggsel',
+        base_profile_id='ggsel',
+        profile_name='GGSEL',
+        product_id=123,
+        competitor_urls=['https://constructor.example/item'],
+    )
+
+    assert scheduler._runtime().COMPETITOR_URLS == ['https://constructor.example/item']
+
+
+@pytest.mark.asyncio
+async def test_product_scoped_run_cycle_skips_deleted_product_without_state_write(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.COMPETITOR_URLS = ['https://global.example/fallback']
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    test_storage.upsert_tracked_product(
+        profile_id='ggsel',
+        product_id=123,
+        competitor_urls=['https://tracked.example/item'],
+    )
+    test_storage.remove_tracked_product(profile_id='ggsel', product_id=123)
+
+    scheduler = scheduler_mod.Scheduler(
+        api_client=DummyApiClient(),
+        telegram_bot=DummyTelegramBot(),
+        profile_id='ggsel:123',
+        base_profile_id='ggsel',
+        profile_name='GGSEL [123]',
+        product_id=123,
+        competitor_urls=['https://stale.example/item'],
+    )
+
+    await scheduler.run_cycle()
+
+    with sqlite3.connect(str(test_storage.db_path)) as conn:
+        row = conn.execute(
+            '''
+            SELECT COUNT(*) FROM profile_state
+            WHERE profile_id = ?
+            ''',
+            ('ggsel:123',),
+        ).fetchone()
+    assert int(row[0] or 0) == 0
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_skips_when_pair_disabled(monkeypatch, tmp_path):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.COMPETITOR_URLS = ['https://example.com/item']
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    test_storage.set_runtime_setting(
+        'PAIR_ENABLED',
+        'false',
+        profile_id='ggsel:123',
+    )
+
+    parse_called = {'value': False}
+
+    def fake_parse(*_args, **_kwargs):
+        parse_called['value'] = True
+        return ParseResult(
+            success=True,
+            price=0.3,
+            error=None,
+            offers=[],
+            rank=1,
+            method='stealth_requests',
+            status_code=200,
+            url='https://example.com/item',
+        )
+
+    monkeypatch.setattr(scheduler_mod.rsc_parser, 'parse_url', fake_parse)
+
+    scheduler = scheduler_mod.Scheduler(
+        api_client=DummyApiClient(current_price=0.35),
+        telegram_bot=DummyTelegramBot(),
+        profile_id='ggsel:123',
+        base_profile_id='ggsel',
+        profile_name='GGSEL [123]',
+        product_id=123,
+        competitor_urls=['https://example.com/item'],
+    )
+
+    await scheduler.run_cycle()
+
+    assert parse_called['value'] is False
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_aborts_update_when_pair_disabled_mid_cycle(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.COMPETITOR_URLS = ['https://example.com/item']
+    cfg.NOTIFY_SKIP = False
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    test_storage.upsert_tracked_product(
+        profile_id='ggsel',
+        product_id=123,
+        competitor_urls=['https://example.com/item'],
+    )
+    test_storage.update_state(
+        profile_id='ggsel:123',
+        last_price=0.3500,
+        auto_mode=True,
+    )
+
+    monkeypatch.setattr(
+        scheduler_mod.rsc_parser,
+        'parse_url',
+        lambda url, timeout=10, cookies=None: ParseResult(
+            success=True,
+            price=0.33,
+            error=None,
+            offers=[],
+            rank=1,
+            method='stealth_requests',
+            status_code=200,
+            url=url,
+        ),
+    )
+    monkeypatch.setattr(
+        scheduler_mod,
+        'calculate_price',
+        lambda **kwargs: PriceDecision(
+            action='update',
+            price=0.3249,
+            reason='base_formula',
+            old_price=kwargs.get('current_price'),
+            competitor_price=0.33,
+        ),
+    )
+
+    scheduler = scheduler_mod.Scheduler(
+        api_client=DummyApiClient(current_price=0.35),
+        telegram_bot=DummyTelegramBot(),
+        profile_id='ggsel:123',
+        base_profile_id='ggsel',
+        profile_name='GGSEL [123]',
+        product_id=123,
+        competitor_urls=['https://example.com/item'],
+    )
+
+    pair_enabled_calls = {'count': 0}
+
+    def fake_pair_enabled():
+        pair_enabled_calls['count'] += 1
+        # 1-й вызов: проверка в начале цикла => пара активна.
+        # 2-й вызов: проверка перед update => пара уже выключена.
+        return pair_enabled_calls['count'] == 1
+
+    monkeypatch.setattr(scheduler, '_is_pair_enabled', fake_pair_enabled)
+    update_mock = AsyncMock(return_value=True)
+    monkeypatch.setattr(scheduler, '_update_price', update_mock)
+
+    await scheduler.run_cycle()
+
+    update_mock.assert_not_awaited()
+    state = test_storage.get_state(profile_id='ggsel:123')
+    assert state['update_count'] == 0
+
+
+@pytest.mark.asyncio
+async def test_run_allows_chat_autoreply_when_pair_disabled(monkeypatch, tmp_path):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.CHECK_INTERVAL = 30
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    scheduler = scheduler_mod.Scheduler(
+        api_client=DummyApiClient(current_price=0.35),
+        telegram_bot=DummyTelegramBot(),
+        profile_id='ggsel:123',
+        base_profile_id='ggsel',
+        profile_name='GGSEL [123]',
+        product_id=123,
+        competitor_urls=['https://example.com/item'],
+        chat_autoreply_enabled=True,
+    )
+
+    run_cycle_mock = AsyncMock()
+    chat_autoreply_calls = {'count': 0}
+
+    async def fake_run_chat_autoreply():
+        chat_autoreply_calls['count'] += 1
+        scheduler._running = False
+
+    monkeypatch.setattr(scheduler, '_is_tracked_product_active', lambda: True)
+    monkeypatch.setattr(scheduler, '_is_pair_enabled', lambda: False)
+    monkeypatch.setattr(scheduler, 'run_cycle', run_cycle_mock)
+    monkeypatch.setattr(scheduler, '_run_chat_autoreply', fake_run_chat_autoreply)
+
+    await asyncio.wait_for(scheduler.run(), timeout=2)
+
+    run_cycle_mock.assert_not_awaited()
+    assert chat_autoreply_calls['count'] == 1
+
+
+@pytest.mark.asyncio
+async def test_run_pair_disabled_uses_fast_polling_without_chat(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.CHECK_INTERVAL = 30
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    scheduler = scheduler_mod.Scheduler(
+        api_client=DummyApiClient(current_price=0.35),
+        telegram_bot=DummyTelegramBot(),
+        profile_id='ggsel:123',
+        base_profile_id='ggsel',
+        profile_name='GGSEL [123]',
+        product_id=123,
+        competitor_urls=['https://example.com/item'],
+        chat_autoreply_enabled=False,
+    )
+
+    run_cycle_mock = AsyncMock()
+    sleep_calls = []
+
+    async def fake_sleep(seconds):
+        sleep_calls.append(seconds)
+        scheduler._running = False
+
+    monkeypatch.setattr(scheduler, '_is_tracked_product_active', lambda: True)
+    monkeypatch.setattr(scheduler, '_is_pair_enabled', lambda: False)
+    monkeypatch.setattr(scheduler, 'run_cycle', run_cycle_mock)
+    monkeypatch.setattr(asyncio, 'sleep', fake_sleep)
+
+    await asyncio.wait_for(scheduler.run(), timeout=2)
+
+    run_cycle_mock.assert_not_awaited()
+    assert sleep_calls == [1]
 
 
 @pytest.mark.asyncio
@@ -752,6 +1059,7 @@ async def test_scheduler_digiseller_chat_autoreply_sent_once(monkeypatch, tmp_pa
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
     cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK = True
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.DIGISELLER_CHAT_AUTOREPLY_PAGE_SIZE = 50
     cfg.DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES = 2
@@ -795,6 +1103,7 @@ async def test_scheduler_chat_autoreply_blocks_support_probe_text(
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
     cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK = True
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.COMPETITOR_URLS = []
 
@@ -1306,6 +1615,7 @@ async def test_scheduler_digiseller_chat_autoreply_uses_template(monkeypatch, tm
     cfg = Config()
     cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
     cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK = True
     cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5077639]
     cfg.DIGISELLER_CHAT_TEMPLATE_EN_ADD = 'Use template EN'
     cfg.COMPETITOR_URLS = []
@@ -2519,6 +2829,90 @@ async def test_scheduler_chat_autoreply_passes_product_filter_to_list_chats(
     assert api.list_chats_kwargs[1].get('product_ids') == [5077639, 5104800]
     assert api.list_chats_kwargs[0].get('filter_new') == 1
     assert api.list_chats_kwargs[1].get('filter_new') is None
+
+
+@pytest.mark.asyncio
+async def test_scheduler_chat_autoreply_does_not_append_primary_when_ids_explicit(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = [5104800]
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    class FilterCaptureApi(DummyChatApiClient):
+        def __init__(self):
+            super().__init__()
+            self.list_chats_kwargs = []
+
+        def list_chats(self, **kwargs):
+            self.list_chats_kwargs.append(kwargs)
+            return []
+
+    bot = DummyTelegramBot()
+    api = FilterCaptureApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    assert len(api.list_chats_kwargs) == 2
+    assert api.list_chats_kwargs[0].get('product_ids') == [5104800]
+    assert api.list_chats_kwargs[1].get('product_ids') == [5104800]
+
+
+@pytest.mark.asyncio
+async def test_scheduler_chat_autoreply_uses_primary_when_ids_not_set(
+    monkeypatch,
+    tmp_path,
+):
+    test_storage = Storage(str(tmp_path / 'state.db'))
+    cfg = Config()
+    cfg.DIGISELLER_CHAT_AUTOREPLY_ENABLED = True
+    cfg.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = False
+    cfg.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = []
+    cfg.COMPETITOR_URLS = []
+
+    monkeypatch.setattr(scheduler_mod, 'storage', test_storage)
+    monkeypatch.setattr(scheduler_mod, 'config', cfg)
+
+    class FilterCaptureApi(DummyChatApiClient):
+        def __init__(self):
+            super().__init__()
+            self.list_chats_kwargs = []
+
+        def list_chats(self, **kwargs):
+            self.list_chats_kwargs.append(kwargs)
+            return []
+
+    bot = DummyTelegramBot()
+    api = FilterCaptureApi()
+    scheduler = scheduler_mod.Scheduler(
+        api_client=api,
+        telegram_bot=bot,
+        profile_id='digiseller',
+        profile_name='DIGISELLER',
+        product_id=5077639,
+        competitor_urls=[],
+    )
+
+    await scheduler.run_cycle()
+
+    assert len(api.list_chats_kwargs) == 2
+    assert api.list_chats_kwargs[0].get('product_ids') == [5077639]
+    assert api.list_chats_kwargs[1].get('product_ids') == [5077639]
 
 
 @pytest.mark.asyncio

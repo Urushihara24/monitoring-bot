@@ -29,6 +29,7 @@ from .telegram_bot import TelegramBot
 api_clients: Dict[str, object] = {}
 telegram_bot: Optional[TelegramBot] = None
 schedulers: List[Scheduler] = []
+scheduler_manager: Optional['SchedulerManager'] = None
 
 # Флаг остановки
 shutdown_event = asyncio.Event()
@@ -111,8 +112,11 @@ async def shutdown():
     shutdown_event.set()
     logger.info('🛑 Получен сигнал остановки...')
 
-    for sch in schedulers:
-        sch.stop()
+    if scheduler_manager:
+        await scheduler_manager.stop()
+    else:
+        for sch in schedulers:
+            sch.stop()
 
     if telegram_bot:
         await telegram_bot.stop()
@@ -413,9 +417,183 @@ def _build_profiles(logger: logging.Logger):
     return profiles
 
 
+class SchedulerManager:
+    """
+    Динамический менеджер scheduler-ов по tracked_products.
+
+    Позволяет добавлять/удалять пары товар↔конкурент без рестарта процесса.
+    """
+
+    def __init__(
+        self,
+        *,
+        logger: logging.Logger,
+        profiles: list[dict],
+        telegram_bot: TelegramBot,
+    ):
+        self.logger = logger
+        self.telegram_bot = telegram_bot
+        self.profiles = {
+            str(item.get('id') or '').strip().lower(): item
+            for item in (profiles or [])
+            if str(item.get('id') or '').strip()
+        }
+        self.schedulers: dict[str, Scheduler] = {}
+        self.tasks: dict[str, asyncio.Task] = {}
+        self._sync_lock = asyncio.Lock()
+        self._sync_task: Optional[asyncio.Task] = None
+        self._stopping = False
+
+    def _desired_specs(self) -> dict[str, dict]:
+        specs: dict[str, dict] = {}
+        for profile in self.profiles.values():
+            base_profile_id = str(profile.get('id') or '').strip().lower()
+            if not base_profile_id:
+                continue
+            profile_name = str(profile.get('name') or base_profile_id.upper())
+            client = profile.get('client')
+            primary_product_id = int(profile.get('product_id') or 0)
+            default_urls = list(profile.get('competitor_urls') or [])
+            tracked_products = storage.list_tracked_products(
+                profile_id=base_profile_id,
+                default_product_id=primary_product_id,
+                default_urls=default_urls,
+            )
+            for tracked in tracked_products:
+                product_id = int(tracked.get('product_id') or 0)
+                if product_id <= 0:
+                    continue
+                runtime_profile_id = _product_runtime_profile_id(
+                    base_profile_id,
+                    product_id,
+                )
+                sched_profile_name = (
+                    profile_name
+                    if product_id == primary_product_id
+                    else f'{profile_name} [{product_id}]'
+                )
+                specs[runtime_profile_id] = {
+                    'runtime_profile_id': runtime_profile_id,
+                    'base_profile_id': base_profile_id,
+                    'profile_name': sched_profile_name,
+                    'product_id': product_id,
+                    'client': client,
+                    'competitor_urls': list(tracked.get('competitor_urls') or []),
+                    # Авто-инструкции только на основном товаре профиля.
+                    'chat_autoreply_enabled': product_id == primary_product_id,
+                }
+        return specs
+
+    async def _stop_runtime_scheduler(self, runtime_profile_id: str):
+        scheduler = self.schedulers.pop(runtime_profile_id, None)
+        task = self.tasks.pop(runtime_profile_id, None)
+        if scheduler:
+            scheduler.stop()
+        if task is None:
+            return
+        try:
+            await asyncio.wait_for(task, timeout=5)
+        except asyncio.TimeoutError:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        except Exception:
+            await asyncio.gather(task, return_exceptions=True)
+
+    async def sync_once(self):
+        async with self._sync_lock:
+            desired_specs = self._desired_specs()
+            desired_ids = set(desired_specs)
+            current_ids = set(self.schedulers)
+
+            # Удалённые/неактуальные пары — останавливаем.
+            for runtime_profile_id in sorted(current_ids - desired_ids):
+                await self._stop_runtime_scheduler(runtime_profile_id)
+                self.logger.info(
+                    'Scheduler removed: %s',
+                    runtime_profile_id,
+                )
+
+            # Обновляем существующие scheduler-ы и перезапускаем упавшие.
+            for runtime_profile_id in sorted(current_ids & desired_ids):
+                spec = desired_specs[runtime_profile_id]
+                scheduler = self.schedulers[runtime_profile_id]
+                scheduler.default_competitor_urls = list(
+                    spec.get('competitor_urls') or []
+                )
+                scheduler.chat_autoreply_enabled = bool(
+                    spec.get('chat_autoreply_enabled', False)
+                )
+                task = self.tasks.get(runtime_profile_id)
+                if task is None or task.done():
+                    if task is not None:
+                        await asyncio.gather(task, return_exceptions=True)
+                    new_task = asyncio.create_task(scheduler.run())
+                    self.tasks[runtime_profile_id] = new_task
+                    self.logger.warning(
+                        'Scheduler restarted after stop: %s',
+                        runtime_profile_id,
+                    )
+
+            # Новые пары — запускаем scheduler.
+            for runtime_profile_id in sorted(desired_ids - current_ids):
+                spec = desired_specs[runtime_profile_id]
+                scheduler = Scheduler(
+                    spec['client'],
+                    self.telegram_bot,
+                    profile_id=spec['runtime_profile_id'],
+                    base_profile_id=spec['base_profile_id'],
+                    profile_name=spec['profile_name'],
+                    product_id=spec['product_id'],
+                    competitor_urls=spec['competitor_urls'],
+                    chat_autoreply_enabled=spec['chat_autoreply_enabled'],
+                )
+                self.schedulers[runtime_profile_id] = scheduler
+                self.tasks[runtime_profile_id] = asyncio.create_task(
+                    scheduler.run()
+                )
+                self.logger.info(
+                    'Scheduler started: %s',
+                    runtime_profile_id,
+                )
+
+            # Для shutdown()/диагностики сохраняем текущее состояние в глобал.
+            global schedulers
+            schedulers = list(self.schedulers.values())
+
+    async def _sync_loop(self):
+        while not self._stopping and not shutdown_event.is_set():
+            try:
+                await self.sync_once()
+            except Exception as e:
+                self.logger.error(
+                    'Ошибка sync scheduler-ов: %s',
+                    e,
+                    exc_info=True,
+                )
+            await asyncio.sleep(3)
+
+    async def start(self):
+        await self.sync_once()
+        self._sync_task = asyncio.create_task(self._sync_loop())
+
+    async def stop(self):
+        if self._stopping:
+            return
+        self._stopping = True
+        if self._sync_task and not self._sync_task.done():
+            self._sync_task.cancel()
+            await asyncio.gather(self._sync_task, return_exceptions=True)
+        async with self._sync_lock:
+            runtime_ids = sorted(self.tasks.keys())
+            for runtime_profile_id in runtime_ids:
+                await self._stop_runtime_scheduler(runtime_profile_id)
+            global schedulers
+            schedulers = []
+
+
 async def main():
     """Основная функция запуска."""
-    global api_clients, telegram_bot, schedulers
+    global api_clients, telegram_bot, schedulers, scheduler_manager
 
     setup_logging()
     logger = logging.getLogger(__name__)
@@ -543,22 +721,27 @@ async def main():
                     tracked_urls,
                     profile_id=runtime_profile_id,
                 )
-            if tracked_product_id != primary_product_id:
-                auto_mode_change = storage.get_last_setting_change(
-                    'auto_mode',
+            auto_mode_change = storage.get_last_setting_change(
+                'auto_mode',
+                profile_id=runtime_profile_id,
+            )
+            if auto_mode_change is None:
+                storage.set_auto_mode(
+                    False,
+                    profile_id=runtime_profile_id,
+                    source='startup_safe_default',
+                )
+                storage.set_runtime_setting(
+                    'PAIR_ENABLED',
+                    'false',
+                    source='startup_safe_default',
                     profile_id=runtime_profile_id,
                 )
-                if auto_mode_change is None:
-                    storage.set_auto_mode(
-                        False,
-                        profile_id=runtime_profile_id,
-                        source='startup_safe_default',
-                    )
-                    logger.info(
-                        '[%s] Safe default: автоцена выключена для товара %s',
-                        pname,
-                        tracked_product_id,
-                    )
+                logger.info(
+                    '[%s] Safe default: автоцена выключена для товара %s',
+                    pname,
+                    tracked_product_id,
+                )
 
         profile_defaults = build_profile_runtime_defaults(config, pid)
         seeded = seed_profile_runtime_defaults(
@@ -572,40 +755,6 @@ async def main():
                 pname,
                 key,
                 value,
-            )
-
-    schedulers = []
-    for profile in profiles:
-        pid = profile['id']
-        pname = profile['name']
-        primary_product_id = int(profile.get('product_id') or 0)
-        tracked_products = profile.get('tracked_products', [])
-        for tracked in tracked_products:
-            tracked_product_id = int(tracked.get('product_id') or 0)
-            if tracked_product_id <= 0:
-                continue
-            runtime_profile_id = _product_runtime_profile_id(
-                pid,
-                tracked_product_id,
-            )
-            sched_profile_name = (
-                pname
-                if tracked_product_id == primary_product_id
-                else f'{pname} [{tracked_product_id}]'
-            )
-            schedulers.append(
-                Scheduler(
-                    profile['client'],
-                    telegram_bot,
-                    profile_id=runtime_profile_id,
-                    base_profile_id=pid,
-                    profile_name=sched_profile_name,
-                    product_id=tracked_product_id,
-                    competitor_urls=tracked.get('competitor_urls', []),
-                    chat_autoreply_enabled=(
-                        tracked_product_id == primary_product_id
-                    ),
-                )
             )
 
     setup_signal_handlers()
@@ -629,21 +778,18 @@ async def main():
             )
         )
 
-    scheduler_tasks = [asyncio.create_task(s.run()) for s in schedulers]
+    scheduler_manager = SchedulerManager(
+        logger=logger,
+        profiles=profiles,
+        telegram_bot=telegram_bot,
+    )
+    await scheduler_manager.start()
     try:
         await shutdown_event.wait()
     except KeyboardInterrupt:
         pass
     finally:
         await shutdown()
-        for task in scheduler_tasks:
-            if task.done():
-                continue
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
 
 
 def run():

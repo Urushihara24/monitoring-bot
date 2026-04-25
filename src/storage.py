@@ -1184,6 +1184,11 @@ class Storage:
                 source='storage_remove_last_product',
             )
         if removed:
+            self.disable_product_runtime(
+                profile_id=profile,
+                product_id=normalized_product_id,
+                source='storage_remove_tracked_product',
+            )
             # Важно: удаление товара из tracked_products должно чистить
             # product-scoped runtime-хвосты, иначе "наследие" старой пары
             # может внезапно всплыть в статусе/настройках.
@@ -1234,11 +1239,52 @@ class Storage:
             source='storage_clear_tracked_products',
         )
         for product_id in removed_ids:
+            self.disable_product_runtime(
+                profile_id=profile,
+                product_id=product_id,
+                source='storage_clear_tracked_products',
+            )
             self.purge_product_runtime_data(
                 profile_id=profile,
                 product_id=product_id,
             )
         return removed_ids
+
+    def disable_product_runtime(
+        self,
+        *,
+        profile_id: str = DEFAULT_PROFILE,
+        product_id: int,
+        source: str = 'system',
+    ) -> None:
+        """
+        Принудительно деактивирует runtime удаляемой пары перед purge.
+        Это снижает риск race-condition, когда цикл уже выполняется.
+        """
+        profile = self._normalize_profile(profile_id)
+        normalized_product_id = int(product_id or 0)
+        if normalized_product_id <= 0:
+            return
+        runtime_profile = f'{profile}:{normalized_product_id}'
+        self.set_auto_mode(
+            enabled=False,
+            profile_id=runtime_profile,
+            source=source,
+        )
+        for key in (
+            'PAIR_ENABLED',
+            'CHAT_AUTOREPLY_ENABLED',
+            'NOTIFY_SKIP',
+            'NOTIFY_COMPETITOR_CHANGE',
+            'NOTIFY_PARSER_ISSUES',
+            'NOTIFY_ERRORS',
+        ):
+            self.set_runtime_setting(
+                key,
+                'false',
+                source=source,
+                profile_id=runtime_profile,
+            )
 
     def purge_product_runtime_data(
         self,

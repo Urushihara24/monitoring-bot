@@ -58,5 +58,18 @@ def test_validate_runtime_config_allows_empty_competitor_urls():
 def test_validate_runtime_config_accepts_follow_modes():
     ok_exact, errors_exact = validate_runtime_config(make_cfg(MODE='FOLLOW'))
     ok_plus, errors_plus = validate_runtime_config(make_cfg(MODE='RAISE'))
+    ok_showcase, errors_showcase = validate_runtime_config(
+        make_cfg(MODE='SHOWCASE_CYCLE')
+    )
     assert ok_exact and errors_exact == []
     assert ok_plus and errors_plus == []
+    assert ok_showcase and errors_showcase == []
+
+
+def test_validate_runtime_config_reports_invalid_mode_message():
+    ok, errors = validate_runtime_config(make_cfg(MODE='UNKNOWN_MODE'))
+    assert not ok
+    assert any(
+        'FOLLOW, DUMPING, RAISE или SHOWCASE_CYCLE' in e
+        for e in errors
+    )

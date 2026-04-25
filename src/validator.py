@@ -26,7 +26,7 @@ def validate_runtime_config(cfg) -> Tuple[bool, List[str]]:
     mode_value = normalize_pricing_mode(raw_mode, fallback='__INVALID__')
     if mode_value not in MODE_SET:
         errors.append(
-            'MODE должен быть FOLLOW, DUMPING или RAISE'
+            'MODE должен быть FOLLOW, DUMPING, RAISE или SHOWCASE_CYCLE'
         )
     if cfg.CHECK_INTERVAL < 5:
         errors.append('CHECK_INTERVAL должен быть >= 5 секунд')

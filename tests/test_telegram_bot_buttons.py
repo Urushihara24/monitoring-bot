@@ -299,6 +299,57 @@ async def test_products_button_opens_inline_products_menu(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_products_button_realigns_stale_active_product(monkeypatch):
+    bot = make_bot()
+    bot.profile_products['ggsel'] = 999
+    monkeypatch.setattr(
+        bot,
+        '_tracked_products',
+        lambda *_args, **_kwargs: [
+            {'product_id': 4697439, 'competitor_urls': [], 'enabled': True},
+        ],
+    )
+    captured = {'product_id': None}
+
+    def fake_runtime_for_product(_profile, product_id):
+        captured['product_id'] = product_id
+        return make_runtime([])
+
+    monkeypatch.setattr(bot, '_runtime_for_product', fake_runtime_for_product)
+    update = make_update(BTN_PRODUCTS)
+
+    await bot.handle_message(update, None)
+
+    assert bot.profile_products['ggsel'] == 4697439
+    assert captured['product_id'] == 4697439
+
+
+@pytest.mark.asyncio
+async def test_products_button_clears_existing_pending_action(monkeypatch):
+    bot = make_bot()
+    bot.pending_actions[100] = ('MIN_PRICE', 'ggsel')
+    bot.pending_action_started_at[100] = time.monotonic()
+    monkeypatch.setattr(
+        bot,
+        '_runtime_for_product',
+        lambda *_args, **_kwargs: make_runtime([]),
+    )
+    monkeypatch.setattr(
+        bot,
+        '_tracked_products',
+        lambda *_args, **_kwargs: [
+            {'product_id': 4697439, 'competitor_urls': [], 'enabled': True},
+        ],
+    )
+    update = make_update(BTN_PRODUCTS)
+
+    await bot.handle_message(update, None)
+
+    assert 100 not in bot.pending_actions
+    assert 100 not in bot.pending_action_started_at
+
+
+@pytest.mark.asyncio
 async def test_products_callback_add_sets_pending_action():
     bot = make_bot()
     update = make_callback_update('pm:a')
@@ -311,13 +362,127 @@ async def test_products_callback_add_sets_pending_action():
 
 
 @pytest.mark.asyncio
+async def test_products_callback_add_url_realigns_stale_active_product(monkeypatch):
+    bot = make_bot()
+    bot.profile_products['ggsel'] = 999
+    monkeypatch.setattr(
+        bot,
+        '_tracked_products',
+        lambda *_args, **_kwargs: [
+            {'product_id': 4697439, 'competitor_urls': [], 'enabled': True},
+        ],
+    )
+    update = make_callback_update('pm:u')
+
+    await bot.handle_callback_query(update, None)
+
+    assert bot.profile_products['ggsel'] == 4697439
+    assert bot.pending_actions[100] == ('PRODUCT_ADD_URL', 'ggsel')
+    update.callback_query.answer.assert_awaited()
+    update.callback_query.message.reply_text.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_products_callback_add_url_without_active_pair_clears_pending(monkeypatch):
+    bot = make_bot()
+    bot.pending_actions[100] = ('MIN_PRICE', 'ggsel')
+    bot.pending_action_started_at[100] = time.monotonic()
+    bot.profile_products['ggsel'] = 999
+    monkeypatch.setattr(
+        bot,
+        '_tracked_products',
+        lambda *_args, **_kwargs: [],
+    )
+    update = make_callback_update('pm:u')
+
+    await bot.handle_callback_query(update, None)
+
+    assert 100 not in bot.pending_actions
+    assert 100 not in bot.pending_action_started_at
+    update.callback_query.answer.assert_awaited()
+    update.callback_query.message.reply_text.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_products_callback_rename_without_active_pair_clears_pending(monkeypatch):
+    bot = make_bot()
+    bot.pending_actions[100] = ('MIN_PRICE', 'ggsel')
+    bot.pending_action_started_at[100] = time.monotonic()
+    bot.profile_products['ggsel'] = 999
+    monkeypatch.setattr(
+        bot,
+        '_tracked_products',
+        lambda *_args, **_kwargs: [],
+    )
+    update = make_callback_update('pm:n')
+
+    await bot.handle_callback_query(update, None)
+
+    assert 100 not in bot.pending_actions
+    assert 100 not in bot.pending_action_started_at
+    update.callback_query.answer.assert_awaited()
+    update.callback_query.message.reply_text.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_products_callback_refresh_realigns_stale_active_product(monkeypatch):
+    bot = make_bot()
+    bot.profile_products['ggsel'] = 999
+    monkeypatch.setattr(
+        bot,
+        '_tracked_products',
+        lambda *_args, **_kwargs: [
+            {'product_id': 4697439, 'competitor_urls': [], 'enabled': True},
+        ],
+    )
+    captured = {'product_id': None}
+
+    def fake_runtime_for_product(_profile, product_id):
+        captured['product_id'] = product_id
+        return make_runtime([])
+
+    monkeypatch.setattr(bot, '_runtime_for_product', fake_runtime_for_product)
+    update = make_callback_update('pm:r')
+
+    await bot.handle_callback_query(update, None)
+
+    assert bot.profile_products['ggsel'] == 4697439
+    assert captured['product_id'] == 4697439
+
+
+@pytest.mark.asyncio
+async def test_products_callback_refresh_clears_existing_pending_action(monkeypatch):
+    bot = make_bot()
+    bot.pending_actions[100] = ('MIN_PRICE', 'ggsel')
+    bot.pending_action_started_at[100] = time.monotonic()
+    monkeypatch.setattr(
+        bot,
+        '_tracked_products',
+        lambda *_args, **_kwargs: [
+            {'product_id': 4697439, 'competitor_urls': [], 'enabled': True},
+        ],
+    )
+    monkeypatch.setattr(
+        bot,
+        '_runtime_for_product',
+        lambda *_args, **_kwargs: make_runtime([]),
+    )
+    update = make_callback_update('pm:r')
+
+    await bot.handle_callback_query(update, None)
+
+    assert 100 not in bot.pending_actions
+    assert 100 not in bot.pending_action_started_at
+
+
+@pytest.mark.asyncio
 async def test_products_callback_select_active_product_refreshes_menu(monkeypatch):
     bot = make_bot()
     bot.profile_products['ggsel'] = 4697439
     monkeypatch.setattr(
         bot,
         '_tracked_product_ids',
-        lambda _profile: [4697439, 5104800],
+        lambda _profile, runtime=None: [4697439, 5104800],
     )
     monkeypatch.setattr(
         bot,
@@ -352,7 +517,7 @@ async def test_products_callback_select_active_product_clears_pending(monkeypatc
     monkeypatch.setattr(
         bot,
         '_tracked_product_ids',
-        lambda _profile: [4697439, 5104800],
+        lambda _profile, runtime=None: [4697439, 5104800],
     )
     monkeypatch.setattr(
         bot,
@@ -403,9 +568,40 @@ async def test_price_guard_button_opens_inline_panel():
 
 
 @pytest.mark.asyncio
+async def test_price_guard_button_without_active_pair_shows_error(monkeypatch):
+    bot = make_bot()
+    monkeypatch.setattr(
+        bot,
+        '_tracked_products',
+        lambda *_args, **_kwargs: [],
+    )
+    update = make_update(BTN_PRICE_GUARD)
+
+    await bot.handle_message(update, None)
+
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert 'Нет активной пары' in args[0]
+
+
+@pytest.mark.asyncio
+async def test_price_guard_button_clears_existing_pending_action():
+    bot = make_bot()
+    bot.pending_actions[100] = ('MIN_PRICE', 'ggsel')
+    bot.pending_action_started_at[100] = time.monotonic()
+    update = make_update(BTN_PRICE_GUARD)
+
+    await bot.handle_message(update, None)
+
+    assert 100 not in bot.pending_actions
+    assert 100 not in bot.pending_action_started_at
+
+
+@pytest.mark.asyncio
 async def test_price_guard_rounding_callback_isolated_for_active_product(monkeypatch):
     bot = make_bot()
     bot.profile_products['ggsel'] = 999
+    bot._tracked_product_ids = lambda _profile, runtime=None: [999]
     bot._runtime_for_product = lambda _profile, _product: SimpleNamespace(
         SHOWCASE_ROUND_STEP=0.01,
         REBOUND_TO_DESIRED_ON_MIN=False,
@@ -439,6 +635,55 @@ async def test_price_guard_rounding_callback_isolated_for_active_product(monkeyp
     assert captured['key'] == 'SHOWCASE_ROUND_STEP'
     assert captured['profile_id'] == 'ggsel:999'
     update.callback_query.message.edit_text.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_price_guard_rounding_callback_clears_existing_pending_action(monkeypatch):
+    bot = make_bot()
+    bot.pending_actions[100] = ('MIN_PRICE', 'ggsel')
+    bot.pending_action_started_at[100] = time.monotonic()
+    bot.profile_products['ggsel'] = 999
+    bot._tracked_product_ids = lambda _profile, runtime=None: [999]
+    bot._runtime_for_product = lambda _profile, _product: SimpleNamespace(
+        SHOWCASE_ROUND_STEP=0.01,
+        REBOUND_TO_DESIRED_ON_MIN=False,
+        MIN_PRICE=0.25,
+        MAX_PRICE=0.40,
+        UNDERCUT_VALUE=0.0051,
+        RAISE_VALUE=0.0049,
+    )
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_runtime_setting',
+        lambda *_args, **_kwargs: True,
+    )
+    update = make_callback_update('pc:round')
+
+    await bot.handle_callback_query(update, None)
+
+    assert 100 not in bot.pending_actions
+    assert 100 not in bot.pending_action_started_at
+
+
+@pytest.mark.asyncio
+async def test_price_guard_min_callback_without_active_pair_clears_pending(monkeypatch):
+    bot = make_bot()
+    bot.pending_actions[100] = ('MIN_PRICE', 'ggsel')
+    bot.pending_action_started_at[100] = time.monotonic()
+    bot.profile_products['ggsel'] = 999
+    monkeypatch.setattr(
+        bot,
+        '_tracked_products',
+        lambda *_args, **_kwargs: [],
+    )
+    update = make_callback_update('pc:min')
+
+    await bot.handle_callback_query(update, None)
+
+    assert 100 not in bot.pending_actions
+    assert 100 not in bot.pending_action_started_at
+    update.callback_query.answer.assert_awaited()
+    update.callback_query.message.reply_text.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -546,6 +791,23 @@ async def test_main_buttons_route_to_handlers():
     chat_rules = make_update(BTN_CHAT_RULES)
     await bot.handle_message(chat_rules, None)
     bot.start_chat_rules.assert_awaited_once_with(100, chat_rules)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('button', [BTN_STATUS, BTN_SETTINGS, BTN_PROFILE])
+async def test_navigation_buttons_clear_existing_pending_action(button):
+    bot = make_bot()
+    bot.pending_actions[100] = ('MIN_PRICE', 'ggsel')
+    bot.pending_action_started_at[100] = time.monotonic()
+    bot._state = lambda _profile: {'auto_mode': True}
+    bot.send_status = AsyncMock()
+    bot.send_settings = AsyncMock()
+    update = make_update(button)
+
+    await bot.handle_message(update, None)
+
+    assert 100 not in bot.pending_actions
+    assert 100 not in bot.pending_action_started_at
 
 
 @pytest.mark.asyncio
@@ -683,6 +945,9 @@ async def test_toggle_auto_updates_only_active_profile(monkeypatch):
     bot.admin_ids = {1}
     bot.chat_profile[100] = 'digiseller'
     bot._state = lambda _profile: {'auto_mode': True}
+    bot._tracked_product_ids = (
+        lambda profile, runtime=None: [2] if profile == 'digiseller' else [1]
+    )
     bot.send_settings = AsyncMock()
     update = make_update(BTN_AUTO_ON)
 
@@ -709,6 +974,115 @@ async def test_toggle_auto_updates_only_active_profile(monkeypatch):
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert args[0] == '🔔 Автоцена (DIGISELLER / 2): ВЫКЛ'
+
+
+@pytest.mark.asyncio
+async def test_set_auto_enabled_true_marks_pair_enabled(monkeypatch):
+    bot = make_bot()
+    bot.profile_products['ggsel'] = 4697439
+    bot._tracked_product_ids = lambda _profile, runtime=None: [4697439]
+    bot._runtime_for_product = lambda _profile, _product: make_runtime(
+        ['https://example.com/item']
+    )
+    bot.send_settings = AsyncMock()
+    update = make_update(BTN_AUTO_OFF)
+
+    auto_calls = []
+    runtime_calls = []
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_auto_mode',
+        lambda enabled, *, profile_id='ggsel', user_id=None, source='system': (
+            auto_calls.append((enabled, profile_id, user_id, source))
+        ),
+    )
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_runtime_setting',
+        lambda key, value, user_id=None, source='system', profile_id='ggsel': (
+            runtime_calls.append((key, value, user_id, source, profile_id))
+        ),
+    )
+
+    await bot.set_auto_enabled(update, enabled=True)
+
+    assert auto_calls == [(True, 'ggsel:4697439', 1, 'telegram')]
+    assert ('PAIR_ENABLED', 'true', 1, 'telegram', 'ggsel:4697439') in runtime_calls
+
+
+@pytest.mark.asyncio
+async def test_set_auto_enabled_rejects_when_active_pair_missing(monkeypatch):
+    bot = make_bot()
+    bot.profile_products['ggsel'] = 0
+    bot._tracked_product_ids = lambda _profile, runtime=None: []
+    bot.send_settings = AsyncMock()
+
+    calls = []
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_auto_mode',
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    update = make_update(BTN_AUTO_ON)
+
+    await bot.set_auto_enabled(update, enabled=True)
+
+    assert calls == []
+    bot.send_settings.assert_not_awaited()
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert 'Нет активной пары' in args[0]
+
+
+@pytest.mark.asyncio
+async def test_set_auto_enabled_rejects_when_competitor_url_missing(monkeypatch):
+    bot = make_bot()
+    bot.profile_products['ggsel'] = 4697439
+    bot._tracked_product_ids = lambda _profile, runtime=None: [4697439]
+    bot._runtime_for_product = lambda _profile, _product: SimpleNamespace(
+        COMPETITOR_URLS=[],
+    )
+    bot.send_settings = AsyncMock()
+    calls = []
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_auto_mode',
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    update = make_update(BTN_AUTO_ON)
+
+    await bot.set_auto_enabled(update, enabled=True)
+
+    assert calls == []
+    bot.send_settings.assert_not_awaited()
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert 'не задан URL конкурента' in args[0]
+
+
+@pytest.mark.asyncio
+async def test_pending_price_value_not_applied_without_active_pair(monkeypatch):
+    bot = make_bot()
+    bot.pending_actions[100] = ('MIN_PRICE', 'ggsel')
+    bot.pending_action_started_at[100] = time.monotonic()
+    bot.profile_products['ggsel'] = 0
+    bot._tracked_product_ids = lambda _profile, runtime=None: []
+
+    calls = []
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_runtime_setting',
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    update = make_update('0.25')
+
+    await bot.handle_pending_action(100, 1, '0.25', update)
+
+    assert calls == []
+    assert 100 not in bot.pending_actions
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert 'Нет активной пары' in args[0]
 
 
 @pytest.mark.asyncio
@@ -1173,6 +1547,11 @@ async def test_status_shows_ggsel_chat_autoreply_block(monkeypatch):
         True,
     )
     monkeypatch.setattr(
+        bot,
+        '_chat_autoreply_supported',
+        lambda _profile: True,
+    )
+    monkeypatch.setattr(
         telegram_module.config,
         'GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS',
         [4697439],
@@ -1418,6 +1797,7 @@ async def test_pending_price_action_formats_to_4dp(monkeypatch):
 async def test_toggle_mode_isolated_for_active_product(monkeypatch):
     bot = make_bot()
     bot.profile_products['ggsel'] = 999
+    bot._tracked_product_ids = lambda _profile, runtime=None: [999]
     bot.send_settings = AsyncMock()
     bot._runtime_for_product = lambda _profile, _product: SimpleNamespace(
         MODE='DUMPING'
@@ -1451,11 +1831,123 @@ async def test_toggle_mode_isolated_for_active_product(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_cycle_chat_policy_realigns_stale_active_product(monkeypatch):
+    bot = make_bot()
+    bot.profile_products['ggsel'] = 999
+    bot.send_settings = AsyncMock()
+    monkeypatch.setattr(
+        bot,
+        '_tracked_products',
+        lambda *_args, **_kwargs: [
+            {'product_id': 4697439, 'competitor_urls': ['https://example.com'], 'enabled': True},
+        ],
+    )
+    monkeypatch.setattr(
+        telegram_module.config,
+        'GGSEL_CHAT_AUTOREPLY_ENABLED',
+        True,
+    )
+    monkeypatch.setattr(
+        bot,
+        '_chat_autoreply_supported',
+        lambda _profile: True,
+    )
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'get_runtime_setting',
+        lambda *_args, **_kwargs: None,
+    )
+    captured = {}
+
+    def fake_set_runtime_setting(
+        key,
+        value,
+        user_id=None,
+        source='system',
+        profile_id='ggsel',
+    ):
+        captured['key'] = key
+        captured['value'] = value
+        captured['profile_id'] = profile_id
+
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_runtime_setting',
+        fake_set_runtime_setting,
+    )
+    update = make_update(BTN_CHAT_POLICY)
+
+    await bot.cycle_chat_autoreply_policy(100, 1, update)
+
+    assert bot.profile_products['ggsel'] == 4697439
+    assert captured['key'] == 'CHAT_AUTOREPLY_POLICY:4697439'
+    assert captured['profile_id'] == 'ggsel'
+    bot.send_settings.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_start_chat_rules_realigns_stale_active_product(monkeypatch):
+    class FakeClient:
+        def get_product_info(self, _product_id, timeout=10, lang=None):
+            return {
+                'options': [
+                    {
+                        'name': 'Наши аккаунты в друзьях?',
+                        'variants': [
+                            {'text': 'Нет. Добавлю после оплаты'},
+                            {'text': 'Да. Проверил(а), в друзьях'},
+                        ],
+                    }
+                ]
+            }
+
+    bot = TelegramBot(
+        api_clients={'ggsel': FakeClient()},
+        profile_products={'ggsel': 999},
+        profile_default_urls={'ggsel': ['https://example.com']},
+        profile_labels={'ggsel': 'GGSEL'},
+    )
+    bot.admin_ids = {1}
+    monkeypatch.setattr(
+        bot,
+        '_tracked_products',
+        lambda *_args, **_kwargs: [
+            {'product_id': 4697439, 'competitor_urls': ['https://example.com'], 'enabled': True},
+        ],
+    )
+    monkeypatch.setattr(
+        bot,
+        '_chat_autoreply_supported',
+        lambda _profile: True,
+    )
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'get_runtime_setting',
+        lambda *_args, **_kwargs: None,
+    )
+    update = make_update(BTN_CHAT_RULES)
+
+    await bot.start_chat_rules(100, update)
+
+    assert bot.profile_products['ggsel'] == 4697439
+    assert bot.chat_rules_context[100]['product_id'] == 4697439
+    assert bot.pending_actions[100] == ('CHAT_RULES', 'ggsel')
+    assert update.message.reply_text.await_count >= 1
+
+
+@pytest.mark.asyncio
 async def test_pending_price_action_isolated_for_active_product(monkeypatch):
     bot = make_bot()
     bot.profile_products['ggsel'] = 999
     bot.pending_actions[100] = ('MIN_PRICE', 'ggsel')
     bot.send_settings = AsyncMock()
+    monkeypatch.setattr(
+        bot,
+        '_tracked_products',
+        lambda *_args, **_kwargs: [
+            {'product_id': 999, 'competitor_urls': [], 'enabled': True},
+        ],
+    )
     bot._runtime_for_product = lambda _profile, _product: SimpleNamespace(
         FAST_CHECK_INTERVAL_MIN=20,
         FAST_CHECK_INTERVAL_MAX=60,
@@ -1486,6 +1978,61 @@ async def test_pending_price_action_isolated_for_active_product(monkeypatch):
     assert captured['key'] == 'MIN_PRICE'
     assert captured['value'] == '0.3'
     assert captured['profile_id'] == 'ggsel:999'
+
+
+@pytest.mark.asyncio
+async def test_pending_price_action_realigns_stale_active_product(monkeypatch):
+    bot = make_bot()
+    bot.profile_products['ggsel'] = 999
+    bot.pending_actions[100] = ('MIN_PRICE', 'ggsel')
+    bot.pending_action_started_at[100] = time.monotonic()
+    bot.send_settings = AsyncMock()
+    monkeypatch.setattr(
+        bot,
+        '_tracked_products',
+        lambda *_args, **_kwargs: [
+            {'product_id': 4697439, 'competitor_urls': [], 'enabled': True},
+        ],
+    )
+    observed = {'runtime_product_id': None}
+
+    def fake_runtime_for_product(_profile, product_id):
+        observed['runtime_product_id'] = product_id
+        return SimpleNamespace(
+            MIN_PRICE=0.2,
+            MAX_PRICE=1.0,
+            FAST_CHECK_INTERVAL_MIN=20,
+            FAST_CHECK_INTERVAL_MAX=60,
+        )
+
+    monkeypatch.setattr(bot, '_runtime_for_product', fake_runtime_for_product)
+    update = make_update('0.30')
+
+    captured = {}
+
+    def fake_set_runtime_setting(
+        key,
+        value,
+        user_id=None,
+        source='system',
+        profile_id='ggsel',
+    ):
+        captured['key'] = key
+        captured['value'] = value
+        captured['profile_id'] = profile_id
+
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'set_runtime_setting',
+        fake_set_runtime_setting,
+    )
+
+    await bot.handle_pending_action(100, 1, '0.30', update)
+
+    assert observed['runtime_product_id'] == 4697439
+    assert bot.profile_products['ggsel'] == 4697439
+    assert captured['key'] == 'MIN_PRICE'
+    assert captured['profile_id'] == 'ggsel:4697439'
 
 
 @pytest.mark.asyncio
@@ -1871,22 +2418,61 @@ async def test_pending_remove_product_success_switches_active(monkeypatch):
     await bot.handle_pending_action(100, 1, 'active', update)
 
     assert captured == {'profile_id': 'ggsel', 'product_id': 4697439}
-    assert cleanup_calls[0] == {
-        'key': 'competitor_urls',
-        'user_id': 1,
-        'source': 'telegram',
-        'profile_id': 'ggsel:4697439',
-    }
     cleanup_keys = [item['key'] for item in cleanup_calls]
     assert 'PRODUCT_ALIAS:4697439' in cleanup_keys
     assert 'PRODUCT_AUTO_NAME:4697439' in cleanup_keys
-    assert purge_calls == [
-        {
-            'profile_id': 'ggsel',
-            'product_id': 4697439,
-        }
-    ]
+    assert purge_calls == []
     assert bot.profile_products['ggsel'] == 5104800
+    assert 100 not in bot.pending_actions
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert args[0] == '✅ Товар удалён: 4697439'
+
+
+@pytest.mark.asyncio
+async def test_pending_remove_product_active_realigns_stale_active_product(monkeypatch):
+    bot = make_bot()
+    bot.pending_actions[100] = ('REMOVE_PRODUCT', 'ggsel')
+    bot.pending_action_started_at[100] = time.monotonic()
+    bot.profile_products['ggsel'] = 999
+    bot.send_settings = AsyncMock()
+
+    monkeypatch.setattr(
+        bot,
+        '_tracked_products',
+        lambda *_args, **_kwargs: [
+            {'product_id': 4697439, 'competitor_urls': [], 'enabled': True},
+        ],
+    )
+    remove_calls = []
+
+    state = {'removed': False}
+
+    def fake_tracked_ids(_profile, runtime=None):
+        return [] if state['removed'] else [4697439]
+
+    def fake_remove_product_with_cleanup_stateful(**kwargs):
+        remove_calls.append(kwargs)
+        state['removed'] = True
+        return True
+
+    monkeypatch.setattr(
+        bot,
+        '_remove_product_with_cleanup',
+        fake_remove_product_with_cleanup_stateful,
+    )
+    monkeypatch.setattr(
+        bot,
+        '_tracked_product_ids',
+        fake_tracked_ids,
+    )
+    update = make_update('active')
+
+    await bot.handle_pending_action(100, 1, 'active', update)
+
+    assert remove_calls
+    assert remove_calls[0]['product_id'] == 4697439
+    assert bot.profile_products['ggsel'] == 0
     assert 100 not in bot.pending_actions
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
@@ -1913,6 +2499,191 @@ def test_tracked_products_realigns_active_product(monkeypatch):
 
     assert tracked[0]['product_id'] == 4697439
     assert bot.profile_products['ggsel'] == 4697439
+
+
+def test_tracked_products_resets_active_product_when_empty(monkeypatch):
+    bot = make_bot()
+    bot.profile_products['ggsel'] = 4682996
+    runtime = make_runtime([])
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'list_tracked_products',
+        lambda **kwargs: [],
+    )
+
+    tracked = bot._tracked_products('ggsel', runtime=runtime)
+
+    assert tracked == []
+    assert bot.profile_products['ggsel'] == 0
+
+
+def test_settings_keyboard_uses_realigned_product_for_state_lookup(monkeypatch):
+    bot = make_bot()
+    bot.profile_products['ggsel'] = 4682996
+    runtime = make_runtime(['https://example.com/item'])
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'list_tracked_products',
+        lambda **kwargs: [
+            {
+                'product_id': 4697439,
+                'competitor_urls': ['https://example.com/item'],
+                'enabled': True,
+            }
+        ],
+    )
+    bot._runtime = lambda _profile: runtime
+    captured = {'product_id': None}
+
+    def fake_state_for_product(_profile, product_id):
+        captured['product_id'] = product_id
+        return {'auto_mode': False}
+
+    bot._state_for_product = fake_state_for_product
+
+    markup = bot.get_settings_keyboard('ggsel')
+
+    assert captured['product_id'] == 4697439
+    assert bot.profile_products['ggsel'] == 4697439
+    assert BTN_AUTO_ON in keyboard_texts(markup)
+
+
+def test_format_price_guard_text_uses_realigned_active_product(monkeypatch):
+    bot = make_bot()
+    bot.profile_products['ggsel'] = 4682996
+    runtime_parent = make_runtime(['https://example.com/item'])
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'list_tracked_products',
+        lambda **kwargs: [
+            {
+                'product_id': 4697439,
+                'competitor_urls': ['https://example.com/item'],
+                'enabled': True,
+            }
+        ],
+    )
+    bot._runtime = lambda _profile: runtime_parent
+    observed = {'product_id': None}
+
+    def fake_runtime_for_product(_profile, product_id):
+        observed['product_id'] = product_id
+        return SimpleNamespace(
+            MIN_PRICE=0.25,
+            MAX_PRICE=0.40,
+            UNDERCUT_VALUE=0.0051,
+            RAISE_VALUE=0.0049,
+            SHOWCASE_ROUND_STEP=0.01,
+            REBOUND_TO_DESIRED_ON_MIN=False,
+        )
+
+    bot._runtime_for_product = fake_runtime_for_product
+
+    text = bot._format_price_guard_text('ggsel')
+
+    assert observed['product_id'] == 4697439
+    assert bot.profile_products['ggsel'] == 4697439
+    assert 'Товар: 4697439' in text
+
+
+@pytest.mark.asyncio
+async def test_status_uses_realigned_product_for_state_lookup(monkeypatch):
+    bot = make_bot()
+    bot.profile_products['ggsel'] = 4682996
+    runtime = make_runtime(['https://example.com/item'])
+    monkeypatch.setattr(
+        telegram_module.storage,
+        'list_tracked_products',
+        lambda **kwargs: [
+            {
+                'product_id': 4697439,
+                'competitor_urls': ['https://example.com/item'],
+                'enabled': True,
+            }
+        ],
+    )
+    bot._runtime = lambda _profile: runtime
+    bot._runtime_for_product = lambda _profile, _product_id: runtime
+    bot._product_runtime_source = lambda _profile, _product_id: 'товарные'
+    bot._is_pair_enabled = lambda _profile, _product_id: True
+    bot._chat_autoreply_meta = lambda _profile: None
+    captured = {'product_id': None}
+
+    def fake_state_for_product(_profile, product_id):
+        captured['product_id'] = product_id
+        return {
+            'last_target_price': 0.3449,
+            'last_price': 0.3449,
+            'last_competitor_min': 0.35,
+            'last_update': None,
+            'last_competitor_rank': None,
+            'last_competitor_parse_at': None,
+            'last_competitor_url': 'https://example.com/item',
+            'last_competitor_method': 'api4_goods',
+            'auto_mode': True,
+            'update_count': 0,
+            'skip_count': 0,
+        }
+
+    bot._state_for_product = fake_state_for_product
+    update = make_update(BTN_STATUS)
+
+    await bot.send_status(100, update)
+
+    assert captured['product_id'] == 4697439
+    assert bot.profile_products['ggsel'] == 4697439
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert '4697439' in args[0]
+
+
+@pytest.mark.asyncio
+async def test_cmd_smoke_uses_realigned_active_product(monkeypatch):
+    class FakeClient:
+        pass
+
+    bot = TelegramBot(
+        api_clients={'ggsel': FakeClient()},
+        profile_products={'ggsel': 4682996},
+        profile_default_urls={'ggsel': ['https://example.com/item']},
+        profile_labels={'ggsel': 'GGSEL'},
+    )
+    bot.admin_ids = {1}
+    monkeypatch.setattr(
+        bot,
+        '_tracked_products',
+        lambda *_args, **_kwargs: [
+            {'product_id': 4697439, 'competitor_urls': [], 'enabled': True},
+        ],
+    )
+    monkeypatch.setattr(bot, '_runtime', lambda _profile: make_runtime([]))
+    captured = {}
+
+    def fake_run_profile_smoke(client, product_id, mutate=False, verify_read=True, write_probe=False):
+        captured['product_id'] = product_id
+        return SimpleNamespace(
+            api_access=True,
+            product_read_ok=True,
+            write_probe_ok=False,
+            current_price=0.33,
+            probe_price=None,
+            verify_price=0.33,
+            token_perms_ok=None,
+            token_perms_desc=None,
+            token_refresh_ok=None,
+            token_refresh_desc=None,
+            error=None,
+        )
+
+    monkeypatch.setattr(telegram_module, 'run_profile_smoke', fake_run_profile_smoke)
+    update = make_update('/smoke')
+    context = SimpleNamespace(args=[])
+
+    await bot.cmd_smoke(update, context)
+
+    assert captured['product_id'] == 4697439
+    assert bot.profile_products['ggsel'] == 4697439
+    assert update.message.reply_text.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -1965,7 +2736,8 @@ async def test_pending_remove_product_allows_last_product(monkeypatch):
     assert remove_calls == [{'profile_id': 'ggsel', 'product_id': 4697439}]
     assert 100 not in bot.pending_actions
     assert bot.profile_products['ggsel'] == 0
-    assert ('competitor_urls', 'ggsel:4697439') in cleanup_calls
+    assert ('PRODUCT_ALIAS:4697439', 'ggsel') in cleanup_calls
+    assert ('PRODUCT_AUTO_NAME:4697439', 'ggsel') in cleanup_calls
     update.message.reply_text.assert_awaited_once()
     args, _kwargs = update.message.reply_text.await_args
     assert args[0] == '✅ Товар удалён: 4697439'
@@ -1978,13 +2750,20 @@ async def test_pending_remove_product_all_keyword_clears_all(monkeypatch):
     bot.pending_action_started_at[100] = time.monotonic()
     bot.profile_products['ggsel'] = 4697439
     bot._runtime_for_product = lambda _profile, _product: make_runtime([])
-    bot._tracked_product_ids = lambda _profile, runtime=None: [4697439, 5104800]
+    removal_state = {'done': False}
+
+    def fake_tracked_ids(_profile, runtime=None):
+        return [] if removal_state['done'] else [4697439, 5104800]
+
+    bot._tracked_product_ids = fake_tracked_ids
     bot.send_settings = AsyncMock()
 
     monkeypatch.setattr(
         telegram_module.storage,
         'clear_tracked_products',
-        lambda profile_id='ggsel': [4697439, 5104800],
+        lambda profile_id='ggsel': (
+            removal_state.update({'done': True}) or [4697439, 5104800]
+        ),
     )
     monkeypatch.setattr(
         telegram_module.storage,
@@ -2142,6 +2921,53 @@ async def test_status_shows_monitoring_disabled_when_no_urls():
     assert '📡 Мониторинг: ВЫКЛ (нет URL)' in args[0]
 
 
+def test_settings_keyboard_shows_auto_on_when_no_active_pair():
+    bot = make_bot()
+    bot._runtime = lambda _profile: make_runtime(competitor_urls=[])
+    bot._state_for_product = lambda _profile, _product_id: {'auto_mode': True}
+    bot._has_active_product_pair = lambda _profile, runtime=None: False
+
+    markup = bot.get_settings_keyboard('ggsel')
+
+    assert BTN_AUTO_ON in keyboard_texts(markup)
+    assert BTN_AUTO_OFF not in keyboard_texts(markup)
+
+
+@pytest.mark.asyncio
+async def test_status_shows_auto_off_when_no_active_pair():
+    bot = make_bot()
+    bot._state_for_product = lambda _profile, _product_id: {
+        'last_target_price': None,
+        'last_price': None,
+        'last_competitor_min': None,
+        'last_update': None,
+        'last_competitor_rank': None,
+        'last_competitor_parse_at': None,
+        'last_competitor_url': None,
+        'last_competitor_method': None,
+        'auto_mode': True,
+        'update_count': 0,
+        'skip_count': 0,
+    }
+    bot._runtime_for_product = lambda _profile, _product_id: make_runtime(
+        competitor_urls=[]
+    )
+    bot._product_runtime_source = lambda _profile, _product_id: 'товарные'
+    bot._is_pair_enabled = lambda _profile, _product_id: False
+    bot._format_tracked_products = lambda _profile, runtime=None: ['нет']
+    bot._active_product_slot = lambda _profile, runtime=None: (0, 0)
+    bot._chat_autoreply_meta = lambda _profile: None
+    bot._has_active_product_pair = lambda _profile, runtime=None: False
+    update = make_update(BTN_STATUS)
+
+    await bot.send_status(100, update)
+
+    update.message.reply_text.assert_awaited_once()
+    args, _kwargs = update.message.reply_text.await_args
+    assert '🔔 Авто: ВЫКЛ' in args[0]
+    assert '🛡️ Пара активна: —' in args[0]
+
+
 @pytest.mark.asyncio
 async def test_diagnostics_includes_digiseller_token_perms_line():
     class DigiClient:
@@ -2282,6 +3108,48 @@ async def test_diagnostics_includes_chat_perms_line_when_supported():
 
 
 @pytest.mark.asyncio
+async def test_diagnostics_realigns_stale_active_product(monkeypatch):
+    bot = TelegramBot(
+        api_clients={'ggsel': object()},
+        profile_products={'ggsel': 999},
+        profile_default_urls={'ggsel': ['https://example.com/gg']},
+        profile_labels={'ggsel': 'GGSEL'},
+    )
+    bot.admin_ids = {1}
+    monkeypatch.setattr(
+        bot,
+        '_tracked_products',
+        lambda *_args, **_kwargs: [
+            {'product_id': 4697439, 'competitor_urls': [], 'enabled': True},
+        ],
+    )
+    observed = {'product_id': None}
+
+    def fake_state_for_product(_profile, product_id):
+        observed['product_id'] = product_id
+        return {
+            'auto_mode': True,
+            'last_cycle': None,
+            'last_competitor_error': None,
+            'last_competitor_block_reason': None,
+        }
+
+    monkeypatch.setattr(bot, '_state_for_product', fake_state_for_product)
+    monkeypatch.setattr(
+        bot,
+        '_runtime_for_product',
+        lambda *_args, **_kwargs: make_runtime(['https://example.com/gg']),
+    )
+    monkeypatch.setattr(bot, '_api_client', lambda _profile: None)
+    update = make_update('/diag')
+
+    await bot.send_diagnostics(100, update)
+
+    assert observed['product_id'] == 4697439
+    update.message.reply_text.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_cmd_smoke_reports_active_profile_result(monkeypatch):
     bot = TelegramBot(
         api_clients={'digiseller': object()},
@@ -2322,7 +3190,7 @@ async def test_cmd_smoke_reports_active_profile_result(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_cmd_smoke_fails_when_profile_not_configured():
+async def test_cmd_smoke_fails_when_profile_not_configured(monkeypatch):
     bot = TelegramBot(
         api_clients={'ggsel': object()},
         profile_products={'ggsel': 0},
@@ -2330,6 +3198,11 @@ async def test_cmd_smoke_fails_when_profile_not_configured():
         profile_labels={'ggsel': 'GGSEL'},
     )
     bot.admin_ids = {1}
+    monkeypatch.setattr(
+        bot,
+        '_tracked_products',
+        lambda *_args, **_kwargs: [],
+    )
     update = make_update('/smoke')
 
     await bot.cmd_smoke(update, None)

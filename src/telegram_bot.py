@@ -100,6 +100,7 @@ _CHAT_POLICY_LABELS_RU = {
     'CODE_ONLY': 'Только при коде',
 }
 _PRODUCT_RUNTIME_KEYS = (
+    'PAIR_ENABLED',
     'MODE',
     'MIN_PRICE',
     'MAX_PRICE',
@@ -110,6 +111,13 @@ _PRODUCT_RUNTIME_KEYS = (
     'REBOUND_TO_DESIRED_ON_MIN',
     'UPDATE_ONLY_ON_COMPETITOR_CHANGE',
 )
+_NEW_PRODUCT_SAFE_RUNTIME_VALUES = {
+    'PAIR_ENABLED': 'false',
+    'NOTIFY_SKIP': 'false',
+    'NOTIFY_COMPETITOR_CHANGE': 'false',
+    'NOTIFY_PARSER_ISSUES': 'false',
+    'NOTIFY_ERRORS': 'false',
+}
 
 
 class TelegramBot:
@@ -261,6 +269,10 @@ class TelegramBot:
         update: Update,
     ):
         if not update.message:
+            return
+        runtime = self._runtime(profile_id)
+        if not self._has_active_product_pair(profile_id, runtime=runtime):
+            await self._reply_no_active_pair(update, profile_id)
             return
         self._set_pending_action(chat_id, action, profile_id)
         await update.message.reply_text(
@@ -441,6 +453,8 @@ class TelegramBot:
                 tracked_ids.append(product_id)
         if tracked_ids and self._product_id(profile_id) not in tracked_ids:
             self.profile_products[profile_id] = tracked_ids[0]
+        if not tracked_ids and self._product_id(profile_id) != 0:
+            self.profile_products[profile_id] = 0
         return tracked
 
     def _tracked_product_ids(self, profile_id: str, runtime=None) -> list[int]:
@@ -453,6 +467,17 @@ class TelegramBot:
             product_ids.append(product_id)
         return product_ids
 
+    def _resolve_active_product_id(self, profile_id: str, runtime=None) -> int:
+        product_ids = self._tracked_product_ids(profile_id, runtime=runtime)
+        if not product_ids:
+            self.profile_products[profile_id] = 0
+            return 0
+        active_product_id = self._product_id(profile_id)
+        if active_product_id not in product_ids:
+            active_product_id = product_ids[0]
+            self.profile_products[profile_id] = active_product_id
+        return active_product_id
+
     def _active_product_slot(self, profile_id: str, runtime=None) -> tuple[int, int]:
         product_ids = self._tracked_product_ids(profile_id, runtime=runtime)
         if not product_ids:
@@ -461,6 +486,55 @@ class TelegramBot:
         if active_product_id not in product_ids:
             return (1, len(product_ids))
         return (product_ids.index(active_product_id) + 1, len(product_ids))
+
+    def _has_active_product_pair(self, profile_id: str, runtime=None) -> bool:
+        return self._resolve_active_product_id(profile_id, runtime=runtime) > 0
+
+    def _auto_enabled_for_active_pair(
+        self,
+        profile_id: str,
+        *,
+        state: Optional[dict] = None,
+        runtime=None,
+    ) -> bool:
+        if not self._has_active_product_pair(profile_id, runtime=runtime):
+            return False
+        current_state = state
+        if current_state is None:
+            current_state = self._state_for_product(
+                profile_id,
+                self._product_id(profile_id),
+            )
+        return bool((current_state or {}).get('auto_mode', True))
+
+    def _is_pair_enabled(self, profile_id: str, product_id: int) -> bool:
+        runtime_profile_id = self._runtime_profile_id_for_product(
+            profile_id,
+            product_id,
+        )
+        try:
+            raw = storage.get_runtime_setting(
+                'PAIR_ENABLED',
+                profile_id=runtime_profile_id,
+                inherit_parent=False,
+            )
+        except TypeError:
+            raw = storage.get_runtime_setting(
+                'PAIR_ENABLED',
+                profile_id=runtime_profile_id,
+            )
+        if raw is None:
+            return True
+        normalized = str(raw).strip().lower()
+        return normalized in ('1', 'true', 'yes', 'on')
+
+    async def _reply_no_active_pair(self, update: Update, profile_id: str) -> None:
+        if not update.message:
+            return
+        await update.message.reply_text(
+            '❌ Нет активной пары. Сначала добавь товар в разделе «📦 Товары».',
+            reply_markup=self.get_settings_keyboard(profile_id),
+        )
 
     def _format_tracked_products(self, profile_id: str, runtime=None) -> list[str]:
         tracked_products = self._tracked_products(profile_id, runtime=runtime)
@@ -561,25 +635,55 @@ class TelegramBot:
         user_id: int,
         source: str,
     ) -> None:
-        runtime_profile_id = self._runtime_profile_id_for_product(
-            profile_id,
-            product_id,
-        )
-        storage.delete_runtime_setting(
-            'competitor_urls',
-            user_id=user_id,
-            source=source,
-            profile_id=runtime_profile_id,
-        )
-        storage.purge_product_runtime_data(
-            profile_id=profile_id,
-            product_id=product_id,
-        )
+        # Runtime/data cleanup (profile_state/runtime_settings/history/alerts)
+        # выполняется на уровне Storage при remove/clear tracked_products.
+        # Здесь дочищаем только UI-метаданные товара.
         storage.delete_runtime_setting(
             self._product_alias_key(product_id),
             user_id=user_id,
             source=source,
             profile_id=profile_id,
+        )
+        storage.delete_runtime_setting(
+            self._product_auto_name_key(product_id),
+            user_id=user_id,
+            source=source,
+            profile_id=profile_id,
+        )
+
+    def _apply_new_product_safe_defaults(
+        self,
+        *,
+        profile_id: str,
+        product_id: int,
+        user_id: int,
+        source: str,
+    ) -> None:
+        runtime_profile_id = self._runtime_profile_id_for_product(
+            profile_id,
+            product_id,
+        )
+        storage.set_auto_mode(
+            False,
+            profile_id=runtime_profile_id,
+            user_id=user_id,
+            source=source,
+        )
+        for key, value in _NEW_PRODUCT_SAFE_RUNTIME_VALUES.items():
+            storage.set_runtime_setting(
+                key,
+                value,
+                user_id=user_id,
+                source=source,
+                profile_id=runtime_profile_id,
+            )
+        # Для нового товара стартовая стратегия всегда "Следование".
+        storage.set_runtime_setting(
+            'MODE',
+            'FOLLOW',
+            user_id=user_id,
+            source=source,
+            profile_id=runtime_profile_id,
         )
         storage.delete_runtime_setting(
             self._product_auto_name_key(product_id),
@@ -871,7 +975,7 @@ class TelegramBot:
     def _chat_autoreply_meta(self, profile_id: str) -> Optional[dict]:
         if not self._chat_autoreply_supported(profile_id):
             return None
-        active_product_id = self._product_id(profile_id)
+        active_product_id = self._resolve_active_product_id(profile_id)
         enabled = self._chat_autoreply_enabled(profile_id)
         dedupe = bool(
             self._chat_cfg(profile_id, 'DEDUPE_BY_MESSAGES', True)
@@ -1420,8 +1524,17 @@ class TelegramBot:
         profile_id: Optional[str] = None,
     ):
         profile = profile_id or self.default_profile
-        state = self._state_for_product(profile, self._product_id(profile))
-        auto_enabled = bool(state.get('auto_mode', True))
+        runtime = self._runtime(profile)
+        active_product_id = self._resolve_active_product_id(
+            profile,
+            runtime=runtime,
+        )
+        state = self._state_for_product(profile, active_product_id)
+        auto_enabled = self._auto_enabled_for_active_pair(
+            profile,
+            state=state,
+            runtime=runtime,
+        )
         auto_toggle_button = BTN_AUTO_OFF if auto_enabled else BTN_AUTO_ON
         rows = [
             [auto_toggle_button],
@@ -1462,7 +1575,11 @@ class TelegramBot:
         *,
         profile_id: str,
     ) -> InlineKeyboardMarkup:
-        product_id = self._product_id(profile_id)
+        runtime_parent = self._runtime(profile_id)
+        product_id = self._resolve_active_product_id(
+            profile_id,
+            runtime=runtime_parent,
+        )
         runtime = self._runtime_for_product(profile_id, product_id)
         round_step = getattr(runtime, 'SHOWCASE_ROUND_STEP', 0.01)
         rebound_enabled = bool(
@@ -1498,7 +1615,11 @@ class TelegramBot:
         return InlineKeyboardMarkup(rows)
 
     def _format_price_guard_text(self, profile_id: str) -> str:
-        product_id = self._product_id(profile_id)
+        runtime_parent = self._runtime(profile_id)
+        product_id = self._resolve_active_product_id(
+            profile_id,
+            runtime=runtime_parent,
+        )
         runtime = self._runtime_for_product(profile_id, product_id)
         min_price = float(getattr(runtime, 'MIN_PRICE', 0.0) or 0.0)
         max_price = float(getattr(runtime, 'MAX_PRICE', 0.0) or 0.0)
@@ -1533,6 +1654,10 @@ class TelegramBot:
         if not update.message:
             return
         profile_id = self._active_profile(chat_id)
+        runtime = self._runtime(profile_id)
+        if not self._has_active_product_pair(profile_id, runtime=runtime):
+            await self._reply_no_active_pair(update, profile_id)
+            return
         await update.message.reply_text(
             self._format_price_guard_text(profile_id),
             reply_markup=self._price_guard_inline_keyboard(
@@ -1669,7 +1794,11 @@ class TelegramBot:
             return
         profile_name = self._profile_name(profile_id)
         client = self._api_client(profile_id)
-        product_id = self._product_id(profile_id)
+        runtime_parent = self._runtime(profile_id)
+        product_id = self._resolve_active_product_id(
+            profile_id,
+            runtime=runtime_parent,
+        )
 
         if not client or not product_id:
             await update.message.reply_text(
@@ -1750,6 +1879,8 @@ class TelegramBot:
 
         # Главное меню
         if text == BTN_STATUS:
+            if chat_id in self.pending_actions:
+                self._clear_pending_action(chat_id)
             await self.send_status(chat_id, update)
             return
         if text == BTN_AUTO_ON:
@@ -1759,12 +1890,16 @@ class TelegramBot:
             await self.set_auto_enabled(update, enabled=False)
             return
         if text == BTN_PROFILE:
+            if chat_id in self.pending_actions:
+                self._clear_pending_action(chat_id)
             await update.message.reply_text(
                 'Выбери профиль:',
                 reply_markup=self.get_profile_keyboard(),
             )
             return
         if text == BTN_SETTINGS:
+            if chat_id in self.pending_actions:
+                self._clear_pending_action(chat_id)
             await self.send_settings(chat_id, update)
             return
         if text == BTN_CHAT_AUTOREPLY_ON:
@@ -1853,6 +1988,8 @@ class TelegramBot:
             )
             return
         if text == BTN_PRICE_GUARD:
+            if chat_id in self.pending_actions:
+                self._clear_pending_action(chat_id)
             await self.open_price_guard_panel(chat_id, update)
             return
         if text == BTN_MIN:
@@ -1901,7 +2038,14 @@ class TelegramBot:
             await self.set_rebound_to_desired(chat_id, user_id, update, enabled=False)
             return
         if text == BTN_PRODUCTS:
-            runtime = self._runtime_for_product(profile_id, self._product_id(profile_id))
+            if chat_id in self.pending_actions:
+                self._clear_pending_action(chat_id)
+            runtime_parent = self._runtime(profile_id)
+            active_product_id = self._resolve_active_product_id(
+                profile_id,
+                runtime=runtime_parent,
+            )
+            runtime = self._runtime_for_product(profile_id, active_product_id)
             await update.message.reply_text(
                 self._format_products_management_text(
                     profile_id,
@@ -1914,7 +2058,14 @@ class TelegramBot:
             )
             return
         if text == BTN_PRODUCT_REMOVE:
-            runtime = self._runtime_for_product(profile_id, self._product_id(profile_id))
+            if chat_id in self.pending_actions:
+                self._clear_pending_action(chat_id)
+            runtime_parent = self._runtime(profile_id)
+            active_product_id = self._resolve_active_product_id(
+                profile_id,
+                runtime=runtime_parent,
+            )
+            runtime = self._runtime_for_product(profile_id, active_product_id)
             await update.message.reply_text(
                 self._format_products_management_text(
                     profile_id,
@@ -2130,6 +2281,11 @@ class TelegramBot:
         profile_id = self._active_profile(chat_id)
         parts = data.split(':')
         action = parts[1] if len(parts) > 1 else ''
+        if (
+            action in {'done', 'round', 'rebound'}
+            and chat_id in self.pending_actions
+        ):
+            self._clear_pending_action(chat_id)
         if action == 'done':
             await query.answer('Готово')
             if query.message:
@@ -2138,6 +2294,22 @@ class TelegramBot:
                     reply_markup=self.get_settings_keyboard(profile_id),
                 )
             return
+
+        if action in {'min', 'max', 'under', 'raise', 'round', 'rebound'}:
+            runtime = self._runtime(profile_id)
+            if not self._has_active_product_pair(profile_id, runtime=runtime):
+                if chat_id in self.pending_actions:
+                    self._clear_pending_action(chat_id)
+                await query.answer('Нет активной пары', show_alert=True)
+                if query.message:
+                    await query.message.reply_text(
+                        (
+                            '❌ Нет активной пары. Сначала добавь товар '
+                            'в разделе «📦 Товары».'
+                        ),
+                        reply_markup=self.get_settings_keyboard(profile_id),
+                    )
+                return
 
         if action in {'min', 'max', 'under', 'raise'}:
             action_map = {
@@ -2222,7 +2394,12 @@ class TelegramBot:
         profile_id: str,
         confirm: Optional[str] = None,
     ) -> None:
-        runtime = self._runtime_for_product(profile_id, self._product_id(profile_id))
+        runtime_parent = self._runtime(profile_id)
+        active_product_id = self._resolve_active_product_id(
+            profile_id,
+            runtime=runtime_parent,
+        )
+        runtime = self._runtime_for_product(profile_id, active_product_id)
         text = self._format_products_management_text(
             profile_id,
             runtime=runtime,
@@ -2247,6 +2424,9 @@ class TelegramBot:
         user_id = update.effective_user.id
         parts = data.split(':')
         action = parts[1] if len(parts) > 1 else ''
+        reset_pending_actions = {'r', 'c', 'rd', 'ra', 'y', 'd'}
+        if action in reset_pending_actions and chat_id in self.pending_actions:
+            self._clear_pending_action(chat_id)
 
         if action == 'd':
             await query.answer('Готово')
@@ -2304,7 +2484,14 @@ class TelegramBot:
             return
 
         if action == 'u':
-            if not self._product_id(profile_id):
+            runtime_parent = self._runtime(profile_id)
+            active_product_id = self._resolve_active_product_id(
+                profile_id,
+                runtime=runtime_parent,
+            )
+            if active_product_id <= 0:
+                if chat_id in self.pending_actions:
+                    self._clear_pending_action(chat_id)
                 await query.answer('Сначала выбери товар', show_alert=True)
                 return
             self._set_pending_action(chat_id, 'PRODUCT_ADD_URL', profile_id)
@@ -2320,7 +2507,14 @@ class TelegramBot:
             return
 
         if action == 'n':
-            if not self._product_id(profile_id):
+            runtime_parent = self._runtime(profile_id)
+            active_product_id = self._resolve_active_product_id(
+                profile_id,
+                runtime=runtime_parent,
+            )
+            if active_product_id <= 0:
+                if chat_id in self.pending_actions:
+                    self._clear_pending_action(chat_id)
                 await query.answer('Сначала выбери товар', show_alert=True)
                 return
             self._set_pending_action(chat_id, 'PRODUCT_RENAME', profile_id)
@@ -2333,7 +2527,11 @@ class TelegramBot:
             return
 
         if action == 'c':
-            product_id = self._product_id(profile_id)
+            runtime_parent = self._runtime(profile_id)
+            product_id = self._resolve_active_product_id(
+                profile_id,
+                runtime=runtime_parent,
+            )
             if product_id <= 0:
                 await query.answer('Сначала выбери товар', show_alert=True)
                 return
@@ -2350,6 +2548,14 @@ class TelegramBot:
             return
 
         if action == 'rd':
+            runtime_parent = self._runtime(profile_id)
+            active_product_id = self._resolve_active_product_id(
+                profile_id,
+                runtime=runtime_parent,
+            )
+            if active_product_id <= 0:
+                await query.answer('Сначала выбери товар', show_alert=True)
+                return
             await query.answer('Подтверди удаление')
             await self._refresh_products_message(
                 query=query,
@@ -2370,7 +2576,11 @@ class TelegramBot:
         if action == 'y':
             scope = parts[2] if len(parts) > 2 else ''
             if scope == 'active':
-                target_product_id = self._product_id(profile_id)
+                runtime_parent = self._runtime(profile_id)
+                target_product_id = self._resolve_active_product_id(
+                    profile_id,
+                    runtime=runtime_parent,
+                )
                 tracked_ids = self._tracked_product_ids(profile_id)
                 if target_product_id <= 0 or target_product_id not in tracked_ids:
                     await query.answer('Товар не найден', show_alert=True)
@@ -2428,12 +2638,26 @@ class TelegramBot:
             profile = self._active_profile(chat_id)
         profile_id = profile
         profile_name = self._profile_name(profile_id)
-        product_id = self._product_id(profile_id)
+        runtime_base = self._runtime(profile_id)
+        product_id = self._resolve_active_product_id(
+            profile_id,
+            runtime=runtime_base,
+        )
         state = self._state_for_product(profile_id, product_id)
         runtime = self._runtime_for_product(profile_id, product_id)
         runtime_source = self._product_runtime_source(profile_id, product_id)
+        pair_enabled = self._is_pair_enabled(profile_id, product_id)
+        auto_enabled = self._auto_enabled_for_active_pair(
+            profile_id,
+            state=state,
+            runtime=runtime,
+        )
         tracked_lines = self._format_tracked_products(profile_id, runtime=runtime)
         tracked_count = len(tracked_lines) if tracked_lines != ['нет'] else 0
+        has_active_pair = self._has_active_product_pair(
+            profile_id,
+            runtime=runtime,
+        )
         active_product_slot, active_product_total = self._active_product_slot(
             profile_id,
             runtime=runtime,
@@ -2551,6 +2775,13 @@ class TelegramBot:
         else:
             display_price_label = '💰 Моя цена'
             target_price_label = '🎯 Выставлено ботом'
+        pair_active_label = (
+            'Да'
+            if pair_enabled and has_active_pair
+            else 'Нет'
+            if has_active_pair
+            else '—'
+        )
         chat_block = ''
         chat_meta = self._chat_autoreply_meta(profile_id)
         if chat_meta:
@@ -2581,9 +2812,10 @@ class TelegramBot:
 🧪 Метод парсинга: {parse_method}
 🕓 Последний парс: {parse_at_str}
 📡 Мониторинг: {monitor_mode}
+🛡️ Пара активна: {pair_active_label}
 {chat_block}
 
-🔔 Авто: {'ВКЛ' if state.get('auto_mode', True) else 'ВЫКЛ'}
+🔔 Авто: {'ВКЛ' if auto_enabled else 'ВЫКЛ'}
 🎯 Режим: {self._mode_label(runtime.MODE)}
 🕐 Обновление: {update_str}
 ⏲️ Интервал: {runtime.CHECK_INTERVAL}s
@@ -2598,7 +2830,11 @@ class TelegramBot:
             return
         profile_id = self._active_profile(chat_id)
         profile_name = self._profile_name(profile_id)
-        product_id = self._product_id(profile_id)
+        runtime_base = self._runtime(profile_id)
+        product_id = self._resolve_active_product_id(
+            profile_id,
+            runtime=runtime_base,
+        )
         state = self._state_for_product(profile_id, product_id)
         runtime = self._runtime_for_product(profile_id, product_id)
         runtime_source = self._product_runtime_source(profile_id, product_id)
@@ -2606,6 +2842,12 @@ class TelegramBot:
         pair_lines = self._format_tracking_pairs(profile_id, runtime=runtime)
         tracked_count = len(tracked_lines) if tracked_lines != ['нет'] else 0
         has_active_pair = tracked_count > 0 and product_id > 0
+        pair_enabled = self._is_pair_enabled(profile_id, product_id)
+        auto_enabled = self._auto_enabled_for_active_pair(
+            profile_id,
+            state=state,
+            runtime=runtime,
+        )
         active_product_slot, active_product_total = self._active_product_slot(
             profile_id,
             runtime=runtime,
@@ -2662,7 +2904,8 @@ class TelegramBot:
             f'📦 Товаров в мониторинге: {tracked_count} (активный: {active_product_slot_text})',
             f'🔗 Активная пара: {pair_lines[0] if has_active_pair and pair_lines else "не задана"}',
             '',
-            f'🔔 Автоцена: {"ВКЛ" if state.get("auto_mode", True) else "ВЫКЛ"}',
+            f'🛡️ Пара активна: {"Да" if pair_enabled and has_active_pair else "Нет" if has_active_pair else "—"}',
+            f'🔔 Автоцена: {"ВКЛ" if auto_enabled else "ВЫКЛ"}',
             f'🔹 Режим: {self._mode_label(runtime.MODE) if has_active_pair else "—"}',
             f'⏱️ CHECK_INTERVAL: {runtime.CHECK_INTERVAL}s',
             f'📡 Мониторинг: {monitor_mode} | URL: {len(runtime.COMPETITOR_URLS)}',
@@ -2723,7 +2966,11 @@ class TelegramBot:
             profile = self._active_profile(chat_id)
         profile_id = profile
         profile_name = self._profile_name(profile_id)
-        product_id = self._product_id(profile_id)
+        runtime_parent = self._runtime(profile_id)
+        product_id = self._resolve_active_product_id(
+            profile_id,
+            runtime=runtime_parent,
+        )
         runtime_profile_id = self._runtime_profile_id_for_product(
             profile_id,
             product_id,
@@ -2948,7 +3195,11 @@ class TelegramBot:
             return
         chat_id = update.effective_chat.id
         profile_id = self._active_profile(chat_id)
-        product_id = self._product_id(profile_id)
+        runtime = self._runtime(profile_id)
+        product_id = self._resolve_active_product_id(
+            profile_id,
+            runtime=runtime,
+        )
         state = self._state_for_product(profile_id, product_id)
         await self.set_auto_enabled(
             update,
@@ -2960,7 +3211,21 @@ class TelegramBot:
             return
         chat_id = update.effective_chat.id
         profile_id = self._active_profile(chat_id)
+        runtime = self._runtime(profile_id)
+        if not self._has_active_product_pair(profile_id, runtime=runtime):
+            await self._reply_no_active_pair(update, profile_id)
+            return
         product_id = self._product_id(profile_id)
+        runtime_product = self._runtime_for_product(profile_id, product_id)
+        if enabled and not list(getattr(runtime_product, 'COMPETITOR_URLS', []) or []):
+            await update.message.reply_text(
+                (
+                    '❌ У активного товара не задан URL конкурента. '
+                    'Сначала привяжи конкурента в разделе «📦 Товары».'
+                ),
+                reply_markup=self.get_settings_keyboard(profile_id),
+            )
+            return
         runtime_profile_id = self._runtime_profile_id_for_product(
             profile_id,
             product_id,
@@ -2972,6 +3237,14 @@ class TelegramBot:
             user_id=user_id,
             source='telegram',
         )
+        if enabled:
+            storage.set_runtime_setting(
+                'PAIR_ENABLED',
+                'true',
+                user_id=user_id,
+                source='telegram',
+                profile_id=runtime_profile_id,
+            )
         logger.info(
             'Auto mode changed: profile=%s, product=%s, enabled=%s, user_id=%s',
             profile_id,
@@ -3103,7 +3376,14 @@ class TelegramBot:
             )
             return
 
-        product_id = self._product_id(profile_id)
+        runtime = self._runtime(profile_id)
+        if not self._has_active_product_pair(profile_id, runtime=runtime):
+            await self._reply_no_active_pair(update, profile_id)
+            return
+        product_id = self._resolve_active_product_id(
+            profile_id,
+            runtime=runtime,
+        )
         if int(product_id or 0) <= 0:
             await update.message.reply_text(
                 '❌ Для активного товара не найден product_id',
@@ -3144,7 +3424,14 @@ class TelegramBot:
         if not update.message:
             return
         profile_id = self._active_profile(chat_id)
-        product_id = self._product_id(profile_id)
+        runtime = self._runtime(profile_id)
+        if not self._has_active_product_pair(profile_id, runtime=runtime):
+            await self._reply_no_active_pair(update, profile_id)
+            return
+        product_id = self._resolve_active_product_id(
+            profile_id,
+            runtime=runtime,
+        )
         if product_id <= 0:
             await update.message.reply_text(
                 '❌ Для активного профиля не задан product_id',
@@ -3295,6 +3582,10 @@ class TelegramBot:
         if not update.message:
             return
         profile_id = self._active_profile(chat_id)
+        runtime = self._runtime(profile_id)
+        if not self._has_active_product_pair(profile_id, runtime=runtime):
+            await self._reply_no_active_pair(update, profile_id)
+            return
         product_id = self._product_id(profile_id)
         runtime_profile_id = self._runtime_profile_id_for_product(
             profile_id,
@@ -3327,6 +3618,10 @@ class TelegramBot:
         if not update.message:
             return
         profile_id = self._active_profile(chat_id)
+        runtime = self._runtime(profile_id)
+        if not self._has_active_product_pair(profile_id, runtime=runtime):
+            await self._reply_no_active_pair(update, profile_id)
+            return
         product_id = self._product_id(profile_id)
         runtime_profile_id = self._runtime_profile_id_for_product(
             profile_id,
@@ -3363,6 +3658,10 @@ class TelegramBot:
         if not update.message:
             return
         profile_id = self._active_profile(chat_id)
+        runtime = self._runtime(profile_id)
+        if not self._has_active_product_pair(profile_id, runtime=runtime):
+            await self._reply_no_active_pair(update, profile_id)
+            return
         product_id = self._product_id(profile_id)
         runtime_profile_id = self._runtime_profile_id_for_product(
             profile_id,
@@ -3414,7 +3713,11 @@ class TelegramBot:
                 reply_markup=self.get_main_keyboard(profile_id),
             )
             return
-        product_id = self._product_id(profile_id)
+        runtime_parent = self._runtime(profile_id)
+        product_id = self._resolve_active_product_id(
+            profile_id,
+            runtime=runtime_parent,
+        )
         runtime_profile_id = self._runtime_profile_id_for_product(
             profile_id,
             product_id,
@@ -3429,6 +3732,10 @@ class TelegramBot:
             'MAX_PRICE',
             'SHOWCASE_ROUND_STEP',
         }:
+            if not self._has_active_product_pair(profile_id, runtime=runtime):
+                self._clear_pending_action(chat_id)
+                await self._reply_no_active_pair(update, profile_id)
+                return
             try:
                 value = float(text.replace(',', '.'))
             except ValueError:
@@ -3827,34 +4134,21 @@ class TelegramBot:
                     profile_id=target_runtime_profile_id,
                 )
             auto_hint = ''
-            if is_new_product and target_runtime_profile_id != profile_id:
-                # Fail-safe: новый дополнительный товар стартует с выключенной
-                # автоценой, пока пользователь отдельно не включит её.
-                storage.set_auto_mode(
-                    False,
-                    profile_id=target_runtime_profile_id,
+            if is_new_product:
+                # Новая пара всегда стартует в безопасном режиме:
+                # автоцена/авто-инструкции/уведомления отключены
+                # до ручной настройки.
+                self._apply_new_product_safe_defaults(
+                    profile_id=profile_id,
+                    product_id=product_id,
                     user_id=user_id,
                     source='telegram_add_product',
                 )
                 auto_hint = (
-                    '\n🛡️ Для нового товара автоцена выключена '
-                    '(включается отдельно).'
+                    '\n🛡️ Новая пара добавлена в безопасном режиме: '
+                    'автофункции выключены до ручной настройки.'
+                    '\n🎯 Стартовый режим: Следование.'
                 )
-                mode_change = storage.get_last_setting_change(
-                    'MODE',
-                    profile_id=target_runtime_profile_id,
-                )
-                if mode_change is None:
-                    storage.set_runtime_setting(
-                        'MODE',
-                        'FOLLOW',
-                        user_id=user_id,
-                        source='telegram_add_product',
-                        profile_id=target_runtime_profile_id,
-                    )
-                    auto_hint += (
-                        '\n🎯 Дефолтный режим для нового товара: Следование.'
-                    )
             self.profile_products[profile_id] = product_id
             self._clear_pending_action(chat_id)
             await self._ensure_product_auto_name(profile_id, product_id)
@@ -3902,35 +4196,18 @@ class TelegramBot:
                 for item in tracked
             }
             is_new_product = product_id not in tracked_ids
-            target_runtime_profile_id = self._runtime_profile_id_for_product(
-                profile_id,
-                product_id,
-            )
             if is_new_product:
                 storage.upsert_tracked_product(
                     profile_id=profile_id,
                     product_id=product_id,
                     competitor_urls=[],
                 )
-                if target_runtime_profile_id != profile_id:
-                    storage.set_auto_mode(
-                        False,
-                        profile_id=target_runtime_profile_id,
-                        user_id=user_id,
-                        source='telegram_add_product',
-                    )
-                    mode_change = storage.get_last_setting_change(
-                        'MODE',
-                        profile_id=target_runtime_profile_id,
-                    )
-                    if mode_change is None:
-                        storage.set_runtime_setting(
-                            'MODE',
-                            'FOLLOW',
-                            user_id=user_id,
-                            source='telegram_add_product',
-                            profile_id=target_runtime_profile_id,
-                        )
+                self._apply_new_product_safe_defaults(
+                    profile_id=profile_id,
+                    product_id=product_id,
+                    user_id=user_id,
+                    source='telegram_add_product',
+                )
             self.profile_products[profile_id] = product_id
             self._clear_pending_action(chat_id)
             await self._ensure_product_auto_name(profile_id, product_id)
@@ -4073,7 +4350,10 @@ class TelegramBot:
                 return
 
             if normalized_lower in {'active', 'активный', 'текущий'}:
-                target_product_id = self._product_id(profile_id)
+                target_product_id = self._resolve_active_product_id(
+                    profile_id,
+                    runtime=runtime,
+                )
             else:
                 try:
                     target_product_id = int(

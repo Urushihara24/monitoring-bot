@@ -116,7 +116,7 @@ class Config:
     )
     GGSEL_CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK: bool = _env_bool(
         'GGSEL_CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK',
-        True,
+        False,
     )
     GGSEL_CHAT_AUTOREPLY_POLICY: str = os.getenv(
         'GGSEL_CHAT_AUTOREPLY_POLICY',
@@ -209,7 +209,7 @@ class Config:
     )
     DIGISELLER_CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK: bool = _env_bool(
         'DIGISELLER_CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK',
-        True,
+        False,
     )
     DIGISELLER_CHAT_AUTOREPLY_POLICY: str = os.getenv(
         'DIGISELLER_CHAT_AUTOREPLY_POLICY',

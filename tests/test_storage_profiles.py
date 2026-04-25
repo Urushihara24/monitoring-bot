@@ -562,6 +562,45 @@ def test_alert_throttle_per_profile(tmp_path):
     assert storage.should_send_alert('x', cooldown_seconds=60, profile_id='digiseller')
 
 
+def test_disable_product_runtime_turns_off_runtime_flags(tmp_path):
+    db = tmp_path / 'state.db'
+    storage = Storage(db_path=str(db))
+
+    runtime_profile = 'ggsel:4682996'
+    storage.set_auto_mode(enabled=True, profile_id=runtime_profile, source='test')
+    storage.set_runtime_setting('PAIR_ENABLED', 'true', profile_id=runtime_profile)
+    storage.set_runtime_setting(
+        'CHAT_AUTOREPLY_ENABLED',
+        'true',
+        profile_id=runtime_profile,
+    )
+    storage.set_runtime_setting('NOTIFY_SKIP', 'true', profile_id=runtime_profile)
+
+    storage.disable_product_runtime(
+        profile_id='ggsel',
+        product_id=4682996,
+        source='test_disable',
+    )
+
+    state = storage.get_state(profile_id=runtime_profile)
+    assert state['auto_mode'] is False
+    assert storage.get_runtime_setting(
+        'PAIR_ENABLED',
+        profile_id=runtime_profile,
+        inherit_parent=False,
+    ) == 'false'
+    assert storage.get_runtime_setting(
+        'CHAT_AUTOREPLY_ENABLED',
+        profile_id=runtime_profile,
+        inherit_parent=False,
+    ) == 'false'
+    assert storage.get_runtime_setting(
+        'NOTIFY_SKIP',
+        profile_id=runtime_profile,
+        inherit_parent=False,
+    ) == 'false'
+
+
 def test_parser_state_fields_are_persisted(tmp_path):
     db = tmp_path / 'state.db'
     storage = Storage(db_path=str(db))

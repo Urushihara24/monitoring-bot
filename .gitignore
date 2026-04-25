@@ -38,11 +38,13 @@ htmlcov/
 
 # Logs
 logs/*.log
+logs/*.log.*
 logs/.*audit.json
 
 # Runtime data
 data/*.db
 data/cookies_backup.json
+data/instruction_dump.json
 data/backups/
 data/backup/
 data/*.bak

@@ -1264,7 +1264,9 @@ async def test_run_cycle_no_competitor_prices_suppressed_when_parser_notify_off(
     monkeypatch.setattr(
         scheduler_module.storage,
         'get_runtime_setting',
-        lambda *_args, **_kwargs: '0',
+        lambda key, *_args, **_kwargs: (
+            None if key == 'PAIR_ENABLED' else '0'
+        ),
     )
 
     await scheduler.run_cycle()

@@ -151,11 +151,93 @@ class Scheduler:
         self._chat_perms_cached_desc: str = ''
 
     def _runtime(self):
+        default_urls = self._resolve_runtime_default_urls()
         return storage.get_runtime_config(
             config,
             profile_id=self.profile_id,
-            default_urls=self.default_competitor_urls,
+            default_urls=default_urls,
         )
+
+    def _is_product_scoped_profile(self) -> bool:
+        return (
+            self.profile_id != self.base_profile_id
+            and ':' in self.profile_id
+        )
+
+    def _resolve_runtime_default_urls(self) -> Optional[list[str]]:
+        """
+        Источник default competitor URLs для runtime.
+
+        Для product-scoped scheduler (`<profile>:<product_id>`) берём URL
+        только из актуального tracked_products. Это защищает от ситуации,
+        когда товар удалён из мониторинга, но scheduler ещё жив:
+        в таком случае возвращаем [] и цикл безопасно пропускается.
+        """
+        if not self._is_product_scoped_profile():
+            if self.default_competitor_urls is None:
+                # Поведение совместимо с прошлой версией:
+                # storage.get_runtime_config(...) возьмёт fallback из config.
+                return None
+            return storage.normalize_competitor_urls(
+                self.default_competitor_urls or []
+            )
+
+        tracked = storage.list_tracked_products(
+            profile_id=self.base_profile_id,
+            default_product_id=0,
+            default_urls=[],
+        )
+        for item in tracked:
+            tracked_product_id = int(item.get('product_id') or 0)
+            if tracked_product_id != self.product_id:
+                continue
+            return storage.normalize_competitor_urls(
+                item.get('competitor_urls') or []
+            )
+        return []
+
+    def _is_tracked_product_active(self) -> bool:
+        """
+        Проверяет, что product-scoped профиль всё ещё присутствует в tracked_products.
+
+        Нужно для безопасной остановки "протухших" scheduler-циклов после
+        удаления пары через Telegram, чтобы цикл не воскрешал state/runtime.
+        """
+        if not self._is_product_scoped_profile():
+            return True
+        tracked = storage.list_tracked_products(
+            profile_id=self.base_profile_id,
+            default_product_id=0,
+            default_urls=[],
+        )
+        for item in tracked:
+            tracked_product_id = int(item.get('product_id') or 0)
+            if tracked_product_id == self.product_id:
+                return True
+        return False
+
+    def _is_pair_enabled(self) -> bool:
+        """
+        Runtime-флаг активации пары.
+
+        Для совместимости: если ключ не задан, считаем пару активной.
+        Новые пары создаются с PAIR_ENABLED=false и включаются вручную.
+        """
+        try:
+            raw = storage.get_runtime_setting(
+                'PAIR_ENABLED',
+                profile_id=self.profile_id,
+                inherit_parent=False,
+            )
+        except TypeError:
+            raw = storage.get_runtime_setting(
+                'PAIR_ENABLED',
+                profile_id=self.profile_id,
+            )
+        if raw is None:
+            return True
+        normalized = str(raw).strip().lower()
+        return normalized in ('1', 'true', 'yes', 'on')
 
     def _state(self):
         return storage.get_state(profile_id=self.profile_id)
@@ -1714,7 +1796,9 @@ class Scheduler:
                 continue
             if normalized > 0 and normalized not in ids:
                 ids.append(normalized)
-        if self.product_id > 0 and self.product_id not in ids:
+        # Если список задан явно, не добавляем "основной" товар неявно:
+        # это может приводить к отправкам в чужие/нецелевые заказы.
+        if not ids and self.product_id > 0:
             ids.append(self.product_id)
         return ids
 
@@ -2871,6 +2955,22 @@ class Scheduler:
 
     async def run_cycle(self, *, include_chat_autoreply: bool = True):
         logger.info('[%s] 🔄 Запуск цикла pricing...', self.profile_name)
+        if not self._is_tracked_product_active():
+            logger.info(
+                '[%s] Товар %s удалён из tracked_products, '
+                'pricing-цикл пропущен',
+                self.profile_name,
+                self.product_id,
+            )
+            return
+        if not self._is_pair_enabled():
+            logger.info(
+                '[%s] Пара %s отключена (PAIR_ENABLED=false), '
+                'pricing-цикл пропущен',
+                self.profile_name,
+                self.product_id,
+            )
+            return
         try:
             storage.update_state(
                 profile_id=self.profile_id,
@@ -3306,6 +3406,20 @@ class Scheduler:
             )
 
             if decision.action == 'update' and decision.price is not None:
+                if not self._is_tracked_product_active():
+                    logger.info(
+                        '[%s] Пара удалена во время цикла, update отменён',
+                        self.profile_name,
+                    )
+                    storage.increment_skip_count(profile_id=self.profile_id)
+                    return
+                if not self._is_pair_enabled():
+                    logger.info(
+                        '[%s] Пара выключена во время цикла, update отменён',
+                        self.profile_name,
+                    )
+                    storage.increment_skip_count(profile_id=self.profile_id)
+                    return
                 ignore_delta = getattr(runtime, 'IGNORE_DELTA', 0.001)
                 last_target_raw = state.get('last_target_price')
                 last_update_at = state.get('last_update')
@@ -3492,12 +3606,22 @@ class Scheduler:
         )
         next_pricing_run_at = datetime.now()
         while self._running:
+            pair_enabled = True
             try:
+                if not self._is_tracked_product_active():
+                    logger.info(
+                        '[%s] Товар %s удалён из tracked_products, '
+                        'планировщик остановлен',
+                        self.profile_name,
+                        self.product_id,
+                    )
+                    break
                 now = datetime.now()
                 runtime = self._runtime()
+                pair_enabled = self._is_pair_enabled()
 
                 # Pricing-цикл работает по CHECK_INTERVAL.
-                if now >= next_pricing_run_at:
+                if pair_enabled and now >= next_pricing_run_at:
                     await self.run_cycle(include_chat_autoreply=False)
                     runtime = self._runtime()
                     next_pricing_run_at = datetime.now() + timedelta(
@@ -3505,7 +3629,10 @@ class Scheduler:
                     )
 
                 # Чат-инструкции проверяем чаще, независимо от pricing.
-                if self.chat_autoreply_enabled:
+                if (
+                    self.chat_autoreply_enabled
+                    and self._is_tracked_product_active()
+                ):
                     await self._run_chat_autoreply()
             except KeyboardInterrupt:
                 break
@@ -3518,6 +3645,10 @@ class Scheduler:
                 )
             runtime = self._runtime()
             sleep_seconds = max(1, int(runtime.CHECK_INTERVAL))
+            if not pair_enabled:
+                # Если пара временно выключена, проверяем чаще, чтобы
+                # быстро подхватывать ручное включение без долгого ожидания.
+                sleep_seconds = 1
             if self.chat_autoreply_enabled:
                 # Частота фактической отправки ограничивается
                 # CHAT_AUTOREPLY_INTERVAL_SECONDS внутри _run_chat_autoreply.
