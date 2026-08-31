@@ -2,6 +2,12 @@
 
 Telegram-бот для мониторинга цен конкурентов и автообновления цены товара через API продавца.
 
+| Engineering focus | Reliability controls | Verification |
+|---|---|---|
+| Independent GGSEL and DigiSeller profiles, competitor parsing and price automation | Price floors, rate limits, cooldowns, idempotent updates and safe parser fallbacks | Docker deployment, GitHub Actions and a pytest suite covering core behavior |
+
+**Start here:** [customer guide](INSTRUCTION_CUSTOMER_RU.md) · [deployment](DEPLOY.md) · [tests](tests/) · [source](src/)
+
 Простая инструкция для заказчика (без тех. терминов):
 - [`INSTRUCTION_CUSTOMER_RU.md`](INSTRUCTION_CUSTOMER_RU.md)
 
