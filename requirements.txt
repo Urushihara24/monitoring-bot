@@ -6,9 +6,9 @@ python-telegram-bot==22.7
 # HTTP requests
 requests==2.31.0
 
-# Парсинг HTML
+# HTML parsing
 beautifulsoup4==4.12.3
 stealth-requests==2.0.5
 
-# Утилиты
+# Utilities
 python-dotenv==1.0.0
