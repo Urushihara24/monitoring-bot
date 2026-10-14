@@ -34,12 +34,8 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: Reject obvious hard-coded credential material
-        shell: bash
-        run: |
-          set -euo pipefail
-          pattern='(TELEGRAM_BOT_TOKEN|GGSEL_(API_KEY|API_SECRET|ACCESS_TOKEN)|DIGISELLER_(API_KEY|API_SECRET|ACCESS_TOKEN))=["'"']?[A-Za-z0-9_-]{8,}'
-          if git grep -nE "$pattern" -- ':!*.example' ':!tests/**'; then
-            echo 'Potential hard-coded credential value found in tracked files.' >&2
-            exit 1
-          fi
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Scan tracked files for obvious hard-coded credentials
+        run: python scripts/check_secrets.py
