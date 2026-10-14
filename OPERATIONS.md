@@ -42,6 +42,7 @@ The current rule starts from the competitor storefront price rounded to two deci
 
 The runtime includes controls for:
 
+- write-safe onboarding with `DRY_RUN=true`;
 - minimum and maximum prices;
 - maximum downward step;
 - cooldowns and fast upward rebound;
@@ -50,6 +51,33 @@ The runtime includes controls for:
 - safe skips when the target price is already applied;
 - safe skips when no competitor is configured;
 - per-product isolation of pricing settings.
+
+### Write-safe dry-run mode
+
+New configurations copied from `.env.example` start with:
+
+```dotenv
+DRY_RUN=true
+```
+
+Dry-run keeps the normal read/parse/decision path active but blocks both external write boundaries handled by the scheduler:
+
+- seller price updates;
+- automatic marketplace chat replies.
+
+Simulated price updates are marked with a `dry_run:` reason in local state/history. A simulated price is visible only during the current verification cycle; the next polling cycle reads the actual marketplace price again.
+
+Before setting `DRY_RUN=false`, verify all of the following:
+
+1. seller/profile IDs point to the intended account and product;
+2. competitor URLs resolve to the intended listings;
+3. `MIN_PRICE`, `MAX_PRICE`, downward-step and cooldown settings are correct;
+4. Telegram status/diagnostics show the expected target price;
+5. chat auto-reply remains disabled unless its permissions, allow-list and rules were explicitly verified.
+
+An invalid explicit value such as `DRY_RUN=treu` is rejected during startup preflight instead of falling back to write-enabled mode.
+
+For backward compatibility, an existing installation with no `DRY_RUN` variable keeps the historical write-enabled behavior. Add `DRY_RUN=true` explicitly when auditing an existing deployment.
 
 ## Competitor parsing pipeline
 
@@ -127,7 +155,7 @@ Controls include:
 - product-card instruction fallback;
 - configurable cleanup/retention for sent-state records.
 
-Keep this feature disabled until seller chat permissions and product instruction data have been verified for the target account.
+Keep this feature disabled until seller chat permissions and product instruction data have been verified for the target account. `DRY_RUN=true` suppresses these outbound chat writes even if the feature is enabled.
 
 ## Smoke scripts
 
@@ -178,6 +206,7 @@ python3 -m compileall src scripts healthcheck.py
 
 - `src/main.py` — profile startup and orchestration
 - `src/scheduler.py` — parse → calculate → update/skip cycle
+- `src/scheduler_factory.py` — runtime write-safety / `DRY_RUN` boundary
 - `src/logic.py` — pricing rules
 - `src/rsc_parser.py` — competitor parser
 - `src/api_client.py` — GGSEL seller API
