@@ -107,3 +107,41 @@ def test_optional_empty_values_remain_empty():
     assert env['DIGISELLER_MIN_PRICE'] == ''
     assert env['DIGISELLER_NOTIFY_SKIP'] == '  '
     assert env['DIGISELLER_MODE'] == ''
+
+
+def test_typed_environment_rejects_inverted_shared_ranges():
+    env = {
+        'MIN_PRICE': '10',
+        'MAX_PRICE': '5',
+        'FAST_CHECK_INTERVAL_MIN': '90',
+        'FAST_CHECK_INTERVAL_MAX': '30',
+    }
+
+    errors = normalize_typed_environment(env)
+
+    assert errors == [
+        'MIN_PRICE must be <= MAX_PRICE; got 10 > 5',
+        (
+            'FAST_CHECK_INTERVAL_MIN must be <= FAST_CHECK_INTERVAL_MAX; '
+            'got 90 > 30'
+        ),
+    ]
+
+
+def test_typed_environment_rejects_inverted_digiseller_ranges():
+    env = {
+        'DIGISELLER_MIN_PRICE': '0.9',
+        'DIGISELLER_MAX_PRICE': '0.5',
+        'DIGISELLER_FAST_CHECK_INTERVAL_MIN': '60',
+        'DIGISELLER_FAST_CHECK_INTERVAL_MAX': '20',
+    }
+
+    errors = normalize_typed_environment(env)
+
+    assert errors == [
+        'DIGISELLER_MIN_PRICE must be <= DIGISELLER_MAX_PRICE; got 0.9 > 0.5',
+        (
+            'DIGISELLER_FAST_CHECK_INTERVAL_MIN must be <= '
+            'DIGISELLER_FAST_CHECK_INTERVAL_MAX; got 60 > 20'
+        ),
+    ]
