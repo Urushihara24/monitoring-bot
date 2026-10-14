@@ -1,0 +1,36 @@
+name: Demo runtime
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Run fake marketplace demo
+        run: |
+          python scripts/demo_runtime.py --format json > /tmp/demo.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path('/tmp/demo.json').read_text())
+          assert payload['network_calls'] == 0
+          assert payload['real_marketplace_writes'] == 0
+          assert payload['cycles']
+          PY
