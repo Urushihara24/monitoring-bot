@@ -1,5 +1,4 @@
 import stat
-from pathlib import Path
 
 from scripts.issue_access_token import _write_token_file
 
