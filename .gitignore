@@ -45,6 +45,7 @@ logs/.*audit.json
 data/*.db
 data/cookies_backup.json
 data/instruction_dump.json
+data/issued_*_token.env
 data/backups/
 data/backup/
 data/*.bak
