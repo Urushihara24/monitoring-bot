@@ -47,3 +47,59 @@ jobs:
 
       - name: Compile check
         run: python -m compileall -q src scripts healthcheck.py
+
+  containers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Prepare compose environment
+        run: cp .env.example .env
+
+      - name: Validate compose files
+        run: |
+          docker compose -f docker-compose.yml config --quiet
+          docker compose -f docker-compose.secure.yml config --quiet
+
+      - name: Build backward-compatible runtime image
+        run: docker build --target runtime -t monitoring-bot:ci-runtime .
+
+      - name: Build non-root runtime image
+        run: docker build --target runtime-nonroot -t monitoring-bot:ci-nonroot .
+
+      - name: Verify image metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(docker inspect --format '{{.Config.User}}' monitoring-bot:ci-runtime)" = ""
+          test "$(docker inspect --format '{{.Config.User}}' monitoring-bot:ci-nonroot)" = "app"
+          docker inspect --format '{{json .Config.Healthcheck}}' monitoring-bot:ci-runtime | grep -q 'healthcheck.py'
+          docker inspect --format '{{json .Config.Healthcheck}}' monitoring-bot:ci-nonroot | grep -q 'healthcheck.py'
+          test "$(docker inspect --format '{{.Config.StopSignal}}' monitoring-bot:ci-runtime)" = "SIGTERM"
+          test "$(docker inspect --format '{{.Config.StopSignal}}' monitoring-bot:ci-nonroot)" = "SIGTERM"
+
+      - name: Verify non-root filesystem and named-volume writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint sh monitoring-bot:ci-nonroot -c '
+            test "$(id -u)" = "10001"
+            touch /app/data/ci-write-test
+            touch /app/logs/ci-write-test
+          '
+          docker volume create monitoring-bot-ci-data >/dev/null
+          docker volume create monitoring-bot-ci-logs >/dev/null
+          docker run --rm \
+            -v monitoring-bot-ci-data:/app/data \
+            -v monitoring-bot-ci-logs:/app/logs \
+            --entrypoint sh \
+            monitoring-bot:ci-nonroot \
+            -c 'touch /app/data/volume-write-test /app/logs/volume-write-test'
+
+      - name: Cleanup container test volumes
+        if: always()
+        run: |
+          docker volume rm -f monitoring-bot-ci-data >/dev/null 2>&1 || true
+          docker volume rm -f monitoring-bot-ci-logs >/dev/null 2>&1 || true

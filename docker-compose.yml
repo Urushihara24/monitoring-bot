@@ -1,22 +1,19 @@
 services:
   monitoring-bot:
-    build: .
+    build:
+      context: .
+      target: runtime
     container_name: monitoring-pricing-bot
     restart: unless-stopped
-    
-    # Healthcheck для проверки работоспособности
-    healthcheck:
-      test: ["CMD", "python3", "healthcheck.py"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    
+    init: true
+    stop_grace_period: 20s
+
     volumes:
-      # Данные бота
+      # Backward-compatible host bind mounts. Existing deployments keep their
+      # current ownership model; use docker-compose.secure.yml for non-root.
       - ./data:/app/data
       - ./logs:/app/logs
-      # Нужен для live-sync cookies из .env без рестарта контейнера
+      # Needed for live-sync cookies/settings from .env without rebuilding.
       - ./.env:/app/.env:ro
     env_file:
       - .env
