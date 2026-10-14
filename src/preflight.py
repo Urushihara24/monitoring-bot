@@ -7,6 +7,8 @@ from collections.abc import MutableMapping
 
 from dotenv import load_dotenv
 
+from .config_env import normalize_typed_environment
+
 
 ID_ENV_KEYS = (
     'GGSEL_SELLER_ID',
@@ -15,72 +17,44 @@ ID_ENV_KEYS = (
     'DIGISELLER_PRODUCT_ID',
 )
 
-_BOOLEAN_ENV_KEYS = ('DRY_RUN',)
-_TRUE_VALUES = {'1', 'true', 'yes', 'on'}
-_FALSE_VALUES = {'0', 'false', 'no', 'off'}
-
 
 def normalize_id_environment(
     env: MutableMapping[str, str],
 ) -> list[str]:
-    """Normalize optional IDs and return human-readable validation errors.
+    """Backward-compatible ID preflight wrapper.
 
-    Empty seller/product IDs are safe defaults and become ``0``. Non-integer or
-    negative values are rejected before ``src.config`` evaluates ``int(...)``
-    at import time.
+    Missing/blank seller and product IDs are normalized to ``0`` before the
+    typed environment schema validates them.
     """
-    errors: list[str] = []
-
     for key in ID_ENV_KEYS:
         raw_value = env.get(key)
         if raw_value is None or not str(raw_value).strip():
             env[key] = '0'
-            continue
 
-        normalized = str(raw_value).strip()
-        try:
-            parsed = int(normalized)
-        except ValueError:
-            errors.append(f'{key} must be an integer, got {raw_value!r}')
-            continue
-
-        if parsed < 0:
-            errors.append(f'{key} must be >= 0, got {parsed}')
-            continue
-
-        env[key] = str(parsed)
-
-    return errors
+    errors = normalize_typed_environment(env)
+    return [error for error in errors if any(key in error for key in ID_ENV_KEYS)]
 
 
 def normalize_boolean_environment(
     env: MutableMapping[str, str],
 ) -> list[str]:
-    """Validate safety-sensitive booleans and canonicalize their values."""
-    errors: list[str] = []
-    for key in _BOOLEAN_ENV_KEYS:
-        raw_value = env.get(key)
-        if raw_value is None or not str(raw_value).strip():
-            continue
-        normalized = str(raw_value).strip().lower()
-        if normalized in _TRUE_VALUES:
-            env[key] = 'true'
-            continue
-        if normalized in _FALSE_VALUES:
-            env[key] = 'false'
-            continue
-        errors.append(
-            f'{key} must be one of true/false, 1/0, yes/no, on/off; '
-            f'got {raw_value!r}'
-        )
-    return errors
+    """Backward-compatible safety-boolean wrapper for existing callers/tests."""
+    errors = normalize_typed_environment(env)
+    return [error for error in errors if error.startswith('DRY_RUN ')]
 
 
 def validate_startup_environment() -> None:
-    """Load .env and fail with a concise error before application imports."""
+    """Load .env, validate typed values and fail before application imports."""
     load_dotenv()
-    errors = normalize_id_environment(os.environ)
-    errors.extend(normalize_boolean_environment(os.environ))
+
+    # Optional IDs intentionally default to 0, but every explicitly configured
+    # typed value is validated by the shared schema below.
+    for key in ID_ENV_KEYS:
+        raw_value = os.environ.get(key)
+        if raw_value is None or not raw_value.strip():
+            os.environ[key] = '0'
+
+    errors = normalize_typed_environment(os.environ)
     if errors:
         details = '\n'.join(f'- {error}' for error in errors)
         raise ValueError(f'Invalid startup configuration:\n{details}')

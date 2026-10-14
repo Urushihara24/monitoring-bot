@@ -19,7 +19,7 @@ def test_preflight_normalizes_missing_and_empty_ids_to_zero():
     assert env['DIGISELLER_PRODUCT_ID'] == '0'
 
 
-def test_preflight_rejects_non_integer_and_negative_ids():
+def test_preflight_rejects_non_numeric_and_negative_ids():
     env = {
         'GGSEL_SELLER_ID': 'seller-123',
         'GGSEL_PRODUCT_ID': '-1',
@@ -30,8 +30,8 @@ def test_preflight_rejects_non_integer_and_negative_ids():
     errors = normalize_id_environment(env)
 
     assert errors == [
-        "GGSEL_SELLER_ID must be an integer, got 'seller-123'",
-        'GGSEL_PRODUCT_ID must be >= 0, got -1',
+        "GGSEL_SELLER_ID must be numeric, got 'seller-123'",
+        "GGSEL_PRODUCT_ID must be >= 0, got '-1'",
     ]
     assert env['DIGISELLER_SELLER_ID'] == '42'
     assert env['DIGISELLER_PRODUCT_ID'] == '7'

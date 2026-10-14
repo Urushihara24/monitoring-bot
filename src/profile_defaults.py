@@ -1,10 +1,7 @@
-"""
-Профильные runtime-дефолты из config/.env.
-"""
+"""Profile-scoped runtime defaults derived from the validated Config snapshot."""
 
 from __future__ import annotations
 
-import os
 from typing import Dict
 
 from .pricing_mode import normalize_pricing_mode
@@ -47,33 +44,13 @@ _DIGISELLER_RUNTIME_TYPES = {
 }
 
 
-def _coerce_raw_value(raw: str, value_type: str):
-    normalized = (raw or '').strip()
-    if not normalized:
-        return None
-    try:
-        if value_type == 'bool':
-            return normalized.lower() in {'1', 'true', 'yes', 'on'}
-        if value_type == 'int':
-            return int(float(normalized))
-        if value_type == 'float':
-            return float(normalized)
-        if value_type == 'mode':
-            return normalize_pricing_mode(normalized)
-        return normalized
-    except ValueError:
-        return None
-
-
-def _read_profile_default(cfg, env_name: str, value_type: str):
-    value = getattr(cfg, env_name, None)
+def _read_profile_default(cfg, attribute: str, value_type: str):
+    """Read an already-validated Config attribute without re-reading os.environ."""
+    value = getattr(cfg, attribute, None)
     if value is None:
-        raw = os.getenv(env_name)
-        if raw is None:
-            return None
-        return _coerce_raw_value(raw, value_type)
+        return None
     if value_type == 'mode':
-        return _coerce_raw_value(str(value), value_type)
+        return normalize_pricing_mode(str(value))
     return value
 
 
@@ -84,9 +61,10 @@ def _format_runtime_value(value) -> str:
 
 
 def build_profile_runtime_defaults(cfg, profile_id: str) -> Dict[str, str]:
-    """
-    Возвращает профильные runtime-дефолты в виде строки key->value.
-    Сейчас профильные override поддерживаются для DigiSeller.
+    """Return profile runtime defaults as string key/value pairs.
+
+    Environment parsing belongs to ``src.config``.  This layer only projects the
+    typed DigiSeller attributes into persisted runtime defaults.
     """
     profile = (profile_id or '').strip().lower()
     if profile != 'digiseller':
@@ -94,8 +72,8 @@ def build_profile_runtime_defaults(cfg, profile_id: str) -> Dict[str, str]:
 
     defaults: Dict[str, str] = {}
     for key, value_type in _DIGISELLER_RUNTIME_TYPES.items():
-        env_name = f'DIGISELLER_{key}'
-        value = _read_profile_default(cfg, env_name, value_type)
+        attribute = f'DIGISELLER_{key}'
+        value = _read_profile_default(cfg, attribute, value_type)
         if value is None:
             continue
         defaults[key] = _format_runtime_value(value)
@@ -109,10 +87,7 @@ def seed_profile_runtime_defaults(
     *,
     source: str = 'env_profile_default',
 ) -> Dict[str, str]:
-    """
-    Записывает defaults только для отсутствующих runtime-ключей.
-    Возвращает ключи, которые реально были засеяны.
-    """
+    """Persist defaults only for missing runtime keys and return seeded values."""
     seeded: Dict[str, str] = {}
     profile = (profile_id or '').strip().lower()
     for key, value in defaults.items():
