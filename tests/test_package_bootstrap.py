@@ -2,6 +2,8 @@ import os
 import subprocess
 import sys
 
+from src.__main__ import _print_write_safety_banner
+
 
 def test_importing_package_does_not_eagerly_import_runtime_graph():
     completed = subprocess.run(
@@ -39,4 +41,26 @@ def test_python_m_src_rejects_invalid_config_before_runtime_imports():
     assert completed.returncode == 2
     assert 'Configuration error:' in completed.stderr
     assert 'GGSEL_PRODUCT_ID must be an integer' in completed.stderr
+    assert 'Startup safety:' not in completed.stderr
     assert 'Traceback' not in completed.stderr
+
+
+def test_startup_banner_reports_dry_run(monkeypatch, capsys):
+    monkeypatch.setenv('DRY_RUN', 'true')
+
+    _print_write_safety_banner()
+
+    captured = capsys.readouterr()
+    assert 'DRY_RUN=true' in captured.err
+    assert 'writes are blocked' in captured.err
+    assert 'WRITES ARMED' not in captured.err
+
+
+def test_startup_banner_warns_when_writes_are_armed(monkeypatch, capsys):
+    monkeypatch.setenv('DRY_RUN', 'false')
+
+    _print_write_safety_banner()
+
+    captured = capsys.readouterr()
+    assert 'WRITES ARMED' in captured.err
+    assert 'DRY_RUN is false or unset' in captured.err
