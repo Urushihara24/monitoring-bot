@@ -1,14 +1,19 @@
 """Auto-Pricing Bot for GGSEL and DigiSeller.
 
-Package exports are intentionally lazy.  ``python -m src`` must be able to run
+Package exports are intentionally lazy. ``python -m src`` must be able to run
 startup preflight before importing configuration, network clients, Telegram or
-scheduler modules.
+scheduler modules. A dependency-light log redaction layer is installed early so
+helper scripts and application modules cannot emit known credentials verbatim.
 """
 
 from __future__ import annotations
 
 from importlib import import_module
 from typing import Any
+
+from .log_safety import install_log_redaction
+
+install_log_redaction()
 
 _EXPORTS: dict[str, tuple[str, str]] = {
     'config': ('.config', 'config'),
