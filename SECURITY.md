@@ -36,6 +36,8 @@ Never commit real values for:
 
 Use `.env` locally and keep `.env.example` credential-free. Rotate any secret immediately if it is accidentally committed or shared.
 
+The Python package installs a process-wide log redaction layer before runtime modules are imported. It removes configured secret values and structurally recognizable bearer tokens, token query parameters and sensitive structured fields from normal log records and exception text. This is defense in depth, not permission to log raw secrets deliberately: new code should still avoid constructing logs that contain credentials or private buyer/order payloads.
+
 ## Safe reproduction
 
 Prefer, in order:
