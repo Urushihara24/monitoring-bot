@@ -25,6 +25,14 @@ def test_env_example_ids_are_parseable_and_neutral():
         assert int(values[key]) == 0
 
 
+def test_env_example_is_write_safe_by_default():
+    values = _read_env_example()
+
+    assert values['DRY_RUN'] == 'true'
+    assert values['GGSEL_CHAT_AUTOREPLY_ENABLED'] == 'false'
+    assert values['DIGISELLER_CHAT_AUTOREPLY_ENABLED'] == 'false'
+
+
 def test_env_example_has_no_live_credentials():
     values = _read_env_example()
 
