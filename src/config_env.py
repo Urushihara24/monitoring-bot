@@ -45,7 +45,9 @@ def _rules() -> dict[str, EnvRule]:
         'GGSEL_PRODUCT_ID': nonnegative_int,
         'DIGISELLER_SELLER_ID': nonnegative_int,
         'DIGISELLER_PRODUCT_ID': nonnegative_int,
-        'TELEGRAM_ADMIN_IDS': EnvRule('csv_int', optional=True, minimum=Decimal('1')),
+        'TELEGRAM_ADMIN_IDS': EnvRule(
+            'csv_int', optional=True, minimum=Decimal('1')
+        ),
         'GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS': EnvRule(
             'csv_int', optional=True, minimum=Decimal('1')
         ),
@@ -298,6 +300,63 @@ def _normalize_rule(
     return None, f'{name} has unsupported environment rule {rule.kind!r}'
 
 
+def _decimal_value(
+    env: MutableMapping[str, str],
+    name: str,
+    default: str,
+) -> Decimal:
+    raw = str(env.get(name, default)).strip() or default
+    return Decimal(raw)
+
+
+def _validate_relationships(env: MutableMapping[str, str]) -> list[str]:
+    errors: list[str] = []
+
+    min_price = _decimal_value(env, 'MIN_PRICE', '0.25')
+    max_price = _decimal_value(env, 'MAX_PRICE', '10.0')
+    if min_price > max_price:
+        errors.append(
+            f'MIN_PRICE must be <= MAX_PRICE; got {min_price} > {max_price}'
+        )
+
+    fast_min = _decimal_value(env, 'FAST_CHECK_INTERVAL_MIN', '20')
+    fast_max = _decimal_value(env, 'FAST_CHECK_INTERVAL_MAX', '60')
+    if fast_min > fast_max:
+        errors.append(
+            'FAST_CHECK_INTERVAL_MIN must be <= FAST_CHECK_INTERVAL_MAX; '
+            f'got {fast_min} > {fast_max}'
+        )
+
+    digi_min_raw = str(env.get('DIGISELLER_MIN_PRICE', '')).strip()
+    digi_max_raw = str(env.get('DIGISELLER_MAX_PRICE', '')).strip()
+    if digi_min_raw and digi_max_raw:
+        digi_min = Decimal(digi_min_raw)
+        digi_max = Decimal(digi_max_raw)
+        if digi_min > digi_max:
+            errors.append(
+                'DIGISELLER_MIN_PRICE must be <= DIGISELLER_MAX_PRICE; '
+                f'got {digi_min} > {digi_max}'
+            )
+
+    digi_fast_min_raw = str(
+        env.get('DIGISELLER_FAST_CHECK_INTERVAL_MIN', '')
+    ).strip()
+    digi_fast_max_raw = str(
+        env.get('DIGISELLER_FAST_CHECK_INTERVAL_MAX', '')
+    ).strip()
+    if digi_fast_min_raw and digi_fast_max_raw:
+        digi_fast_min = Decimal(digi_fast_min_raw)
+        digi_fast_max = Decimal(digi_fast_max_raw)
+        if digi_fast_min > digi_fast_max:
+            errors.append(
+                'DIGISELLER_FAST_CHECK_INTERVAL_MIN must be <= '
+                'DIGISELLER_FAST_CHECK_INTERVAL_MAX; '
+                f'got {digi_fast_min} > {digi_fast_max}'
+            )
+
+    return errors
+
+
 def normalize_typed_environment(
     env: MutableMapping[str, str],
 ) -> list[str]:
@@ -318,4 +377,6 @@ def normalize_typed_environment(
         if normalized is not None:
             env[name] = normalized
 
+    if not errors:
+        errors.extend(_validate_relationships(env))
     return errors
