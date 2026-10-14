@@ -1,5 +1,8 @@
 import importlib
 
+import pytest
+
+
 def _reload_config_module():
     module = importlib.import_module('src.config')
     return importlib.reload(module)
@@ -51,7 +54,7 @@ def test_config_parses_digiseller_chat_autoreply_fields(monkeypatch):
     monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_SMART_NON_EMPTY', '1')
     monkeypatch.setenv(
         'DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS',
-        '5077639, 5104800, bad',
+        '5077639, 5104800',
     )
     monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_PAGE_SIZE', '30')
     monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES', '3')
@@ -62,10 +65,7 @@ def test_config_parses_digiseller_chat_autoreply_fields(monkeypatch):
     monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_ENABLE_RECENT_FALLBACK', '0')
     monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS', '45')
     monkeypatch.setenv('DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS', '12')
-    monkeypatch.setenv(
-        'DIGISELLER_CHAT_TEMPLATE_RU_ALREADY',
-        'RU already',
-    )
+    monkeypatch.setenv('DIGISELLER_CHAT_TEMPLATE_RU_ALREADY', 'RU already')
 
     cfg_mod = _reload_config_module()
     cfg = cfg_mod.Config()
@@ -90,7 +90,7 @@ def test_config_parses_ggsel_chat_autoreply_fields(monkeypatch):
     monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_ENABLED', '1')
     monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT', '0')
     monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_SMART_NON_EMPTY', '1')
-    monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS', '4697439, bad')
+    monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS', '4697439')
     monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_PAGE_SIZE', '40')
     monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_MAX_PAGES', '4')
     monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_INTERVAL_SECONDS', '20')
@@ -161,3 +161,44 @@ def test_config_ggsel_competitor_urls_override_common(monkeypatch):
     assert cfg.GGSEL_COMPETITOR_URLS == [
         'https://ggsel.net/catalog/product/one',
     ]
+
+
+def test_config_snapshot_defaults_seller_ids_to_zero():
+    cfg_mod = _reload_config_module()
+    cfg = cfg_mod.Config(env={})
+
+    assert cfg.GGSEL_SELLER_ID == 0
+    assert cfg.GGSEL_PRODUCT_ID == 0
+    assert cfg.DIGISELLER_SELLER_ID == 0
+    assert cfg.DIGISELLER_PRODUCT_ID == 0
+
+
+def test_config_snapshot_is_independent_from_process_environment(monkeypatch):
+    monkeypatch.setenv('MIN_PRICE', '9.9')
+    cfg_mod = _reload_config_module()
+
+    cfg = cfg_mod.Config(
+        env={
+            'MIN_PRICE': '0.42',
+            'GGSEL_ENABLED': 'false',
+        }
+    )
+
+    assert cfg.MIN_PRICE == 0.42
+    assert cfg.GGSEL_ENABLED is False
+    assert cfg.GGSEL_SELLER_ID == 0
+
+
+def test_config_rejects_bad_product_id_list(monkeypatch):
+    monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS', '4697439, bad')
+
+    cfg_mod = importlib.import_module('src.config')
+    with pytest.raises(cfg_mod.ConfigError, match='GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS'):
+        cfg_mod.Config()
+
+
+def test_config_rejects_fractional_optional_integer():
+    cfg_mod = _reload_config_module()
+
+    with pytest.raises(cfg_mod.ConfigError, match='DIGISELLER_CHECK_INTERVAL'):
+        cfg_mod.Config(env={'DIGISELLER_CHECK_INTERVAL': '20.5'})
