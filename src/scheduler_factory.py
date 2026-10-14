@@ -8,37 +8,12 @@ pricing decision path intact.
 from __future__ import annotations
 
 import logging
-import os
-from collections.abc import Mapping
 from typing import Any
 
 from .scheduler import Scheduler as BaseScheduler
+from .write_safety import dry_run_enabled
 
 logger = logging.getLogger(__name__)
-
-_TRUE_VALUES = {'1', 'true', 'yes', 'on'}
-_FALSE_VALUES = {'0', 'false', 'no', 'off'}
-
-
-def dry_run_enabled(env: Mapping[str, str] | None = None) -> bool:
-    """Return whether marketplace writes must be disabled.
-
-    Invalid explicit values fail closed instead of silently enabling writes.
-    Missing ``DRY_RUN`` preserves the historical production behaviour.
-    """
-    source = os.environ if env is None else env
-    raw = source.get('DRY_RUN')
-    if raw is None or not str(raw).strip():
-        return False
-
-    normalized = str(raw).strip().lower()
-    if normalized in _TRUE_VALUES:
-        return True
-    if normalized in _FALSE_VALUES:
-        return False
-    raise ValueError(
-        'DRY_RUN must be one of: true/false, 1/0, yes/no, on/off'
-    )
 
 
 class DryRunScheduler(BaseScheduler):
