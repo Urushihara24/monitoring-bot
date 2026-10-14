@@ -1,60 +1,72 @@
 # Auto-Pricing Bot for GGSEL + DigiSeller
 
-Telegram-controlled **competitor-price monitoring and automatic repricing** for digital-goods sellers.
+Production automation service for **competitor monitoring, seller-side repricing and order-chat operations** on GGSEL and DigiSeller.
 
-The bot watches configured competitor products, calculates a target price under safety rules, updates seller prices through marketplace APIs, and keeps runtime state/history for diagnostics.
+The project is used as a real marketplace automation runtime: it monitors competitor offers, calculates target prices under configurable limits, updates seller prices through marketplace APIs, persists state/history, and exposes operational control through Telegram.
 
 <div align="center">
 
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Telegram](https://img.shields.io/badge/Telegram-Bot-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://core.telegram.org/bots)
+[![SQLite](https://img.shields.io/badge/SQLite-State-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://sqlite.org/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 [![pytest](https://img.shields.io/badge/pytest-Tested-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white)](https://pytest.org/)
 [![CI](https://img.shields.io/github/actions/workflow/status/Urushihara24/monitoring-bot/ci.yml?branch=main&style=for-the-badge&label=CI)](https://github.com/Urushihara24/monitoring-bot/actions/workflows/ci.yml)
+[![Security](https://img.shields.io/github/actions/workflow/status/Urushihara24/monitoring-bot/security.yml?branch=main&style=for-the-badge&label=Security)](https://github.com/Urushihara24/monitoring-bot/actions/workflows/security.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 
-**GGSEL · DigiSeller · Telegram · Python · Docker · pytest**
+**GGSEL · DigiSeller · Telegram Bot API · REST APIs · Python · SQLite · Docker · GitHub Actions · pytest**
 
 </div>
 
 ---
 
-## Why this exists
+## Product snapshot
 
-Manual competitor-price checking is slow and inconsistent. Generic webpage monitors can tell you that a number changed, but they do not manage seller-side repricing state, marketplace API writes, product-specific limits or safe update behavior.
-
-This project combines the full loop:
-
-```text
-competitor page/API
-        ↓
-price parsing + fallbacks
-        ↓
-pricing strategy
-        ↓
-safety constraints
-        ↓
-seller API update / safe skip
-        ↓
-state + history + Telegram diagnostics
-```
-
-If this is useful for your marketplace workflow, **a ⭐ helps other sellers and Python developers find the project.**
+| Area | Production capability |
+|---|---|
+| **Marketplaces** | Independent GGSEL and DigiSeller profiles |
+| **Monitoring** | Multiple product↔competitor mappings with parser fallbacks |
+| **Pricing** | Follow, undercut, raise and showcase-cycle strategies |
+| **Seller API** | Idempotent price updates, read verification and no-op protection |
+| **Safety** | `DRY_RUN`, min/max boundaries, max downward step, cooldowns, weak-signal filtering |
+| **Order chat** | Optional rules-based auto-replies with allow-lists and deduplication |
+| **State** | SQLite runtime settings, price history, alerts and per-product state |
+| **Operations** | Telegram status, diagnostics and smoke controls |
+| **Deployment** | Docker Compose, health checks, graceful stop contract and non-root runtime path |
+| **Quality** | Python 3.11/3.12 CI, pytest, Ruff, compile checks, dependency audit and secret scan |
 
 ---
 
-## Highlights
+## Tech stack
 
-| Area | What is implemented |
-|---|---|
-| **Marketplaces** | Independent GGSEL and DigiSeller profiles |
-| **Monitoring** | Multiple products, product↔competitor mappings, parser fallbacks |
-| **Pricing** | Follow, undercut and raise strategies |
-| **Safety** | Write-safe `DRY_RUN`, min/max price, max downward step, cooldowns, weak-signal filtering |
-| **Reliability** | Idempotent writes, no-op skips, persisted runtime state/history |
-| **Operations** | Telegram status/diagnostics/smoke controls |
-| **Deployment** | Docker Compose and health checks |
-| **Verification** | pytest suite, smoke scripts and GitHub Actions |
+### Runtime
+
+- **Python 3.11 / 3.12**
+- **python-telegram-bot 22.x** — operator UI and Telegram control plane
+- **requests** — marketplace/API integration
+- **BeautifulSoup4** — competitor storefront parsing
+- **stealth-requests** — resilient storefront requests
+- **python-dotenv** — runtime environment loading
+- **SQLite** — persisted pricing state, runtime settings, history and alert metadata
+- **asyncio** — scheduler/orchestration
+
+### Integration surface
+
+- **GGSEL Seller API**
+- **DigiSeller API**
+- **GGSEL / DigiSeller storefront parsing**
+- **Telegram Bot API**
+
+### Delivery & quality
+
+- **Docker / Docker Compose**
+- **GitHub Actions**
+- **pytest / pytest-asyncio**
+- **Ruff**
+- **pip-audit**
+- custom tracked-secret scanning
+- image and runtime health checks
 
 ---
 
@@ -62,52 +74,88 @@ If this is useful for your marketplace workflow, **a ⭐ helps other sellers and
 
 ```mermaid
 flowchart LR
-    A[GGSEL / DigiSeller competitor] --> B[Parser pipeline]
-    B --> C[Pricing logic]
-    C --> D[Safety constraints]
+    A[Competitor storefront / API] --> B[Parser pipeline]
+    B --> C[Pricing engine]
+    C --> D[Safety rules]
     D --> E{Update required?}
     E -- No --> F[Safe skip]
-    E -- Yes --> G[Seller API / DRY_RUN guard]
-    F --> H[SQLite state/history]
-    G --> H
-    H --> I[Telegram status & diagnostics]
+    E -- Yes --> G[DRY_RUN / write boundary]
+    G --> H[GGSEL / DigiSeller seller API]
+    F --> I[SQLite state + history]
+    H --> I
+    I --> J[Telegram status + diagnostics]
 ```
 
-The profiles are isolated: credentials, products, competitors, settings, state and alerts are stored independently per marketplace/profile.
+Profiles are isolated: credentials, products, competitor URLs, settings, state, history and alerts are stored independently. Product-scoped schedulers keep runtime configuration separated for each active pair.
 
 ---
 
-## Pricing strategies
+## Pricing and safety
+
+The service supports several pricing modes while enforcing operational constraints before every marketplace write.
 
 **Follow** — match the competitor price.
 
-**Undercut** — price slightly below the competitor under configured limits.
+**Undercut** — move below the selected competitor under configured limits.
 
-**Raise** — price slightly above the competitor when that strategy is desired.
+**Raise** — move above the selected competitor when the active strategy requires it.
 
-Every product can keep its own pricing mode and limits.
+**Showcase cycle** — GGSEL-specific cycle that can restore the configured desired price after the competitive action is complete.
 
-Safety behavior includes:
+Safety controls include:
 
 - write-safe onboarding with `DRY_RUN=true`;
 - minimum and maximum price boundaries;
-- protection against large sudden downward moves;
-- cooldown handling and fast upward rebound;
-- idempotent seller API updates;
-- safe skip when the desired price is already applied;
-- safe skip when competitor data is unavailable or incomplete.
+- maximum downward movement per update;
+- cooldown and fast-rebound handling;
+- weak/unknown-rank competitor filtering;
+- idempotent seller updates;
+- post-update price verification;
+- safe skip on missing or incomplete competitor data;
+- per-product enable/disable state;
+- chat auto-reply suppression in dry-run mode.
 
 ---
 
-## Try it without credentials
+## Competitor parsing
 
-For a single pricing decision, run the real pricing engine locally without Telegram, marketplace accounts or seller API writes:
+The runtime does not depend on one fragile selector. GGSEL parsing uses a fallback chain:
 
-```bash
-python3 scripts/demo_pricing.py
-```
+1. storefront HTML request;
+2. unit-price extraction where available;
+3. CSS price selectors;
+4. public product endpoint fallback for supported GGSEL domains.
 
-Example with explicit values:
+For every cycle the service persists the selected competitor URL, price, rank when available, parsing method, timestamp and error/blocking state for diagnostics.
+
+---
+
+## Order-chat automation
+
+GGSEL and DigiSeller integrations can optionally send product instructions to buyer chats.
+
+The implementation includes:
+
+- per-profile enable/disable;
+- product allow-lists;
+- order/first-message/code-only policies;
+- rules bound to selected product options;
+- locale-aware instruction lookup;
+- message-history deduplication;
+- empty-chat and smart non-empty-chat policies;
+- sent-state retention and cleanup;
+- permission checks and rate-limit throttling;
+- service-message deny guards.
+
+Marketplace chat writes are blocked by `DRY_RUN=true`.
+
+---
+
+## Safe verification without seller credentials
+
+The repository includes two offline verification paths for maintainers and CI.
+
+Single pricing decision:
 
 ```bash
 python3 scripts/demo_pricing.py \
@@ -116,39 +164,17 @@ python3 scripts/demo_pricing.py \
   --current 0.36
 ```
 
-For a multi-cycle demo with an in-memory marketplace client:
+Multi-cycle fake marketplace runtime:
 
 ```bash
 python3 scripts/demo_runtime.py
 ```
 
-This applies each calculated update only to a fake product stored in memory. It performs **zero network calls and zero real marketplace writes**. Machine-readable output is available for experiments and tests:
-
-```bash
-python3 scripts/demo_runtime.py \
-  --mode FOLLOW \
-  --competitors 0.35 0.37 0.34 \
-  --format json
-```
-
-The shared marketplace contract and fake implementation live in `src/marketplace.py`.
+The fake runtime uses the same marketplace contract but performs **zero network calls and zero real marketplace writes**.
 
 ---
 
-## Competitor parsing
-
-For GGSEL, the parser uses a fallback chain rather than relying on one fragile selector:
-
-1. HTML request;
-2. unit-price extraction when available;
-3. CSS price selectors;
-4. GGSEL public product endpoint fallback for supported domains.
-
-The bot stores the last successful price, URL, parsing method, timestamp and parser error state for diagnostics.
-
----
-
-## Quick start
+## Local run
 
 ```bash
 python3 -m venv .venv
@@ -158,67 +184,42 @@ pip install -r requirements-dev.txt
 cp .env.example .env
 ```
 
-The example configuration starts in **write-safe mode**:
+New configurations start with:
 
 ```dotenv
 DRY_RUN=true
 ```
 
-In this mode the normal parser and pricing decision path runs, but seller price writes and marketplace chat auto-replies are blocked. Configure Telegram, seller credentials, product IDs and limits, run the bot, inspect logs/decisions, and only then explicitly arm marketplace writes:
-
-```dotenv
-DRY_RUN=false
-```
-
-Invalid explicit values such as `DRY_RUN=treu` fail startup instead of silently enabling writes.
-
-Run locally:
+Run:
 
 ```bash
 python3 -m src
 ```
 
-Or with Docker:
+Before switching to `DRY_RUN=false`, verify seller/profile IDs, competitor mappings, price boundaries and active products.
+
+---
+
+## Docker
+
+Backward-compatible runtime:
 
 ```bash
 docker compose up -d --build
 docker compose logs -f
 ```
 
-Existing installations that do not define `DRY_RUN` keep the historical write-enabled behavior for backward compatibility. New installations created from `.env.example` are safe by default.
-
-The Telegram UI is currently Russian.
-
----
-
-## Useful commands
-
-```text
-/start
-/status
-/status <profile>
-/diag
-/diag <profile>
-/smoke
-/smoke <profile>
-```
-
-Profiles accept aliases such as `gg`, `ggsel`, `digi`, `dg`, `digiseller` and `plati`.
+A separate non-root image/Compose path is available for hardened deployments using named volumes. See [`DEPLOY.md`](DEPLOY.md).
 
 ---
 
 ## Verification
 
-Run the test suite:
-
 ```bash
 pytest -q
-```
-
-Compile-check the runtime and utility scripts:
-
-```bash
-python3 -m compileall src scripts healthcheck.py
+ruff check src tests scripts --select F,E9
+python3 -m compileall -q src scripts healthcheck.py
+python3 scripts/check_secrets.py
 ```
 
 Read-only seller API smoke:
@@ -227,45 +228,44 @@ Read-only seller API smoke:
 python3 scripts/smoke_profiles_api.py --profile all --verify-read
 ```
 
-The repository also includes profile-specific smoke checks, chat-permission checks and optional mutation/rollback verification.
+Write-capable smoke probes are deliberately blocked while `DRY_RUN=true`.
+
+---
+
+## Repository map
+
+```text
+src/main.py               startup / orchestration
+src/scheduler.py          pricing-cycle and chat orchestration
+src/scheduler_factory.py  DRY_RUN scheduler boundary
+src/logic.py              pricing rules
+src/marketplace.py        marketplace protocol + in-memory fake client
+src/rsc_parser.py         competitor parser
+src/api_client.py         GGSEL seller API
+src/digiseller_client.py  DigiSeller API
+src/telegram_bot.py       Telegram control plane
+src/storage.py            SQLite runtime state/history
+scripts/                  smoke, demo and operational tooling
+docs/                     architecture, dry-run and release documentation
+```
 
 ---
 
 ## Documentation
 
-- **[Customer guide](INSTRUCTION_CUSTOMER.md)** — non-technical setup and usage.
-- **[Operations reference](OPERATIONS.md)** — detailed runtime, pricing and smoke-check notes.
-- **[Architecture](docs/ARCHITECTURE.md)** — runtime boundaries, state and refactoring seams.
-- **[Dry-run safety](docs/DRY_RUN.md)** — write-safe onboarding contract.
-- **[Deployment](DEPLOY.md)** — deployment instructions.
-- **[Contributing](CONTRIBUTING.md)** — local setup and PR safety rules.
-- **[Security](SECURITY.md)** — private vulnerability reporting and secret handling.
+- **[Customer guide](INSTRUCTION_CUSTOMER.md)** — operational setup and usage
+- **[Operations reference](OPERATIONS.md)** — pricing/runtime/smoke details
+- **[Architecture](docs/ARCHITECTURE.md)** — runtime boundaries and state model
+- **[Dry-run safety](docs/DRY_RUN.md)** — marketplace write-safety contract
+- **[Deployment](DEPLOY.md)** — Docker and deployment paths
+- **[Security](SECURITY.md)** — vulnerability reporting and secret handling
+- **[Contributing](CONTRIBUTING.md)** — engineering workflow and verification
+- **[Changelog](CHANGELOG.md)** — notable runtime and operational changes
 
 ---
 
-## Main code areas
+## Project status
 
-```text
-src/main.py               startup / orchestration
-src/scheduler.py          parse → calculate → update/skip cycle
-src/scheduler_factory.py  runtime write-safety / DRY_RUN boundary
-src/logic.py              pricing rules
-src/marketplace.py        shared marketplace protocol + fake client
-src/rsc_parser.py         competitor parser
-src/api_client.py         GGSEL seller API
-src/digiseller_client.py  DigiSeller API
-src/telegram_bot.py       Telegram UI and handlers
-src/storage.py            SQLite state/history/alerts
-```
+This is a working marketplace automation project, not a tutorial repository. The public codebase is structured so production-sensitive credentials and account data stay outside Git while the runtime, safety mechanisms, tests and operational tooling remain reviewable.
 
----
-
-## Scope
-
-This project is designed for sellers automating **their own marketplace accounts and product pricing**. Marketplace/API rules can change, so seller API behavior and credentials should be verified in `DRY_RUN` before enabling automatic writes.
-
----
-
-### Found it useful?
-
-Give the repository a **⭐** — it is the simplest way to help this project reach other developers working on marketplace automation and repricing.
+Current post-v1 maintainability work is tracked separately from the stable runtime and focuses on further modularization of the largest orchestration modules.
