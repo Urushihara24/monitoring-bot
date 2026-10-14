@@ -1,0 +1,12 @@
+# Default owner for repository changes
+* @Urushihara24
+
+# Safety-sensitive write/runtime areas
+/src/scheduler.py @Urushihara24
+/src/scheduler_factory.py @Urushihara24
+/src/api_client.py @Urushihara24
+/src/digiseller_client.py @Urushihara24
+/src/storage.py @Urushihara24
+/src/preflight.py @Urushihara24
+/Dockerfile @Urushihara24
+/docker-compose.yml @Urushihara24
