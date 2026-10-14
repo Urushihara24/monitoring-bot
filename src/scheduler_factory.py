@@ -1,8 +1,8 @@
 """Scheduler construction with a fail-safe dry-run mode.
 
-The production ``Scheduler`` remains unchanged.  When ``DRY_RUN=true`` a
-subclass intercepts marketplace write boundaries while keeping the normal
-parsing and pricing decision path intact.
+The production scheduler remains unchanged. When ``DRY_RUN=true`` a subclass
+intercepts marketplace write boundaries while keeping the normal parsing and
+pricing decision path intact.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import os
 from collections.abc import Mapping
 from typing import Any
 
-from .scheduler import Scheduler
+from .scheduler import Scheduler as BaseScheduler
 
 logger = logging.getLogger(__name__)
 
@@ -41,12 +41,12 @@ def dry_run_enabled(env: Mapping[str, str] | None = None) -> bool:
     )
 
 
-class DryRunScheduler(Scheduler):
+class DryRunScheduler(BaseScheduler):
     """Scheduler that executes decisions but blocks marketplace writes.
 
     Price updates are simulated only inside the current cycle so the parent
-    scheduler can exercise its post-update verification path.  The next cycle
-    reads the real marketplace price again.  Chat auto-replies are suppressed
+    scheduler can exercise its post-update verification path. The next cycle
+    reads the real marketplace price again. Chat auto-replies are suppressed
     entirely because they are also external marketplace writes.
     """
 
@@ -99,12 +99,17 @@ class DryRunScheduler(Scheduler):
         return None
 
 
-def create_scheduler(*args: Any, **kwargs: Any) -> Scheduler:
+def create_scheduler(*args: Any, **kwargs: Any) -> BaseScheduler:
     """Create the production or write-safe scheduler for the current mode."""
-    if dry_run_enabled():
+    scheduler_cls = DryRunScheduler if dry_run_enabled() else BaseScheduler
+    if scheduler_cls is DryRunScheduler:
         logger.warning(
             'DRY_RUN is enabled: seller price writes and marketplace chat '
             'auto-replies are blocked'
         )
-        return DryRunScheduler(*args, **kwargs)
-    return Scheduler(*args, **kwargs)
+    return scheduler_cls(*args, **kwargs)
+
+
+# ``src.main`` imports this alias after startup preflight has loaded .env.
+# Missing DRY_RUN intentionally preserves the historical production behaviour.
+RuntimeScheduler = DryRunScheduler if dry_run_enabled() else BaseScheduler
