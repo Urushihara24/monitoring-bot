@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/Urushihara24/monitoring-bot/security/advisories/new
+    about: Report credential, privacy or marketplace write-control vulnerabilities privately.
