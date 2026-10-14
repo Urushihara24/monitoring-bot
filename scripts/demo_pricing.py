@@ -5,9 +5,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
-from src.preflight import validate_startup_environment
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from src.preflight import validate_startup_environment  # noqa: E402
 
 validate_startup_environment()
 
