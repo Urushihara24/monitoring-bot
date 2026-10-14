@@ -15,6 +15,10 @@ ID_ENV_KEYS = (
     'DIGISELLER_PRODUCT_ID',
 )
 
+_BOOLEAN_ENV_KEYS = ('DRY_RUN',)
+_TRUE_VALUES = {'1', 'true', 'yes', 'on'}
+_FALSE_VALUES = {'0', 'false', 'no', 'off'}
+
 
 def normalize_id_environment(
     env: MutableMapping[str, str],
@@ -49,10 +53,34 @@ def normalize_id_environment(
     return errors
 
 
+def normalize_boolean_environment(
+    env: MutableMapping[str, str],
+) -> list[str]:
+    """Validate safety-sensitive booleans and canonicalize their values."""
+    errors: list[str] = []
+    for key in _BOOLEAN_ENV_KEYS:
+        raw_value = env.get(key)
+        if raw_value is None or not str(raw_value).strip():
+            continue
+        normalized = str(raw_value).strip().lower()
+        if normalized in _TRUE_VALUES:
+            env[key] = 'true'
+            continue
+        if normalized in _FALSE_VALUES:
+            env[key] = 'false'
+            continue
+        errors.append(
+            f'{key} must be one of true/false, 1/0, yes/no, on/off; '
+            f'got {raw_value!r}'
+        )
+    return errors
+
+
 def validate_startup_environment() -> None:
     """Load .env and fail with a concise error before application imports."""
     load_dotenv()
     errors = normalize_id_environment(os.environ)
+    errors.extend(normalize_boolean_environment(os.environ))
     if errors:
         details = '\n'.join(f'- {error}' for error in errors)
         raise ValueError(f'Invalid startup configuration:\n{details}')

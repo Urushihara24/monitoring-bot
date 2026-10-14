@@ -21,7 +21,7 @@ from .profile_defaults import (
     build_profile_runtime_defaults,
     seed_profile_runtime_defaults,
 )
-from .scheduler import Scheduler
+from .scheduler_factory import RuntimeScheduler as Scheduler
 from .storage import storage
 from .telegram_bot import TelegramBot
 

@@ -1,0 +1,56 @@
+name: Bug report
+description: Report a reproducible defect in monitoring, pricing, APIs or Telegram control.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include API keys, access tokens, cookies or private order/chat data.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Minimal steps to reproduce. Prefer DRY_RUN when possible.
+      placeholder: |
+        1. Set ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: marketplace
+    attributes:
+      label: Marketplace
+      options:
+        - GGSEL
+        - DigiSeller
+        - Both / shared runtime
+        - Not marketplace-specific
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: Commit / version
+      description: Commit SHA or release tag if known.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs
+      description: Remove credentials, tokens, cookies, buyer/order data and other secrets before posting.
+      render: shell

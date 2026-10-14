@@ -1,0 +1,32 @@
+name: Feature request
+description: Propose a focused improvement to pricing, integrations, operations or developer experience.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What concrete problem or operator pain does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe the smallest useful solution.
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Write / production safety impact
+      description: Could this affect marketplace writes, pricing limits, chat messages, state migrations or deployment?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How should we know the change is complete?
