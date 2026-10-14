@@ -11,4 +11,4 @@ beautifulsoup4==4.12.3
 stealth-requests==2.0.5
 
 # Utilities
-python-dotenv==1.0.0
+python-dotenv==1.2.4
