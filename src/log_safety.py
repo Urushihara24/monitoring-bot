@@ -26,23 +26,34 @@ _SECRET_ENV_KEYS = (
 _SENSITIVE_MAPPING_KEYS = {
     'token',
     'access_token',
+    'refresh_token',
     'api_key',
     'api_secret',
+    'client_secret',
     'authorization',
     'cookie',
     'cookies',
+    'password',
     'sign',
+    'signature',
 }
 
+_AUTHORIZATION_RE = re.compile(
+    r'''(?ix)
+    (\bAuthorization\b["']?\s*[:=]\s*["']?)
+    (?:(Bearer)\s+)?
+    ([^\s,"'}]+)
+    '''
+)
 _BEARER_RE = re.compile(
     r'(?i)(\bBearer\s+)([A-Za-z0-9._~+/=-]{8,})'
 )
 _QUERY_SECRET_RE = re.compile(
-    r'(?i)([?&](?:token|access_token|api_key|api_secret)=)([^&\s]+)'
+    r'(?i)([?&](?:token|access_token|refresh_token|api_key|api_secret)=)([^&\s]+)'
 )
 _INLINE_SECRET_RE = re.compile(
     r'''(?ix)
-    (\b(?:token|access_token|api_key|api_secret|authorization|cookie|cookies)\b
+    (\b(?:token|access_token|refresh_token|api_key|api_secret|client_secret|cookie|cookies|password|sign|signature)\b
      ["']?\s*[:=]\s*["']?)
     ([^\s,"'}]+)
     '''
@@ -63,6 +74,13 @@ def _environment_secrets(env: Mapping[str, str] | None = None) -> tuple[str, ...
     return tuple(sorted(values, key=len, reverse=True))
 
 
+def _redact_authorization(match: re.Match[str]) -> str:
+    prefix, scheme, _credential = match.groups()
+    if scheme:
+        return f'{prefix}{scheme} {_REDACTED}'
+    return f'{prefix}{_REDACTED}'
+
+
 def redact_text(text: str, *, env: Mapping[str, str] | None = None) -> str:
     """Redact known and structurally recognizable secrets from text."""
     result = str(text)
@@ -70,6 +88,7 @@ def redact_text(text: str, *, env: Mapping[str, str] | None = None) -> str:
     for secret in _environment_secrets(env):
         result = result.replace(secret, _REDACTED)
 
+    result = _AUTHORIZATION_RE.sub(_redact_authorization, result)
     result = _BEARER_RE.sub(r'\1<redacted>', result)
     result = _QUERY_SECRET_RE.sub(r'\1<redacted>', result)
     result = _INLINE_SECRET_RE.sub(r'\1<redacted>', result)
