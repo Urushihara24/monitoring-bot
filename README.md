@@ -6,11 +6,12 @@ The bot watches configured competitor products, calculates a target price under 
 
 <div align="center">
 
-[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Telegram](https://img.shields.io/badge/Telegram-Bot-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://core.telegram.org/bots)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 [![pytest](https://img.shields.io/badge/pytest-Tested-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white)](https://pytest.org/)
-[![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-CI-2088FF?style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com/features/actions)
+[![CI](https://img.shields.io/github/actions/workflow/status/Urushihara24/monitoring-bot/ci.yml?branch=main&style=for-the-badge&label=CI)](https://github.com/Urushihara24/monitoring-bot/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 
 **GGSEL · DigiSeller · Telegram · Python · Docker · pytest**
 
@@ -94,6 +95,33 @@ Safety behavior includes:
 - idempotent seller API updates;
 - safe skip when the desired price is already applied;
 - safe skip when competitor data is unavailable or incomplete.
+
+---
+
+## Try the pricing engine without credentials
+
+You can run the real pricing decision logic locally without Telegram, marketplace accounts or seller API writes:
+
+```bash
+python3 scripts/demo_pricing.py
+```
+
+Example with explicit values:
+
+```bash
+python3 scripts/demo_pricing.py \
+  --mode DUMPING \
+  --competitor 0.35 0.37 \
+  --current 0.36
+```
+
+Machine-readable output is available for experiments and tests:
+
+```bash
+python3 scripts/demo_pricing.py --mode FOLLOW --competitor 0.35 --format json
+```
+
+The simulator never calls marketplace write endpoints; it only executes the local pricing engine and prints the resulting decision.
 
 ---
 
