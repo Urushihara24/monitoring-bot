@@ -8,6 +8,7 @@ import importlib
 import os
 import sys
 from pathlib import Path
+from typing import Sequence
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -52,8 +53,14 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> int:
-    args = _build_parser().parse_args()
+def main(argv: Sequence[str] = ()) -> int:
+    """Issue and validate a token.
+
+    ``argv`` defaults to an empty sequence so callers/tests do not accidentally
+    consume the parent process arguments.  The CLI passes ``sys.argv[1:]``
+    explicitly below.
+    """
+    args = _build_parser().parse_args(list(argv))
     missing = []
     sign_secret = config.GGSEL_API_SECRET or config.GGSEL_API_KEY
     if not sign_secret:
@@ -99,4 +106,4 @@ def main() -> int:
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
