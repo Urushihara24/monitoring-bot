@@ -99,9 +99,9 @@ Safety behavior includes:
 
 ---
 
-## Try the pricing engine without credentials
+## Try it without credentials
 
-You can run the real pricing decision logic locally without Telegram, marketplace accounts or seller API writes:
+For a single pricing decision, run the real pricing engine locally without Telegram, marketplace accounts or seller API writes:
 
 ```bash
 python3 scripts/demo_pricing.py
@@ -116,13 +116,22 @@ python3 scripts/demo_pricing.py \
   --current 0.36
 ```
 
-Machine-readable output is available for experiments and tests:
+For a multi-cycle demo with an in-memory marketplace client:
 
 ```bash
-python3 scripts/demo_pricing.py --mode FOLLOW --competitor 0.35 --format json
+python3 scripts/demo_runtime.py
 ```
 
-The simulator never calls marketplace write endpoints; it only executes the local pricing engine and prints the resulting decision.
+This applies each calculated update only to a fake product stored in memory. It performs **zero network calls and zero real marketplace writes**. Machine-readable output is available for experiments and tests:
+
+```bash
+python3 scripts/demo_runtime.py \
+  --mode FOLLOW \
+  --competitors 0.35 0.37 0.34 \
+  --format json
+```
+
+The shared marketplace contract and fake implementation live in `src/marketplace.py`.
 
 ---
 
@@ -226,9 +235,11 @@ The repository also includes profile-specific smoke checks, chat-permission chec
 
 - **[Customer guide](INSTRUCTION_CUSTOMER.md)** — non-technical setup and usage.
 - **[Operations reference](OPERATIONS.md)** — detailed runtime, pricing and smoke-check notes.
+- **[Architecture](docs/ARCHITECTURE.md)** — runtime boundaries, state and refactoring seams.
+- **[Dry-run safety](docs/DRY_RUN.md)** — write-safe onboarding contract.
 - **[Deployment](DEPLOY.md)** — deployment instructions.
-- **[Tests](tests/)** — automated verification.
-- **[Source](src/)** — application code.
+- **[Contributing](CONTRIBUTING.md)** — local setup and PR safety rules.
+- **[Security](SECURITY.md)** — private vulnerability reporting and secret handling.
 
 ---
 
@@ -239,6 +250,7 @@ src/main.py               startup / orchestration
 src/scheduler.py          parse → calculate → update/skip cycle
 src/scheduler_factory.py  runtime write-safety / DRY_RUN boundary
 src/logic.py              pricing rules
+src/marketplace.py        shared marketplace protocol + fake client
 src/rsc_parser.py         competitor parser
 src/api_client.py         GGSEL seller API
 src/digiseller_client.py  DigiSeller API
