@@ -60,10 +60,14 @@ New configurations copied from `.env.example` start with:
 DRY_RUN=true
 ```
 
-Dry-run keeps the normal read/parse/decision path active but blocks both external write boundaries handled by the scheduler:
+Dry-run keeps the normal read/parse/decision path active but blocks the supported marketplace write paths:
 
-- seller price updates;
-- automatic marketplace chat replies.
+- seller price updates from the runtime scheduler;
+- automatic marketplace chat replies;
+- `smoke_profiles_api.py --write-probe`;
+- `smoke_profiles_api.py --mutate`.
+
+The runtime scheduler and write-capable smoke tooling share the same `src.write_safety` parser, so an invalid explicit safety value fails closed consistently.
 
 Simulated price updates are marked with a `dry_run:` reason in local state/history. A simulated price is visible only during the current verification cycle; the next polling cycle reads the actual marketplace price again.
 
@@ -75,7 +79,7 @@ Before setting `DRY_RUN=false`, verify all of the following:
 4. Telegram status/diagnostics show the expected target price;
 5. chat auto-reply remains disabled unless its permissions, allow-list and rules were explicitly verified.
 
-An invalid explicit value such as `DRY_RUN=treu` is rejected during startup preflight instead of falling back to write-enabled mode.
+An invalid explicit value such as `DRY_RUN=treu` is rejected instead of falling back to write-enabled mode.
 
 For backward compatibility, an existing installation with no `DRY_RUN` variable keeps the historical write-enabled behavior. Add `DRY_RUN=true` explicitly when auditing an existing deployment.
 
@@ -165,23 +169,30 @@ Check active seller profiles:
 python3 scripts/smoke_profiles_api.py
 ```
 
-Read-only verification:
+Read-only verification is allowed while `DRY_RUN=true`:
 
 ```bash
 python3 scripts/smoke_profiles_api.py --profile all --verify-read
 ```
 
-DigiSeller-only verification:
+DigiSeller-only read verification:
 
 ```bash
 python3 scripts/smoke_profiles_api.py --profile digiseller --verify-read
 ```
 
-Optional mutation-and-rollback probe:
+Write/no-op probes and mutation/rollback probes are deliberately blocked while `DRY_RUN=true`. To run one, explicitly arm writes first and include `--write-probe`:
 
 ```bash
-python3 scripts/smoke_profiles_api.py --profile digiseller --mutate --delta 0.0001 --verify-read
+DRY_RUN=false python3 scripts/smoke_profiles_api.py \
+  --profile digiseller \
+  --write-probe \
+  --mutate \
+  --delta 0.0001 \
+  --verify-read
 ```
+
+Only use write-capable smoke probes on an account/product you control after reviewing the target IDs and price limits.
 
 Chat permission smoke without sending a message:
 
@@ -206,7 +217,8 @@ python3 -m compileall src scripts healthcheck.py
 
 - `src/main.py` — profile startup and orchestration
 - `src/scheduler.py` — parse → calculate → update/skip cycle
-- `src/scheduler_factory.py` — runtime write-safety / `DRY_RUN` boundary
+- `src/scheduler_factory.py` — runtime scheduler write guard
+- `src/write_safety.py` — shared fail-closed `DRY_RUN` parser
 - `src/logic.py` — pricing rules
 - `src/rsc_parser.py` — competitor parser
 - `src/api_client.py` — GGSEL seller API
