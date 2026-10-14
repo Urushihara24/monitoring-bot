@@ -20,6 +20,7 @@ DigiSellerClient = importlib.import_module(
 profile_smoke = importlib.import_module('src.profile_smoke')
 SmokeResult = profile_smoke.SmokeResult
 run_profile_smoke = profile_smoke.run_profile_smoke
+dry_run_enabled = importlib.import_module('src.write_safety').dry_run_enabled
 
 
 def _is_transient_read_failure(profile: str, result: SmokeResult) -> bool:
@@ -146,7 +147,7 @@ def parse_args() -> argparse.Namespace:
         action='store_true',
         help=(
             'сделать реальное тестовое изменение цены и rollback; '
-            'требует --write-probe'
+            'требует --write-probe и DRY_RUN=false'
         ),
     )
     parser.add_argument(
@@ -163,7 +164,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         '--write-probe',
         action='store_true',
-        help='разрешить безопасную write-проверку (noop update текущей ценой)',
+        help=(
+            'разрешить write-проверку (noop update текущей ценой); '
+            'требует DRY_RUN=false'
+        ),
     )
     parser.add_argument(
         '--strict-read',
@@ -181,6 +185,20 @@ def main() -> int:
     if args.mutate and not args.write_probe:
         print('invalid args: --mutate требует --write-probe')
         return 1
+
+    try:
+        write_safe = dry_run_enabled()
+    except ValueError as exc:
+        print(f'configuration error: {exc}')
+        return 2
+
+    if write_safe and (args.write_probe or args.mutate):
+        print(
+            'blocked: DRY_RUN=true disables --write-probe and --mutate; '
+            'set DRY_RUN=false explicitly only when marketplace writes are intended'
+        )
+        return 2
+
     if args.profile == 'ggsel' and not config.GGSEL_ENABLED:
         print('[ggsel] disabled: set GGSEL_ENABLED=true to run this profile')
         return 1
