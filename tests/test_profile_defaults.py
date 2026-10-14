@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from src.config import Config
 from src.profile_defaults import (
     build_profile_runtime_defaults,
     seed_profile_runtime_defaults,
@@ -84,13 +85,27 @@ def test_build_profile_runtime_defaults_formats_bool_and_extended_keys():
     assert defaults['MAX_DOWN_STEP'] == '0.03'
 
 
-def test_build_profile_runtime_defaults_reads_missing_attrs_from_env(monkeypatch):
+def test_build_profile_runtime_defaults_does_not_re_read_process_env(monkeypatch):
     cfg = SimpleNamespace()
     monkeypatch.setenv('DIGISELLER_IGNORE_DELTA', '0.001')
     monkeypatch.setenv('DIGISELLER_HARD_FLOOR_ENABLED', 'false')
     monkeypatch.setenv('DIGISELLER_WEAK_POSITION_THRESHOLD', '25')
-    monkeypatch.setenv('DIGISELLER_SHOWCASE_ROUND_STEP', '0')
-    monkeypatch.setenv('DIGISELLER_MODE', 'fixed')
+
+    defaults = build_profile_runtime_defaults(cfg, 'digiseller')
+
+    assert defaults == {}
+
+
+def test_build_profile_runtime_defaults_uses_typed_config_snapshot():
+    cfg = Config(
+        env={
+            'DIGISELLER_IGNORE_DELTA': '0.001',
+            'DIGISELLER_HARD_FLOOR_ENABLED': 'false',
+            'DIGISELLER_WEAK_POSITION_THRESHOLD': '25',
+            'DIGISELLER_SHOWCASE_ROUND_STEP': '0',
+            'DIGISELLER_MODE': 'fixed',
+        }
+    )
 
     defaults = build_profile_runtime_defaults(cfg, 'digiseller')
 
