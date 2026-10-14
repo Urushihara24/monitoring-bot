@@ -9,6 +9,8 @@ Notable user-facing and operational changes are recorded here. The project follo
 - MIT license and public OSS contribution/security guidance.
 - Python 3.11/3.12 CI matrix and dependency checks.
 - Credential-free pricing simulator.
+- Shared `MarketplaceClient` protocol for the core pricing client surface.
+- `FakeMarketplaceClient` plus a multi-cycle credential-free demo runtime with zero network calls and zero real seller writes.
 - Startup preflight for seller/product IDs and safety-sensitive booleans.
 - `DRY_RUN` write-safety boundary for seller price updates and marketplace chat auto-replies.
 - Explicit startup write-safety banner (`DRY_RUN` vs `WRITES ARMED`).
@@ -25,6 +27,7 @@ Notable user-facing and operational changes are recorded here. The project follo
 - Package exports are lazy so startup preflight executes before the heavy runtime import graph.
 - Compose enables an init process and a 20-second graceful stop window.
 - Existing bind-mount deployments explicitly keep the backward-compatible root image target; non-root migration is opt-in.
+- Marketplace client architecture now has an explicit shared contract seam for future GGSEL/DigiSeller refactors.
 
 ### Security
 
