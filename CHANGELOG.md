@@ -13,6 +13,9 @@ Notable user-facing and operational changes are recorded here. The project follo
 - `DRY_RUN` write-safety boundary for seller price updates and marketplace chat auto-replies.
 - Explicit startup write-safety banner (`DRY_RUN` vs `WRITES ARMED`).
 - Process-wide log redaction for known credentials, auth headers, token query params and structured sensitive fields.
+- Image-level Docker healthcheck and explicit `SIGTERM` stop signal.
+- Optional `runtime-nonroot` image target and `docker-compose.secure.yml` using named volumes.
+- CI verification for both container targets, healthcheck metadata and non-root volume writes.
 - Structured GitHub issue and pull-request templates.
 - Architecture and dry-run safety documentation.
 
@@ -20,6 +23,8 @@ Notable user-facing and operational changes are recorded here. The project follo
 
 - New `.env.example` installations start with `DRY_RUN=true`.
 - Package exports are lazy so startup preflight executes before the heavy runtime import graph.
+- Compose enables an init process and a 20-second graceful stop window.
+- Existing bind-mount deployments explicitly keep the backward-compatible root image target; non-root migration is opt-in.
 
 ### Security
 
