@@ -1,0 +1,36 @@
+from pathlib import Path
+
+
+def _read_env_example() -> dict[str, str]:
+    values: dict[str, str] = {}
+    for raw_line in Path('.env.example').read_text(encoding='utf-8').splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        key, value = line.split('=', 1)
+        values[key.strip()] = value.strip()
+    return values
+
+
+def test_env_example_ids_are_parseable_and_neutral():
+    values = _read_env_example()
+
+    for key in (
+        'GGSEL_SELLER_ID',
+        'GGSEL_PRODUCT_ID',
+        'DIGISELLER_SELLER_ID',
+        'DIGISELLER_PRODUCT_ID',
+    ):
+        assert key in values
+        assert int(values[key]) == 0
+
+
+def test_env_example_has_no_live_credentials():
+    values = _read_env_example()
+
+    assert values['GGSEL_API_KEY'] == 'your_api_key_here'
+    assert values['GGSEL_API_SECRET'] == ''
+    assert values['GGSEL_ACCESS_TOKEN'] == ''
+    assert values['DIGISELLER_API_KEY'] == ''
+    assert values['DIGISELLER_API_SECRET'] == ''
+    assert values['DIGISELLER_ACCESS_TOKEN'] == ''
