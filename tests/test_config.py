@@ -189,16 +189,15 @@ def test_config_snapshot_is_independent_from_process_environment(monkeypatch):
     assert cfg.GGSEL_SELLER_ID == 0
 
 
-def test_config_rejects_bad_product_id_list(monkeypatch):
-    monkeypatch.setenv('GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS', '4697439, bad')
-
+def test_config_rejects_bad_product_id_list():
     cfg_mod = importlib.import_module('src.config')
+
     with pytest.raises(cfg_mod.ConfigError, match='GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS'):
-        cfg_mod.Config()
+        cfg_mod.Config(env={'GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS': '4697439, bad'})
 
 
 def test_config_rejects_fractional_optional_integer():
-    cfg_mod = _reload_config_module()
+    cfg_mod = importlib.import_module('src.config')
 
     with pytest.raises(cfg_mod.ConfigError, match='DIGISELLER_CHECK_INTERVAL'):
         cfg_mod.Config(env={'DIGISELLER_CHECK_INTERVAL': '20.5'})
