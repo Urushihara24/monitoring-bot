@@ -1,504 +1,489 @@
-"""
-Конфигурация auto-pricing бота
-"""
+"""Typed configuration loader for the auto-pricing service."""
+
+from __future__ import annotations
 
 import os
-from dataclasses import dataclass
-from typing import List, Optional
+from collections.abc import Mapping
+from typing import Optional
+
 from dotenv import load_dotenv
+
+from .config_env import normalize_typed_environment
 
 load_dotenv()
 
+_ID_KEYS = (
+    'GGSEL_SELLER_ID',
+    'GGSEL_PRODUCT_ID',
+    'DIGISELLER_SELLER_ID',
+    'DIGISELLER_PRODUCT_ID',
+)
 
-def _env_bool(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in ('1', 'true', 'yes', 'on')
+
+class ConfigError(ValueError):
+    """Raised when explicitly configured environment values are invalid."""
 
 
-def _env_optional_float(name: str) -> Optional[float]:
-    value = os.getenv(name)
-    if value is None or not value.strip():
+def _prepare_environment(
+    env: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Return one validated, canonical environment snapshot."""
+    source = os.environ if env is None else env
+    values = {str(key): str(value) for key, value in source.items()}
+
+    # Seller/product IDs are optional at bootstrap but must always be numeric.
+    for key in _ID_KEYS:
+        if not values.get(key, '').strip():
+            values[key] = '0'
+
+    errors = normalize_typed_environment(values)
+    if errors:
+        details = '\n'.join(f'- {error}' for error in errors)
+        raise ConfigError(f'Invalid configuration:\n{details}')
+    return values
+
+
+def _string(values: Mapping[str, str], name: str, default: str = '') -> str:
+    raw = values.get(name)
+    return default if raw is None else str(raw).strip()
+
+
+def _optional_string(
+    values: Mapping[str, str],
+    name: str,
+) -> Optional[str]:
+    raw = values.get(name)
+    if raw is None:
         return None
-    try:
-        return float(value.strip())
-    except ValueError:
-        return None
-
-
-def _env_optional_int(name: str) -> Optional[int]:
-    value = os.getenv(name)
-    if value is None or not value.strip():
-        return None
-    try:
-        return int(float(value.strip()))
-    except ValueError:
-        return None
-
-
-def _env_optional_str(name: str) -> Optional[str]:
-    value = os.getenv(name)
-    if value is None:
-        return None
-    normalized = value.strip()
+    normalized = str(raw).strip()
     return normalized or None
 
 
-def _env_optional_bool(name: str) -> Optional[bool]:
-    value = os.getenv(name)
-    if value is None or not value.strip():
+def _integer(values: Mapping[str, str], name: str, default: int) -> int:
+    raw = values.get(name)
+    return default if raw is None or not str(raw).strip() else int(str(raw))
+
+
+def _optional_integer(
+    values: Mapping[str, str],
+    name: str,
+) -> Optional[int]:
+    raw = values.get(name)
+    if raw is None or not str(raw).strip():
         return None
-    return value.strip().lower() in ('1', 'true', 'yes', 'on')
+    return int(str(raw))
 
 
-@dataclass
+def _number(values: Mapping[str, str], name: str, default: float) -> float:
+    raw = values.get(name)
+    return default if raw is None or not str(raw).strip() else float(str(raw))
+
+
+def _optional_number(
+    values: Mapping[str, str],
+    name: str,
+) -> Optional[float]:
+    raw = values.get(name)
+    if raw is None or not str(raw).strip():
+        return None
+    return float(str(raw))
+
+
+def _boolean(values: Mapping[str, str], name: str, default: bool) -> bool:
+    raw = values.get(name)
+    if raw is None or not str(raw).strip():
+        return default
+    return str(raw).strip().lower() == 'true'
+
+
+def _optional_boolean(
+    values: Mapping[str, str],
+    name: str,
+) -> Optional[bool]:
+    raw = values.get(name)
+    if raw is None or not str(raw).strip():
+        return None
+    return str(raw).strip().lower() == 'true'
+
+
+def _csv_strings(values: Mapping[str, str], name: str) -> list[str]:
+    raw = values.get(name, '')
+    return [item.strip() for item in str(raw).split(',') if item.strip()]
+
+
+def _csv_integers(values: Mapping[str, str], name: str) -> list[int]:
+    raw = values.get(name, '')
+    return [int(item.strip()) for item in str(raw).split(',') if item.strip()]
+
+
 class Config:
-    """Конфигурация бота"""
+    """Validated configuration snapshot.
 
-    # Путь к env-файлу для runtime-синхронизации cookies.
-    ENV_FILE_PATH: str = os.getenv('ENV_FILE_PATH', '.env')
-    
-    # Telegram
-    TELEGRAM_BOT_TOKEN: str = os.getenv('TELEGRAM_BOT_TOKEN', '')
-    TELEGRAM_ADMIN_IDS: List[int] = None
-    
-    # GGSEL API
-    # API key или JWT access token (legacy)
-    GGSEL_API_KEY: str = os.getenv('GGSEL_API_KEY', '')
-    # Явный секрет для подписи /apilogin (если GGSEL_API_KEY = JWT)
-    GGSEL_API_SECRET: str = os.getenv('GGSEL_API_SECRET', '')
-    # Опционально: можно явно передать готовый access token
-    GGSEL_ACCESS_TOKEN: str = os.getenv('GGSEL_ACCESS_TOKEN', '')
-    GGSEL_SELLER_ID: int = int(os.getenv('GGSEL_SELLER_ID', '8175'))
-    GGSEL_PRODUCT_ID: int = int(os.getenv('GGSEL_PRODUCT_ID', '0'))
-    GGSEL_BASE_URL: str = os.getenv(
-        'GGSEL_BASE_URL',
-        'https://back-office.ggsel.com/api_sellers/api',
-    )
-    GGSEL_LANG: str = os.getenv('GGSEL_LANG', 'ru-RU')
-    GGSEL_REQUIRE_API_ON_START: bool = _env_bool('GGSEL_REQUIRE_API_ON_START', False)
-    GGSEL_ENABLED: bool = _env_bool('GGSEL_ENABLED', True)
-    GGSEL_COMPETITOR_URLS: List[str] = None
-    GGSEL_CHAT_AUTOREPLY_ENABLED: bool = _env_bool(
-        'GGSEL_CHAT_AUTOREPLY_ENABLED',
-        False,
-    )
-    GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS: List[int] = None
-    GGSEL_CHAT_AUTOREPLY_PAGE_SIZE: int = int(
-        os.getenv('GGSEL_CHAT_AUTOREPLY_PAGE_SIZE', '50')
-    )
-    GGSEL_CHAT_AUTOREPLY_MAX_PAGES: int = int(
-        os.getenv('GGSEL_CHAT_AUTOREPLY_MAX_PAGES', '2')
-    )
-    GGSEL_CHAT_AUTOREPLY_INTERVAL_SECONDS: int = int(
-        os.getenv('GGSEL_CHAT_AUTOREPLY_INTERVAL_SECONDS', '30')
-    )
-    GGSEL_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES: bool = _env_bool(
-        'GGSEL_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES',
-        True,
-    )
-    GGSEL_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT: bool = _env_bool(
-        'GGSEL_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT',
-        True,
-    )
-    GGSEL_CHAT_AUTOREPLY_SMART_NON_EMPTY: bool = _env_bool(
-        'GGSEL_CHAT_AUTOREPLY_SMART_NON_EMPTY',
-        False,
-    )
-    GGSEL_CHAT_AUTOREPLY_REQUIRE_RULES: bool = _env_bool(
-        'GGSEL_CHAT_AUTOREPLY_REQUIRE_RULES',
-        True,
-    )
-    GGSEL_CHAT_AUTOREPLY_ALLOW_CUSTOM_TEXT: bool = _env_bool(
-        'GGSEL_CHAT_AUTOREPLY_ALLOW_CUSTOM_TEXT',
-        True,
-    )
-    GGSEL_CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK: bool = _env_bool(
-        'GGSEL_CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK',
-        False,
-    )
-    GGSEL_CHAT_AUTOREPLY_POLICY: str = os.getenv(
-        'GGSEL_CHAT_AUTOREPLY_POLICY',
-        'ON_ORDER',
-    )
-    GGSEL_CHAT_AUTOREPLY_LOOKBACK_MESSAGES: int = int(
-        os.getenv('GGSEL_CHAT_AUTOREPLY_LOOKBACK_MESSAGES', '30')
-    )
-    GGSEL_CHAT_AUTOREPLY_RECENT_LOOKBACK_MINUTES: int = int(
-        os.getenv('GGSEL_CHAT_AUTOREPLY_RECENT_LOOKBACK_MINUTES', '20')
-    )
-    GGSEL_CHAT_AUTOREPLY_ENABLE_RECENT_FALLBACK: bool = _env_bool(
-        'GGSEL_CHAT_AUTOREPLY_ENABLE_RECENT_FALLBACK',
-        False,
-    )
-    GGSEL_CHAT_AUTOREPLY_SENT_TTL_DAYS: int = int(
-        os.getenv('GGSEL_CHAT_AUTOREPLY_SENT_TTL_DAYS', '30')
-    )
-    GGSEL_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS: int = int(
-        os.getenv('GGSEL_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS', '24')
-    )
-    GGSEL_CHAT_TEMPLATE_RU_ALREADY: str = os.getenv(
-        'GGSEL_CHAT_TEMPLATE_RU_ALREADY',
-        '',
-    )
-    GGSEL_CHAT_TEMPLATE_RU_ADD: str = os.getenv(
-        'GGSEL_CHAT_TEMPLATE_RU_ADD',
-        '',
-    )
-    GGSEL_CHAT_TEMPLATE_EN_ALREADY: str = os.getenv(
-        'GGSEL_CHAT_TEMPLATE_EN_ALREADY',
-        '',
-    )
-    GGSEL_CHAT_TEMPLATE_EN_ADD: str = os.getenv(
-        'GGSEL_CHAT_TEMPLATE_EN_ADD',
-        '',
-    )
+    Construction is explicit and side-effect free apart from reading the supplied
+    environment mapping.  No field is evaluated at class-definition time.
+    """
 
-    # DigiSeller API (второй профиль)
-    DIGISELLER_API_KEY: str = os.getenv('DIGISELLER_API_KEY', '')
-    # Явный секрет для подписи /apilogin (если DIGISELLER_API_KEY = JWT)
-    DIGISELLER_API_SECRET: str = os.getenv('DIGISELLER_API_SECRET', '')
-    DIGISELLER_ACCESS_TOKEN: str = os.getenv('DIGISELLER_ACCESS_TOKEN', '')
-    DIGISELLER_SELLER_ID: int = int(os.getenv('DIGISELLER_SELLER_ID', '0'))
-    DIGISELLER_PRODUCT_ID: int = int(os.getenv('DIGISELLER_PRODUCT_ID', '0'))
-    DIGISELLER_BASE_URL: str = os.getenv(
-        'DIGISELLER_BASE_URL',
-        'https://api.digiseller.com/api',
-    )
-    DIGISELLER_LANG: str = os.getenv('DIGISELLER_LANG', 'ru-RU')
-    DIGISELLER_REQUIRE_API_ON_START: bool = _env_bool(
-        'DIGISELLER_REQUIRE_API_ON_START',
-        False,
-    )
-    DIGISELLER_ENABLED: bool = _env_bool('DIGISELLER_ENABLED', False)
-    DIGISELLER_COMPETITOR_URLS: List[str] = None
-    DIGISELLER_CHAT_AUTOREPLY_ENABLED: bool = _env_bool(
-        'DIGISELLER_CHAT_AUTOREPLY_ENABLED',
-        False,
-    )
-    DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS: List[int] = None
-    DIGISELLER_CHAT_AUTOREPLY_PAGE_SIZE: int = int(
-        os.getenv('DIGISELLER_CHAT_AUTOREPLY_PAGE_SIZE', '50')
-    )
-    DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES: int = int(
-        os.getenv('DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES', '2')
-    )
-    DIGISELLER_CHAT_AUTOREPLY_INTERVAL_SECONDS: int = int(
-        os.getenv('DIGISELLER_CHAT_AUTOREPLY_INTERVAL_SECONDS', '30')
-    )
-    DIGISELLER_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES: bool = _env_bool(
-        'DIGISELLER_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES',
-        True,
-    )
-    DIGISELLER_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT: bool = _env_bool(
-        'DIGISELLER_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT',
-        True,
-    )
-    DIGISELLER_CHAT_AUTOREPLY_SMART_NON_EMPTY: bool = _env_bool(
-        'DIGISELLER_CHAT_AUTOREPLY_SMART_NON_EMPTY',
-        False,
-    )
-    DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES: bool = _env_bool(
-        'DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES',
-        True,
-    )
-    DIGISELLER_CHAT_AUTOREPLY_ALLOW_CUSTOM_TEXT: bool = _env_bool(
-        'DIGISELLER_CHAT_AUTOREPLY_ALLOW_CUSTOM_TEXT',
-        True,
-    )
-    DIGISELLER_CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK: bool = _env_bool(
-        'DIGISELLER_CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK',
-        False,
-    )
-    DIGISELLER_CHAT_AUTOREPLY_POLICY: str = os.getenv(
-        'DIGISELLER_CHAT_AUTOREPLY_POLICY',
-        'ON_ORDER',
-    )
-    DIGISELLER_CHAT_AUTOREPLY_LOOKBACK_MESSAGES: int = int(
-        os.getenv('DIGISELLER_CHAT_AUTOREPLY_LOOKBACK_MESSAGES', '30')
-    )
-    DIGISELLER_CHAT_AUTOREPLY_RECENT_LOOKBACK_MINUTES: int = int(
-        os.getenv('DIGISELLER_CHAT_AUTOREPLY_RECENT_LOOKBACK_MINUTES', '20')
-    )
-    DIGISELLER_CHAT_AUTOREPLY_ENABLE_RECENT_FALLBACK: bool = _env_bool(
-        'DIGISELLER_CHAT_AUTOREPLY_ENABLE_RECENT_FALLBACK',
-        True,
-    )
-    DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS: int = int(
-        os.getenv('DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS', '30')
-    )
-    DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS: int = int(
-        os.getenv('DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS', '24')
-    )
-    DIGISELLER_CHAT_TEMPLATE_RU_ALREADY: str = os.getenv(
-        'DIGISELLER_CHAT_TEMPLATE_RU_ALREADY',
-        '',
-    )
-    DIGISELLER_CHAT_TEMPLATE_RU_ADD: str = os.getenv(
-        'DIGISELLER_CHAT_TEMPLATE_RU_ADD',
-        '',
-    )
-    DIGISELLER_CHAT_TEMPLATE_EN_ALREADY: str = os.getenv(
-        'DIGISELLER_CHAT_TEMPLATE_EN_ALREADY',
-        '',
-    )
-    DIGISELLER_CHAT_TEMPLATE_EN_ADD: str = os.getenv(
-        'DIGISELLER_CHAT_TEMPLATE_EN_ADD',
-        '',
-    )
-    # Профильные дефолты runtime для DigiSeller (используются только если
-    # ключи не были переопределены в runtime_settings ранее).
-    DIGISELLER_MIN_PRICE: Optional[float] = _env_optional_float(
-        'DIGISELLER_MIN_PRICE'
-    )
-    DIGISELLER_MAX_PRICE: Optional[float] = _env_optional_float(
-        'DIGISELLER_MAX_PRICE'
-    )
-    DIGISELLER_DESIRED_PRICE: Optional[float] = _env_optional_float(
-        'DIGISELLER_DESIRED_PRICE'
-    )
-    DIGISELLER_UNDERCUT_VALUE: Optional[float] = _env_optional_float(
-        'DIGISELLER_UNDERCUT_VALUE'
-    )
-    DIGISELLER_RAISE_VALUE: Optional[float] = _env_optional_float(
-        'DIGISELLER_RAISE_VALUE'
-    )
-    DIGISELLER_SHOWCASE_ROUND_STEP: Optional[float] = _env_optional_float(
-        'DIGISELLER_SHOWCASE_ROUND_STEP'
-    )
-    DIGISELLER_REBOUND_TO_DESIRED_ON_MIN: Optional[bool] = _env_optional_bool(
-        'DIGISELLER_REBOUND_TO_DESIRED_ON_MIN'
-    )
-    DIGISELLER_MODE: Optional[str] = _env_optional_str('DIGISELLER_MODE')
-    DIGISELLER_FIXED_PRICE: Optional[float] = _env_optional_float(
-        'DIGISELLER_FIXED_PRICE'
-    )
-    DIGISELLER_STEP_UP_VALUE: Optional[float] = _env_optional_float(
-        'DIGISELLER_STEP_UP_VALUE'
-    )
-    DIGISELLER_WEAK_PRICE_CEIL_LIMIT: Optional[float] = _env_optional_float(
-        'DIGISELLER_WEAK_PRICE_CEIL_LIMIT'
-    )
-    DIGISELLER_POSITION_FILTER_ENABLED: Optional[bool] = _env_optional_bool(
-        'DIGISELLER_POSITION_FILTER_ENABLED'
-    )
-    DIGISELLER_WEAK_POSITION_THRESHOLD: Optional[int] = _env_optional_int(
-        'DIGISELLER_WEAK_POSITION_THRESHOLD'
-    )
-    DIGISELLER_WEAK_UNKNOWN_RANK_ENABLED: Optional[bool] = _env_optional_bool(
-        'DIGISELLER_WEAK_UNKNOWN_RANK_ENABLED'
-    )
-    DIGISELLER_WEAK_UNKNOWN_RANK_ABS_GAP: Optional[float] = _env_optional_float(
-        'DIGISELLER_WEAK_UNKNOWN_RANK_ABS_GAP'
-    )
-    DIGISELLER_WEAK_UNKNOWN_RANK_REL_GAP: Optional[float] = _env_optional_float(
-        'DIGISELLER_WEAK_UNKNOWN_RANK_REL_GAP'
-    )
-    DIGISELLER_CHECK_INTERVAL: Optional[int] = _env_optional_int(
-        'DIGISELLER_CHECK_INTERVAL'
-    )
-    DIGISELLER_FAST_CHECK_INTERVAL_MIN: Optional[int] = _env_optional_int(
-        'DIGISELLER_FAST_CHECK_INTERVAL_MIN'
-    )
-    DIGISELLER_FAST_CHECK_INTERVAL_MAX: Optional[int] = _env_optional_int(
-        'DIGISELLER_FAST_CHECK_INTERVAL_MAX'
-    )
-    DIGISELLER_COOLDOWN_SECONDS: Optional[int] = _env_optional_int(
-        'DIGISELLER_COOLDOWN_SECONDS'
-    )
-    DIGISELLER_IGNORE_DELTA: Optional[float] = _env_optional_float(
-        'DIGISELLER_IGNORE_DELTA'
-    )
-    DIGISELLER_NOTIFY_SKIP: Optional[bool] = _env_optional_bool(
-        'DIGISELLER_NOTIFY_SKIP'
-    )
-    DIGISELLER_NOTIFY_SKIP_COOLDOWN_SECONDS: Optional[int] = _env_optional_int(
-        'DIGISELLER_NOTIFY_SKIP_COOLDOWN_SECONDS'
-    )
-    DIGISELLER_NOTIFY_COMPETITOR_CHANGE: Optional[bool] = _env_optional_bool(
-        'DIGISELLER_NOTIFY_COMPETITOR_CHANGE'
-    )
-    DIGISELLER_COMPETITOR_CHANGE_DELTA: Optional[float] = _env_optional_float(
-        'DIGISELLER_COMPETITOR_CHANGE_DELTA'
-    )
-    DIGISELLER_COMPETITOR_CHANGE_COOLDOWN_SECONDS: Optional[int] = _env_optional_int(
-        'DIGISELLER_COMPETITOR_CHANGE_COOLDOWN_SECONDS'
-    )
-    DIGISELLER_UPDATE_ONLY_ON_COMPETITOR_CHANGE: Optional[bool] = _env_optional_bool(
-        'DIGISELLER_UPDATE_ONLY_ON_COMPETITOR_CHANGE'
-    )
-    DIGISELLER_NOTIFY_PARSER_ISSUES: Optional[bool] = _env_optional_bool(
-        'DIGISELLER_NOTIFY_PARSER_ISSUES'
-    )
-    DIGISELLER_PARSER_ISSUE_COOLDOWN_SECONDS: Optional[int] = _env_optional_int(
-        'DIGISELLER_PARSER_ISSUE_COOLDOWN_SECONDS'
-    )
-    DIGISELLER_HARD_FLOOR_ENABLED: Optional[bool] = _env_optional_bool(
-        'DIGISELLER_HARD_FLOOR_ENABLED'
-    )
-    DIGISELLER_MAX_DOWN_STEP: Optional[float] = _env_optional_float(
-        'DIGISELLER_MAX_DOWN_STEP'
-    )
-    DIGISELLER_FAST_REBOUND_DELTA: Optional[float] = _env_optional_float(
-        'DIGISELLER_FAST_REBOUND_DELTA'
-    )
-    DIGISELLER_FAST_REBOUND_BYPASS_COOLDOWN: Optional[bool] = _env_optional_bool(
-        'DIGISELLER_FAST_REBOUND_BYPASS_COOLDOWN'
-    )
-    
-    # Конкуренты (список URL)
-    COMPETITOR_URLS: List[str] = None
-    # Cookies для доступа к защищенным страницам конкурента
-    # Формат: "name1=value1; name2=value2"
-    COMPETITOR_COOKIES: str = os.getenv('COMPETITOR_COOKIES', '')
-    COMPETITOR_COOKIES_BACKUP_PATH: str = os.getenv(
-        'COMPETITOR_COOKIES_BACKUP_PATH',
-        'data/cookies_backup.json',
-    )
+    def __init__(self, env: Mapping[str, str] | None = None) -> None:
+        values = _prepare_environment(env)
 
-    # RSC parser
-    RSC_MAX_RETRIES: int = int(os.getenv('RSC_MAX_RETRIES', '2'))
-    
-    # Основные настройки цен
-    MIN_PRICE: float = float(os.getenv('MIN_PRICE', '0.25'))
-    MAX_PRICE: float = float(os.getenv('MAX_PRICE', '10.0'))
-    DESIRED_PRICE: float = float(os.getenv('DESIRED_PRICE', '0.35'))
-    # Насколько быть ниже конкурента (пример: 0.30 -> 0.2949)
-    UNDERCUT_VALUE: float = float(os.getenv('UNDERCUT_VALUE', '0.0051'))
-    # Насколько быть выше конкурента в режиме повышения.
-    RAISE_VALUE: float = float(os.getenv('RAISE_VALUE', '0.0049'))
-    # Шаг округления витринной цены конкурента перед расчётом.
-    # 0 = без округления, 0.01 = до копеек, 1 = до рубля и т.д.
-    SHOWCASE_ROUND_STEP: float = float(
-        os.getenv('SHOWCASE_ROUND_STEP', '0.01')
-    )
-    # Если формула упирается в минимум, можно сразу вернуть цену
-    # на рекомендуемую (DESIRED_PRICE), а не застревать на MIN_PRICE.
-    REBOUND_TO_DESIRED_ON_MIN: bool = _env_bool(
-        'REBOUND_TO_DESIRED_ON_MIN',
-        False,
-    )
-    
-    # Режим ценообразования:
-    # FOLLOW / DUMPING / RAISE
-    # (legacy значения FIXED/STEP_UP/FOLLOW_EXACT/FOLLOW_PLUS
-    # автоматически мапятся в новые)
-    MODE: str = os.getenv('MODE', 'DUMPING')
-    FIXED_PRICE: float = float(os.getenv('FIXED_PRICE', '0.35'))
-    STEP_UP_VALUE: float = float(os.getenv('STEP_UP_VALUE', '0.05'))
-    
-    # До какого уровня считаем логику "ceil(до 0.1) - undercut"
-    WEAK_PRICE_CEIL_LIMIT: float = float(os.getenv('WEAK_PRICE_CEIL_LIMIT', '0.3'))
-    # Фильтр по позиции в выдаче категории
-    POSITION_FILTER_ENABLED: bool = _env_bool('POSITION_FILTER_ENABLED', False)
-    WEAK_POSITION_THRESHOLD: int = int(os.getenv('WEAK_POSITION_THRESHOLD', '20'))
-    # Эвристика для случая rank=N/A: если min цена заметно ниже следующей,
-    # считаем такого конкурента слабым по позиции (например, низкая ставка).
-    WEAK_UNKNOWN_RANK_ENABLED: bool = _env_bool(
-        'WEAK_UNKNOWN_RANK_ENABLED',
-        True,
-    )
-    WEAK_UNKNOWN_RANK_ABS_GAP: float = float(
-        os.getenv('WEAK_UNKNOWN_RANK_ABS_GAP', '0.03')
-    )
-    WEAK_UNKNOWN_RANK_REL_GAP: float = float(
-        os.getenv('WEAK_UNKNOWN_RANK_REL_GAP', '0.08')
-    )
-    
-    # Cooldown (секунды)
-    COOLDOWN_SECONDS: int = int(os.getenv('COOLDOWN_SECONDS', '30'))
-    
-    # Ignore delta
-    IGNORE_DELTA: float = float(os.getenv('IGNORE_DELTA', '0.001'))
-    
-    # Интервал проверки (секунды)
-    CHECK_INTERVAL: int = int(os.getenv('CHECK_INTERVAL', '30'))
-    # Быстрый интервал (секунды): используется как рекомендуемый диапазон в UI
-    FAST_CHECK_INTERVAL_MIN: int = int(os.getenv('FAST_CHECK_INTERVAL_MIN', '20'))
-    FAST_CHECK_INTERVAL_MAX: int = int(os.getenv('FAST_CHECK_INTERVAL_MAX', '60'))
+        # Runtime / Telegram.
+        self.ENV_FILE_PATH = _string(values, 'ENV_FILE_PATH', '.env')
+        self.TELEGRAM_BOT_TOKEN = _string(values, 'TELEGRAM_BOT_TOKEN')
+        self.TELEGRAM_ADMIN_IDS = _csv_integers(values, 'TELEGRAM_ADMIN_IDS')
 
-    # Уведомления
-    NOTIFY_SKIP: bool = _env_bool('NOTIFY_SKIP', False)
-    NOTIFY_SKIP_COOLDOWN_SECONDS: int = int(os.getenv('NOTIFY_SKIP_COOLDOWN_SECONDS', '300'))
-    
-    NOTIFY_COMPETITOR_CHANGE: bool = _env_bool('NOTIFY_COMPETITOR_CHANGE', True)
-    COMPETITOR_CHANGE_DELTA: float = float(os.getenv('COMPETITOR_CHANGE_DELTA', '0.0001'))
-    COMPETITOR_CHANGE_COOLDOWN_SECONDS: int = int(os.getenv('COMPETITOR_CHANGE_COOLDOWN_SECONDS', '60'))
-    UPDATE_ONLY_ON_COMPETITOR_CHANGE: bool = _env_bool(
-        'UPDATE_ONLY_ON_COMPETITOR_CHANGE',
-        True,
-    )
-    NOTIFY_PARSER_ISSUES: bool = _env_bool('NOTIFY_PARSER_ISSUES', True)
-    PARSER_ISSUE_COOLDOWN_SECONDS: int = int(os.getenv('PARSER_ISSUE_COOLDOWN_SECONDS', '300'))
-    # Авто-ошибки планировщика в Telegram (не влияет на серверные логи)
-    NOTIFY_ERRORS: bool = _env_bool('NOTIFY_ERRORS', True)
+        # GGSEL API/profile.
+        self.GGSEL_API_KEY = _string(values, 'GGSEL_API_KEY')
+        self.GGSEL_API_SECRET = _string(values, 'GGSEL_API_SECRET')
+        self.GGSEL_ACCESS_TOKEN = _string(values, 'GGSEL_ACCESS_TOKEN')
+        self.GGSEL_SELLER_ID = _integer(values, 'GGSEL_SELLER_ID', 0)
+        self.GGSEL_PRODUCT_ID = _integer(values, 'GGSEL_PRODUCT_ID', 0)
+        self.GGSEL_BASE_URL = _string(
+            values,
+            'GGSEL_BASE_URL',
+            'https://back-office.ggsel.com/api_sellers/api',
+        )
+        self.GGSEL_LANG = _string(values, 'GGSEL_LANG', 'ru-RU')
+        self.GGSEL_REQUIRE_API_ON_START = _boolean(
+            values, 'GGSEL_REQUIRE_API_ON_START', False
+        )
+        self.GGSEL_ENABLED = _boolean(values, 'GGSEL_ENABLED', True)
+        self.GGSEL_CHAT_AUTOREPLY_ENABLED = _boolean(
+            values, 'GGSEL_CHAT_AUTOREPLY_ENABLED', False
+        )
+        self.GGSEL_CHAT_AUTOREPLY_PAGE_SIZE = _integer(
+            values, 'GGSEL_CHAT_AUTOREPLY_PAGE_SIZE', 50
+        )
+        self.GGSEL_CHAT_AUTOREPLY_MAX_PAGES = _integer(
+            values, 'GGSEL_CHAT_AUTOREPLY_MAX_PAGES', 2
+        )
+        self.GGSEL_CHAT_AUTOREPLY_INTERVAL_SECONDS = _integer(
+            values, 'GGSEL_CHAT_AUTOREPLY_INTERVAL_SECONDS', 30
+        )
+        self.GGSEL_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES = _boolean(
+            values, 'GGSEL_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES', True
+        )
+        self.GGSEL_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT = _boolean(
+            values, 'GGSEL_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT', True
+        )
+        self.GGSEL_CHAT_AUTOREPLY_SMART_NON_EMPTY = _boolean(
+            values, 'GGSEL_CHAT_AUTOREPLY_SMART_NON_EMPTY', False
+        )
+        self.GGSEL_CHAT_AUTOREPLY_REQUIRE_RULES = _boolean(
+            values, 'GGSEL_CHAT_AUTOREPLY_REQUIRE_RULES', True
+        )
+        self.GGSEL_CHAT_AUTOREPLY_ALLOW_CUSTOM_TEXT = _boolean(
+            values, 'GGSEL_CHAT_AUTOREPLY_ALLOW_CUSTOM_TEXT', True
+        )
+        self.GGSEL_CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK = _boolean(
+            values, 'GGSEL_CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK', False
+        )
+        self.GGSEL_CHAT_AUTOREPLY_POLICY = _string(
+            values, 'GGSEL_CHAT_AUTOREPLY_POLICY', 'ON_ORDER'
+        )
+        self.GGSEL_CHAT_AUTOREPLY_LOOKBACK_MESSAGES = _integer(
+            values, 'GGSEL_CHAT_AUTOREPLY_LOOKBACK_MESSAGES', 30
+        )
+        self.GGSEL_CHAT_AUTOREPLY_RECENT_LOOKBACK_MINUTES = _integer(
+            values, 'GGSEL_CHAT_AUTOREPLY_RECENT_LOOKBACK_MINUTES', 20
+        )
+        self.GGSEL_CHAT_AUTOREPLY_ENABLE_RECENT_FALLBACK = _boolean(
+            values, 'GGSEL_CHAT_AUTOREPLY_ENABLE_RECENT_FALLBACK', False
+        )
+        self.GGSEL_CHAT_AUTOREPLY_SENT_TTL_DAYS = _integer(
+            values, 'GGSEL_CHAT_AUTOREPLY_SENT_TTL_DAYS', 30
+        )
+        self.GGSEL_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS = _integer(
+            values, 'GGSEL_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS', 24
+        )
+        self.GGSEL_CHAT_TEMPLATE_RU_ALREADY = _string(
+            values, 'GGSEL_CHAT_TEMPLATE_RU_ALREADY'
+        )
+        self.GGSEL_CHAT_TEMPLATE_RU_ADD = _string(
+            values, 'GGSEL_CHAT_TEMPLATE_RU_ADD'
+        )
+        self.GGSEL_CHAT_TEMPLATE_EN_ALREADY = _string(
+            values, 'GGSEL_CHAT_TEMPLATE_EN_ALREADY'
+        )
+        self.GGSEL_CHAT_TEMPLATE_EN_ADD = _string(
+            values, 'GGSEL_CHAT_TEMPLATE_EN_ADD'
+        )
 
-    # Защита от убытков и резких колебаний
-    HARD_FLOOR_ENABLED: bool = _env_bool('HARD_FLOOR_ENABLED', True)
-    MAX_DOWN_STEP: float = float(os.getenv('MAX_DOWN_STEP', '0.03'))
-    FAST_REBOUND_DELTA: float = float(os.getenv('FAST_REBOUND_DELTA', '0.01'))
-    FAST_REBOUND_BYPASS_COOLDOWN: bool = _env_bool(
-        'FAST_REBOUND_BYPASS_COOLDOWN',
-        True,
-    )
-    
-    # Логирование
-    LOG_LEVEL: str = os.getenv('LOG_LEVEL', 'INFO')
-    LOG_MAX_BYTES: int = int(os.getenv('LOG_MAX_BYTES', str(10 * 1024 * 1024)))
-    LOG_BACKUP_COUNT: int = int(os.getenv('LOG_BACKUP_COUNT', '5'))
-    
-    def __post_init__(self):
-        # Парсим списки из строк
-        if self.TELEGRAM_ADMIN_IDS is None:
-            ids_str = os.getenv('TELEGRAM_ADMIN_IDS', '')
-            self.TELEGRAM_ADMIN_IDS = [int(x.strip()) for x in ids_str.split(',') if x.strip()]
+        # DigiSeller API/profile.
+        self.DIGISELLER_API_KEY = _string(values, 'DIGISELLER_API_KEY')
+        self.DIGISELLER_API_SECRET = _string(values, 'DIGISELLER_API_SECRET')
+        self.DIGISELLER_ACCESS_TOKEN = _string(values, 'DIGISELLER_ACCESS_TOKEN')
+        self.DIGISELLER_SELLER_ID = _integer(values, 'DIGISELLER_SELLER_ID', 0)
+        self.DIGISELLER_PRODUCT_ID = _integer(values, 'DIGISELLER_PRODUCT_ID', 0)
+        self.DIGISELLER_BASE_URL = _string(
+            values,
+            'DIGISELLER_BASE_URL',
+            'https://api.digiseller.com/api',
+        )
+        self.DIGISELLER_LANG = _string(values, 'DIGISELLER_LANG', 'ru-RU')
+        self.DIGISELLER_REQUIRE_API_ON_START = _boolean(
+            values, 'DIGISELLER_REQUIRE_API_ON_START', False
+        )
+        self.DIGISELLER_ENABLED = _boolean(values, 'DIGISELLER_ENABLED', False)
+        self.DIGISELLER_CHAT_AUTOREPLY_ENABLED = _boolean(
+            values, 'DIGISELLER_CHAT_AUTOREPLY_ENABLED', False
+        )
+        self.DIGISELLER_CHAT_AUTOREPLY_PAGE_SIZE = _integer(
+            values, 'DIGISELLER_CHAT_AUTOREPLY_PAGE_SIZE', 50
+        )
+        self.DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES = _integer(
+            values, 'DIGISELLER_CHAT_AUTOREPLY_MAX_PAGES', 2
+        )
+        self.DIGISELLER_CHAT_AUTOREPLY_INTERVAL_SECONDS = _integer(
+            values, 'DIGISELLER_CHAT_AUTOREPLY_INTERVAL_SECONDS', 30
+        )
+        self.DIGISELLER_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES = _boolean(
+            values, 'DIGISELLER_CHAT_AUTOREPLY_DEDUPE_BY_MESSAGES', True
+        )
+        self.DIGISELLER_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT = _boolean(
+            values, 'DIGISELLER_CHAT_AUTOREPLY_ONLY_EMPTY_CHAT', True
+        )
+        self.DIGISELLER_CHAT_AUTOREPLY_SMART_NON_EMPTY = _boolean(
+            values, 'DIGISELLER_CHAT_AUTOREPLY_SMART_NON_EMPTY', False
+        )
+        self.DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES = _boolean(
+            values, 'DIGISELLER_CHAT_AUTOREPLY_REQUIRE_RULES', True
+        )
+        self.DIGISELLER_CHAT_AUTOREPLY_ALLOW_CUSTOM_TEXT = _boolean(
+            values, 'DIGISELLER_CHAT_AUTOREPLY_ALLOW_CUSTOM_TEXT', True
+        )
+        self.DIGISELLER_CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK = _boolean(
+            values, 'DIGISELLER_CHAT_AUTOREPLY_ALLOW_TEMPLATE_FALLBACK', False
+        )
+        self.DIGISELLER_CHAT_AUTOREPLY_POLICY = _string(
+            values, 'DIGISELLER_CHAT_AUTOREPLY_POLICY', 'ON_ORDER'
+        )
+        self.DIGISELLER_CHAT_AUTOREPLY_LOOKBACK_MESSAGES = _integer(
+            values, 'DIGISELLER_CHAT_AUTOREPLY_LOOKBACK_MESSAGES', 30
+        )
+        self.DIGISELLER_CHAT_AUTOREPLY_RECENT_LOOKBACK_MINUTES = _integer(
+            values, 'DIGISELLER_CHAT_AUTOREPLY_RECENT_LOOKBACK_MINUTES', 20
+        )
+        self.DIGISELLER_CHAT_AUTOREPLY_ENABLE_RECENT_FALLBACK = _boolean(
+            values, 'DIGISELLER_CHAT_AUTOREPLY_ENABLE_RECENT_FALLBACK', True
+        )
+        self.DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS = _integer(
+            values, 'DIGISELLER_CHAT_AUTOREPLY_SENT_TTL_DAYS', 30
+        )
+        self.DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS = _integer(
+            values, 'DIGISELLER_CHAT_AUTOREPLY_CLEANUP_EVERY_HOURS', 24
+        )
+        self.DIGISELLER_CHAT_TEMPLATE_RU_ALREADY = _string(
+            values, 'DIGISELLER_CHAT_TEMPLATE_RU_ALREADY'
+        )
+        self.DIGISELLER_CHAT_TEMPLATE_RU_ADD = _string(
+            values, 'DIGISELLER_CHAT_TEMPLATE_RU_ADD'
+        )
+        self.DIGISELLER_CHAT_TEMPLATE_EN_ALREADY = _string(
+            values, 'DIGISELLER_CHAT_TEMPLATE_EN_ALREADY'
+        )
+        self.DIGISELLER_CHAT_TEMPLATE_EN_ADD = _string(
+            values, 'DIGISELLER_CHAT_TEMPLATE_EN_ADD'
+        )
 
-        if self.COMPETITOR_URLS is None:
-            urls_str = os.getenv('COMPETITOR_URLS', '')
-            self.COMPETITOR_URLS = [x.strip() for x in urls_str.split(',') if x.strip()]
+        # Optional DigiSeller profile runtime defaults.
+        self.DIGISELLER_MIN_PRICE = _optional_number(values, 'DIGISELLER_MIN_PRICE')
+        self.DIGISELLER_MAX_PRICE = _optional_number(values, 'DIGISELLER_MAX_PRICE')
+        self.DIGISELLER_DESIRED_PRICE = _optional_number(
+            values, 'DIGISELLER_DESIRED_PRICE'
+        )
+        self.DIGISELLER_UNDERCUT_VALUE = _optional_number(
+            values, 'DIGISELLER_UNDERCUT_VALUE'
+        )
+        self.DIGISELLER_RAISE_VALUE = _optional_number(
+            values, 'DIGISELLER_RAISE_VALUE'
+        )
+        self.DIGISELLER_SHOWCASE_ROUND_STEP = _optional_number(
+            values, 'DIGISELLER_SHOWCASE_ROUND_STEP'
+        )
+        self.DIGISELLER_REBOUND_TO_DESIRED_ON_MIN = _optional_boolean(
+            values, 'DIGISELLER_REBOUND_TO_DESIRED_ON_MIN'
+        )
+        self.DIGISELLER_MODE = _optional_string(values, 'DIGISELLER_MODE')
+        self.DIGISELLER_FIXED_PRICE = _optional_number(
+            values, 'DIGISELLER_FIXED_PRICE'
+        )
+        self.DIGISELLER_STEP_UP_VALUE = _optional_number(
+            values, 'DIGISELLER_STEP_UP_VALUE'
+        )
+        self.DIGISELLER_WEAK_PRICE_CEIL_LIMIT = _optional_number(
+            values, 'DIGISELLER_WEAK_PRICE_CEIL_LIMIT'
+        )
+        self.DIGISELLER_POSITION_FILTER_ENABLED = _optional_boolean(
+            values, 'DIGISELLER_POSITION_FILTER_ENABLED'
+        )
+        self.DIGISELLER_WEAK_POSITION_THRESHOLD = _optional_integer(
+            values, 'DIGISELLER_WEAK_POSITION_THRESHOLD'
+        )
+        self.DIGISELLER_WEAK_UNKNOWN_RANK_ENABLED = _optional_boolean(
+            values, 'DIGISELLER_WEAK_UNKNOWN_RANK_ENABLED'
+        )
+        self.DIGISELLER_WEAK_UNKNOWN_RANK_ABS_GAP = _optional_number(
+            values, 'DIGISELLER_WEAK_UNKNOWN_RANK_ABS_GAP'
+        )
+        self.DIGISELLER_WEAK_UNKNOWN_RANK_REL_GAP = _optional_number(
+            values, 'DIGISELLER_WEAK_UNKNOWN_RANK_REL_GAP'
+        )
+        self.DIGISELLER_CHECK_INTERVAL = _optional_integer(
+            values, 'DIGISELLER_CHECK_INTERVAL'
+        )
+        self.DIGISELLER_FAST_CHECK_INTERVAL_MIN = _optional_integer(
+            values, 'DIGISELLER_FAST_CHECK_INTERVAL_MIN'
+        )
+        self.DIGISELLER_FAST_CHECK_INTERVAL_MAX = _optional_integer(
+            values, 'DIGISELLER_FAST_CHECK_INTERVAL_MAX'
+        )
+        self.DIGISELLER_COOLDOWN_SECONDS = _optional_integer(
+            values, 'DIGISELLER_COOLDOWN_SECONDS'
+        )
+        self.DIGISELLER_IGNORE_DELTA = _optional_number(
+            values, 'DIGISELLER_IGNORE_DELTA'
+        )
+        self.DIGISELLER_NOTIFY_SKIP = _optional_boolean(
+            values, 'DIGISELLER_NOTIFY_SKIP'
+        )
+        self.DIGISELLER_NOTIFY_SKIP_COOLDOWN_SECONDS = _optional_integer(
+            values, 'DIGISELLER_NOTIFY_SKIP_COOLDOWN_SECONDS'
+        )
+        self.DIGISELLER_NOTIFY_COMPETITOR_CHANGE = _optional_boolean(
+            values, 'DIGISELLER_NOTIFY_COMPETITOR_CHANGE'
+        )
+        self.DIGISELLER_COMPETITOR_CHANGE_DELTA = _optional_number(
+            values, 'DIGISELLER_COMPETITOR_CHANGE_DELTA'
+        )
+        self.DIGISELLER_COMPETITOR_CHANGE_COOLDOWN_SECONDS = _optional_integer(
+            values, 'DIGISELLER_COMPETITOR_CHANGE_COOLDOWN_SECONDS'
+        )
+        self.DIGISELLER_UPDATE_ONLY_ON_COMPETITOR_CHANGE = _optional_boolean(
+            values, 'DIGISELLER_UPDATE_ONLY_ON_COMPETITOR_CHANGE'
+        )
+        self.DIGISELLER_NOTIFY_PARSER_ISSUES = _optional_boolean(
+            values, 'DIGISELLER_NOTIFY_PARSER_ISSUES'
+        )
+        self.DIGISELLER_PARSER_ISSUE_COOLDOWN_SECONDS = _optional_integer(
+            values, 'DIGISELLER_PARSER_ISSUE_COOLDOWN_SECONDS'
+        )
+        self.DIGISELLER_HARD_FLOOR_ENABLED = _optional_boolean(
+            values, 'DIGISELLER_HARD_FLOOR_ENABLED'
+        )
+        self.DIGISELLER_MAX_DOWN_STEP = _optional_number(
+            values, 'DIGISELLER_MAX_DOWN_STEP'
+        )
+        self.DIGISELLER_FAST_REBOUND_DELTA = _optional_number(
+            values, 'DIGISELLER_FAST_REBOUND_DELTA'
+        )
+        self.DIGISELLER_FAST_REBOUND_BYPASS_COOLDOWN = _optional_boolean(
+            values, 'DIGISELLER_FAST_REBOUND_BYPASS_COOLDOWN'
+        )
 
-        if self.GGSEL_COMPETITOR_URLS is None:
-            gg_urls_str = os.getenv('GGSEL_COMPETITOR_URLS', '')
-            gg_urls = [x.strip() for x in gg_urls_str.split(',') if x.strip()]
-            self.GGSEL_COMPETITOR_URLS = gg_urls or list(self.COMPETITOR_URLS)
+        # Competitor/parser settings.
+        self.COMPETITOR_URLS = _csv_strings(values, 'COMPETITOR_URLS')
+        ggsel_urls = _csv_strings(values, 'GGSEL_COMPETITOR_URLS')
+        self.GGSEL_COMPETITOR_URLS = ggsel_urls or list(self.COMPETITOR_URLS)
+        self.DIGISELLER_COMPETITOR_URLS = _csv_strings(
+            values, 'DIGISELLER_COMPETITOR_URLS'
+        )
+        self.GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS = _csv_integers(
+            values, 'GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS'
+        )
+        self.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = _csv_integers(
+            values, 'DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS'
+        )
+        self.COMPETITOR_COOKIES = _string(values, 'COMPETITOR_COOKIES')
+        self.COMPETITOR_COOKIES_BACKUP_PATH = _string(
+            values,
+            'COMPETITOR_COOKIES_BACKUP_PATH',
+            'data/cookies_backup.json',
+        )
+        self.RSC_MAX_RETRIES = _integer(values, 'RSC_MAX_RETRIES', 2)
 
-        if self.DIGISELLER_COMPETITOR_URLS is None:
-            d_urls_str = os.getenv('DIGISELLER_COMPETITOR_URLS', '')
-            self.DIGISELLER_COMPETITOR_URLS = [
-                x.strip() for x in d_urls_str.split(',') if x.strip()
-            ]
+        # Shared pricing defaults.
+        self.MIN_PRICE = _number(values, 'MIN_PRICE', 0.25)
+        self.MAX_PRICE = _number(values, 'MAX_PRICE', 10.0)
+        self.DESIRED_PRICE = _number(values, 'DESIRED_PRICE', 0.35)
+        self.UNDERCUT_VALUE = _number(values, 'UNDERCUT_VALUE', 0.0051)
+        self.RAISE_VALUE = _number(values, 'RAISE_VALUE', 0.0049)
+        self.SHOWCASE_ROUND_STEP = _number(values, 'SHOWCASE_ROUND_STEP', 0.01)
+        self.REBOUND_TO_DESIRED_ON_MIN = _boolean(
+            values, 'REBOUND_TO_DESIRED_ON_MIN', False
+        )
+        self.MODE = _string(values, 'MODE', 'DUMPING')
+        self.FIXED_PRICE = _number(values, 'FIXED_PRICE', 0.35)
+        self.STEP_UP_VALUE = _number(values, 'STEP_UP_VALUE', 0.05)
+        self.WEAK_PRICE_CEIL_LIMIT = _number(
+            values, 'WEAK_PRICE_CEIL_LIMIT', 0.3
+        )
+        self.POSITION_FILTER_ENABLED = _boolean(
+            values, 'POSITION_FILTER_ENABLED', False
+        )
+        self.WEAK_POSITION_THRESHOLD = _integer(
+            values, 'WEAK_POSITION_THRESHOLD', 20
+        )
+        self.WEAK_UNKNOWN_RANK_ENABLED = _boolean(
+            values, 'WEAK_UNKNOWN_RANK_ENABLED', True
+        )
+        self.WEAK_UNKNOWN_RANK_ABS_GAP = _number(
+            values, 'WEAK_UNKNOWN_RANK_ABS_GAP', 0.03
+        )
+        self.WEAK_UNKNOWN_RANK_REL_GAP = _number(
+            values, 'WEAK_UNKNOWN_RANK_REL_GAP', 0.08
+        )
+        self.COOLDOWN_SECONDS = _integer(values, 'COOLDOWN_SECONDS', 30)
+        self.IGNORE_DELTA = _number(values, 'IGNORE_DELTA', 0.001)
+        self.CHECK_INTERVAL = _integer(values, 'CHECK_INTERVAL', 30)
+        self.FAST_CHECK_INTERVAL_MIN = _integer(
+            values, 'FAST_CHECK_INTERVAL_MIN', 20
+        )
+        self.FAST_CHECK_INTERVAL_MAX = _integer(
+            values, 'FAST_CHECK_INTERVAL_MAX', 60
+        )
 
-        if self.GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS is None:
-            raw_ids = os.getenv('GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS', '')
-            parsed_ids = []
-            for chunk in raw_ids.split(','):
-                normalized = chunk.strip()
-                if not normalized:
-                    continue
-                try:
-                    value = int(float(normalized))
-                except ValueError:
-                    continue
-                if value > 0:
-                    parsed_ids.append(value)
-            self.GGSEL_CHAT_AUTOREPLY_PRODUCT_IDS = parsed_ids
+        # Notifications / loss protection.
+        self.NOTIFY_SKIP = _boolean(values, 'NOTIFY_SKIP', False)
+        self.NOTIFY_SKIP_COOLDOWN_SECONDS = _integer(
+            values, 'NOTIFY_SKIP_COOLDOWN_SECONDS', 300
+        )
+        self.NOTIFY_COMPETITOR_CHANGE = _boolean(
+            values, 'NOTIFY_COMPETITOR_CHANGE', True
+        )
+        self.COMPETITOR_CHANGE_DELTA = _number(
+            values, 'COMPETITOR_CHANGE_DELTA', 0.0001
+        )
+        self.COMPETITOR_CHANGE_COOLDOWN_SECONDS = _integer(
+            values, 'COMPETITOR_CHANGE_COOLDOWN_SECONDS', 60
+        )
+        self.UPDATE_ONLY_ON_COMPETITOR_CHANGE = _boolean(
+            values, 'UPDATE_ONLY_ON_COMPETITOR_CHANGE', True
+        )
+        self.NOTIFY_PARSER_ISSUES = _boolean(
+            values, 'NOTIFY_PARSER_ISSUES', True
+        )
+        self.PARSER_ISSUE_COOLDOWN_SECONDS = _integer(
+            values, 'PARSER_ISSUE_COOLDOWN_SECONDS', 300
+        )
+        self.NOTIFY_ERRORS = _boolean(values, 'NOTIFY_ERRORS', True)
+        self.HARD_FLOOR_ENABLED = _boolean(values, 'HARD_FLOOR_ENABLED', True)
+        self.MAX_DOWN_STEP = _number(values, 'MAX_DOWN_STEP', 0.03)
+        self.FAST_REBOUND_DELTA = _number(values, 'FAST_REBOUND_DELTA', 0.01)
+        self.FAST_REBOUND_BYPASS_COOLDOWN = _boolean(
+            values, 'FAST_REBOUND_BYPASS_COOLDOWN', True
+        )
 
-        if self.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS is None:
-            raw_ids = os.getenv('DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS', '')
-            parsed_ids = []
-            for chunk in raw_ids.split(','):
-                normalized = chunk.strip()
-                if not normalized:
-                    continue
-                try:
-                    value = int(float(normalized))
-                except ValueError:
-                    continue
-                if value > 0:
-                    parsed_ids.append(value)
-            self.DIGISELLER_CHAT_AUTOREPLY_PRODUCT_IDS = parsed_ids
+        # Logging.
+        self.LOG_LEVEL = _string(values, 'LOG_LEVEL', 'INFO')
+        self.LOG_MAX_BYTES = _integer(
+            values, 'LOG_MAX_BYTES', 10 * 1024 * 1024
+        )
+        self.LOG_BACKUP_COUNT = _integer(values, 'LOG_BACKUP_COUNT', 5)
 
 
-# Глобальный экземпляр конфигурации
-config = Config()
+def load_config(env: Mapping[str, str] | None = None) -> Config:
+    """Build one fail-closed typed configuration snapshot."""
+    return Config(env)
+
+
+config = load_config()
