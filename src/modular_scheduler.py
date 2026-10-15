@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from .chat_autoreply_coordinator import ChatAutoreplyCoordinator
 from .notification_policy import NotificationPolicy
 from .parser_coordinator import ParserCoordinator
 from .rsc_parser import ParseResult
@@ -33,6 +34,7 @@ class ModularScheduler(Scheduler):
             telegram_bot=self.telegram_bot,
             runtime_loader=self._runtime,
         )
+        self._chat_autoreply_coordinator = ChatAutoreplyCoordinator(self)
 
     async def _parse_competitor_price(
         self,
@@ -119,3 +121,6 @@ class ModularScheduler(Scheduler):
             result=result,
             fail_streak=fail_streak,
         )
+
+    async def _run_chat_autoreply(self):
+        return await self._chat_autoreply_coordinator.run()
