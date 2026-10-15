@@ -12,6 +12,7 @@ from typing import Any, Optional
 from .chat_autoreply_coordinator import ChatAutoreplyCoordinator
 from .notification_policy import NotificationPolicy
 from .parser_coordinator import ParserCoordinator
+from .pricing_cycle_coordinator import PricingCycleCoordinator
 from .rsc_parser import ParseResult
 from .scheduler import Scheduler
 
@@ -35,6 +36,12 @@ class ModularScheduler(Scheduler):
             runtime_loader=self._runtime,
         )
         self._chat_autoreply_coordinator = ChatAutoreplyCoordinator(self)
+        self._pricing_cycle_coordinator = PricingCycleCoordinator(self)
+
+    async def run_cycle(self, *, include_chat_autoreply: bool = True):
+        return await self._pricing_cycle_coordinator.run(
+            include_chat_autoreply=include_chat_autoreply,
+        )
 
     async def _parse_competitor_price(
         self,
