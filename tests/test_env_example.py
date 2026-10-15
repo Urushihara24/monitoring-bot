@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from src.config import Config
+
 
 def _read_env_example() -> dict[str, str]:
     values: dict[str, str] = {}
@@ -42,3 +44,13 @@ def test_env_example_has_no_live_credentials():
     assert values['DIGISELLER_API_KEY'] == ''
     assert values['DIGISELLER_API_SECRET'] == ''
     assert values['DIGISELLER_ACCESS_TOKEN'] == ''
+
+
+def test_env_example_is_valid_typed_configuration():
+    cfg = Config(env=_read_env_example())
+
+    assert cfg.GGSEL_SELLER_ID == 0
+    assert cfg.GGSEL_PRODUCT_ID == 0
+    assert cfg.DIGISELLER_ENABLED is False
+    assert cfg.MODE == 'DUMPING'
+    assert cfg.LOG_LEVEL == 'INFO'

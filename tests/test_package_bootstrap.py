@@ -5,6 +5,18 @@ import sys
 from src.__main__ import _print_write_safety_banner
 
 
+def _run_src_with(env_overrides):
+    env = os.environ.copy()
+    env.update(env_overrides)
+    return subprocess.run(
+        [sys.executable, '-m', 'src'],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+
 def test_importing_package_does_not_eagerly_import_runtime_graph():
     completed = subprocess.run(
         [
@@ -25,22 +37,45 @@ def test_importing_package_does_not_eagerly_import_runtime_graph():
     assert completed.returncode == 0, completed.stderr
 
 
-def test_python_m_src_rejects_invalid_config_before_runtime_imports():
-    env = os.environ.copy()
-    env['GGSEL_PRODUCT_ID'] = 'not-a-number'
-    env['DRY_RUN'] = 'true'
-
-    completed = subprocess.run(
-        [sys.executable, '-m', 'src'],
-        check=False,
-        capture_output=True,
-        text=True,
-        env=env,
+def test_python_m_src_rejects_invalid_id_before_runtime_imports():
+    completed = _run_src_with(
+        {
+            'GGSEL_PRODUCT_ID': 'not-a-number',
+            'DRY_RUN': 'true',
+        }
     )
 
     assert completed.returncode == 2
     assert 'Configuration error:' in completed.stderr
-    assert 'GGSEL_PRODUCT_ID must be an integer' in completed.stderr
+    assert 'GGSEL_PRODUCT_ID must be numeric' in completed.stderr
+    assert 'Startup safety:' not in completed.stderr
+    assert 'Traceback' not in completed.stderr
+
+
+def test_python_m_src_rejects_invalid_boolean_before_runtime_imports():
+    completed = _run_src_with(
+        {
+            'GGSEL_ENABLED': 'treu',
+            'DRY_RUN': 'true',
+        }
+    )
+
+    assert completed.returncode == 2
+    assert 'GGSEL_ENABLED must be one of true/false' in completed.stderr
+    assert 'Startup safety:' not in completed.stderr
+    assert 'Traceback' not in completed.stderr
+
+
+def test_python_m_src_rejects_fractional_integer_before_runtime_imports():
+    completed = _run_src_with(
+        {
+            'DIGISELLER_CHECK_INTERVAL': '20.5',
+            'DRY_RUN': 'true',
+        }
+    )
+
+    assert completed.returncode == 2
+    assert 'DIGISELLER_CHECK_INTERVAL must be an integer' in completed.stderr
     assert 'Startup safety:' not in completed.stderr
     assert 'Traceback' not in completed.stderr
 
