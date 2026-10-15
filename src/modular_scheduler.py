@@ -1,8 +1,8 @@
 """Runtime scheduler facade for behaviour-preserving post-v1 extraction.
 
-``Scheduler`` remains the compatibility base while responsibilities move into
-small components. Runtime construction should prefer ``ModularScheduler`` so
-new boundaries become active without one large rewrite of the legacy module.
+The active scheduler now inherits only the low-level compatibility host. Every
+extracted orchestration method is shadowed there, so a missing modular delegate
+fails closed instead of silently executing a legacy copy.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from .notification_policy import NotificationPolicy
 from .parser_coordinator import ParserCoordinator
 from .pricing_cycle_coordinator import PricingCycleCoordinator
 from .rsc_parser import ParseResult
-from .scheduler import Scheduler
+from .scheduler_runtime_host import SchedulerRuntimeHost
 from .storage_repositories import repositories, repository_storage
 
 logger = logging.getLogger(__name__)
@@ -31,8 +31,8 @@ logger = logging.getLogger(__name__)
 pricing_cycle_module.storage = repository_storage
 
 
-class ModularScheduler(Scheduler):
-    """Scheduler runtime that delegates extracted responsibilities."""
+class ModularScheduler(SchedulerRuntimeHost):
+    """Scheduler runtime that delegates every extracted responsibility."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
