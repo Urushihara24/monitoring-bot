@@ -330,4 +330,54 @@ class StorageRepositories:
         )
 
 
+class RepositoryStorageFacade:
+    """Compatibility API for code being migrated off the monolithic Storage.
+
+    Only persistence methods needed by active pricing orchestration are exposed.
+    Each operation is routed to its focused repository.
+    """
+
+    def __init__(self, repos: StorageRepositories) -> None:
+        self.repos = repos
+
+    def get_state(self, profile_id: str = DEFAULT_PROFILE) -> dict:
+        return self.repos.pricing.get_state(profile_id=profile_id)
+
+    def update_state(self, profile_id: str = DEFAULT_PROFILE, **kwargs) -> None:
+        self.repos.pricing.update_state(profile_id=profile_id, **kwargs)
+
+    def set_auto_mode(self, enabled: bool, **kwargs) -> bool:
+        return self.repos.pricing.set_auto_mode(enabled, **kwargs)
+
+    def increment_update_count(self, profile_id: str = DEFAULT_PROFILE) -> None:
+        self.repos.pricing.increment_update_count(profile_id=profile_id)
+
+    def increment_skip_count(self, profile_id: str = DEFAULT_PROFILE) -> None:
+        self.repos.pricing.increment_skip_count(profile_id=profile_id)
+
+    def get_runtime_setting(self, key: str, *args, **kwargs) -> Optional[str]:
+        return self.repos.runtime.get_runtime_setting(key, *args, **kwargs)
+
+    def set_runtime_setting(self, key: str, value: str, *args, **kwargs) -> None:
+        self.repos.runtime.set_runtime_setting(key, value, *args, **kwargs)
+
+    def add_price_history(self, **kwargs) -> None:
+        self.repos.history.add_price_history(**kwargs)
+
+
+class TelegramSettingsPersistenceFacade:
+    """Persistence surface required by ``TelegramSettingsFlow``."""
+
+    def __init__(self, repos: StorageRepositories) -> None:
+        self.repos = repos
+
+    def set_auto_mode(self, enabled: bool, **kwargs) -> bool:
+        return self.repos.pricing.set_auto_mode(enabled, **kwargs)
+
+    def set_runtime_setting(self, key: str, value: str, *args, **kwargs) -> None:
+        self.repos.runtime.set_runtime_setting(key, value, *args, **kwargs)
+
+
 repositories = StorageRepositories.from_backend(storage)
+repository_storage = RepositoryStorageFacade(repositories)
+telegram_settings_storage = TelegramSettingsPersistenceFacade(repositories)
