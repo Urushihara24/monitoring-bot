@@ -7,6 +7,12 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - dependencies
+    groups:
+      dev-minor-patch:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: github-actions
     directory: /
@@ -15,3 +21,10 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - dependencies
+    groups:
+      actions-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
