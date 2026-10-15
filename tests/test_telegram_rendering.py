@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from src.__main__ import _install_runtime_overrides
 from src.modular_telegram_bot import ModularTelegramBot
+from src.modular_telegram_views_bot import ModularTelegramViewsBot
 from src.telegram_bot import TelegramBot
 from src.telegram_rendering import (
     DiagnosticsView,
@@ -82,13 +83,14 @@ def test_diagnostics_renderer_preserves_optional_lines_and_error_limit():
     assert 'e4' not in text
 
 
-def test_production_bootstrap_installs_modular_telegram_facade():
+def test_production_bootstrap_installs_latest_modular_telegram_facade():
     app_main = SimpleNamespace(TelegramBot=TelegramBot)
 
     result = _install_runtime_overrides(app_main)
 
     assert result is app_main
-    assert app_main.TelegramBot is ModularTelegramBot
-    assert issubclass(ModularTelegramBot, TelegramBot)
+    assert app_main.TelegramBot is ModularTelegramViewsBot
+    assert issubclass(ModularTelegramViewsBot, ModularTelegramBot)
+    assert issubclass(ModularTelegramViewsBot, TelegramBot)
     assert ModularTelegramBot.send_status is not TelegramBot.send_status
     assert ModularTelegramBot.send_diagnostics is not TelegramBot.send_diagnostics
