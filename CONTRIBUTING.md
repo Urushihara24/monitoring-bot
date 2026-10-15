@@ -2,6 +2,20 @@
 
 Contributions are welcome. The project controls real seller accounts, so changes that can reach marketplace write endpoints are treated as safety-sensitive.
 
+## Good first contribution
+
+If you want a bounded first PR, start with [#42 — sanitized storefront parser regression fixtures](https://github.com/Urushihara24/monitoring-bot/issues/42).
+
+That task is intentionally designed for external contributors:
+
+- no seller credentials are required;
+- tests stay offline;
+- no marketplace writes are performed;
+- the scope is limited to sanitized HTML fixtures and focused parser regression coverage;
+- acceptance criteria are documented in the issue.
+
+Before starting another substantial refactor, open or reference an issue first. The post-v1 modularization is complete, so maintenance work should improve the active modular boundaries rather than reopen legacy decomposition work.
+
 ## Setup
 
 ```bash
@@ -34,9 +48,10 @@ Prefer small, reviewable pull requests. In particular:
 - preserve profile/product isolation;
 - do not make a failed validation silently fall back to a write-enabled state;
 - document SQLite/data migrations and deployment impact;
-- do not add live seller IDs, tokens, cookies or buyer/order payloads to fixtures.
-
-Large refactors of `scheduler.py`, `telegram_bot.py` or `storage.py` should first extract one cohesive responsibility without changing behaviour. Follow-up behaviour changes should be separate PRs.
+- do not add live seller IDs, tokens, cookies or buyer/order payloads to fixtures;
+- target active modular surfaces for new behavior;
+- treat `scheduler.py` and `telegram_bot.py` as legacy compatibility/reference surfaces unless a tracked issue explicitly requires changes there;
+- keep `storage.py` changes focused on bootstrap/migrations compatibility, with new persistence behavior going through the repository boundaries where possible.
 
 ## Commit and PR content
 
