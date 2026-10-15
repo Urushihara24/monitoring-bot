@@ -38,6 +38,27 @@ The project is used as a real marketplace automation runtime: it monitors compet
 
 ---
 
+## Try it safely — no seller credentials
+
+You can evaluate the pricing engine and runtime contract without Telegram, marketplace credentials or any real seller writes.
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+python3 scripts/demo_pricing.py \
+  --mode DUMPING \
+  --competitor 0.35 0.37 \
+  --current 0.36
+
+python3 scripts/demo_runtime.py
+```
+
+Both demo paths are offline: **zero marketplace API writes and zero seller credentials required**. The full runtime starts in `DRY_RUN=true` as an additional write-safety boundary.
+
+---
+
 ## Tech stack
 
 ### Runtime
