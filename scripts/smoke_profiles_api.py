@@ -13,7 +13,6 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 GGSELClient = importlib.import_module('src.api_client').GGSELClient
-config = importlib.import_module('src.config').config
 DigiSellerClient = importlib.import_module(
     'src.digiseller_client'
 ).DigiSellerClient
@@ -21,6 +20,18 @@ profile_smoke = importlib.import_module('src.profile_smoke')
 SmokeResult = profile_smoke.SmokeResult
 run_profile_smoke = profile_smoke.run_profile_smoke
 dry_run_enabled = importlib.import_module('src.write_safety').dry_run_enabled
+
+# Config is loaded only after write-safety validation in main(). This keeps
+# malformed DRY_RUN values on the script's controlled exit-code-2 path instead
+# of failing during module import with an uncaught ConfigError traceback.
+config = None
+
+
+def _load_config():
+    global config
+    if config is None:
+        config = importlib.import_module('src.config').config
+    return config
 
 
 def _is_transient_read_failure(profile: str, result: SmokeResult) -> bool:
@@ -78,20 +89,21 @@ def _print_result(
 
 
 def check_ggsel(args) -> bool:
-    if not config.GGSEL_ENABLED:
+    cfg = _load_config()
+    if not cfg.GGSEL_ENABLED:
         print('[ggsel] skipped (disabled)')
         return True
     client = GGSELClient(
-        api_key=config.GGSEL_API_KEY,
-        api_secret=config.GGSEL_API_SECRET,
-        seller_id=config.GGSEL_SELLER_ID,
-        base_url=config.GGSEL_BASE_URL,
-        lang=config.GGSEL_LANG,
-        access_token=config.GGSEL_ACCESS_TOKEN,
+        api_key=cfg.GGSEL_API_KEY,
+        api_secret=cfg.GGSEL_API_SECRET,
+        seller_id=cfg.GGSEL_SELLER_ID,
+        base_url=cfg.GGSEL_BASE_URL,
+        lang=cfg.GGSEL_LANG,
+        access_token=cfg.GGSEL_ACCESS_TOKEN,
     )
     result = run_profile_smoke(
         client,
-        config.GGSEL_PRODUCT_ID,
+        cfg.GGSEL_PRODUCT_ID,
         mutate=args.mutate,
         delta=args.delta,
         verify_read=args.verify_read,
@@ -105,21 +117,22 @@ def check_ggsel(args) -> bool:
 
 
 def check_digiseller(args) -> bool:
-    if not config.DIGISELLER_ENABLED:
+    cfg = _load_config()
+    if not cfg.DIGISELLER_ENABLED:
         print('[digiseller] skipped (disabled)')
         return True
     client = DigiSellerClient(
-        api_key=config.DIGISELLER_API_KEY,
-        api_secret=config.DIGISELLER_API_SECRET,
-        seller_id=config.DIGISELLER_SELLER_ID,
-        base_url=config.DIGISELLER_BASE_URL,
-        lang=config.DIGISELLER_LANG,
-        access_token=config.DIGISELLER_ACCESS_TOKEN,
-        default_product_id=config.DIGISELLER_PRODUCT_ID,
+        api_key=cfg.DIGISELLER_API_KEY,
+        api_secret=cfg.DIGISELLER_API_SECRET,
+        seller_id=cfg.DIGISELLER_SELLER_ID,
+        base_url=cfg.DIGISELLER_BASE_URL,
+        lang=cfg.DIGISELLER_LANG,
+        access_token=cfg.DIGISELLER_ACCESS_TOKEN,
+        default_product_id=cfg.DIGISELLER_PRODUCT_ID,
     )
     result = run_profile_smoke(
         client,
-        config.DIGISELLER_PRODUCT_ID,
+        cfg.DIGISELLER_PRODUCT_ID,
         mutate=args.mutate,
         delta=args.delta,
         verify_read=args.verify_read,
@@ -199,10 +212,16 @@ def main() -> int:
         )
         return 2
 
-    if args.profile == 'ggsel' and not config.GGSEL_ENABLED:
+    try:
+        cfg = _load_config()
+    except ValueError as exc:
+        print(f'configuration error: {exc}')
+        return 2
+
+    if args.profile == 'ggsel' and not cfg.GGSEL_ENABLED:
         print('[ggsel] disabled: set GGSEL_ENABLED=true to run this profile')
         return 1
-    if args.profile == 'digiseller' and not config.DIGISELLER_ENABLED:
+    if args.profile == 'digiseller' and not cfg.DIGISELLER_ENABLED:
         print(
             '[digiseller] disabled: '
             'set DIGISELLER_ENABLED=true to run this profile'
