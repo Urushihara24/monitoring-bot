@@ -2,17 +2,19 @@
 
 Contributions are welcome. The project controls real seller accounts, so changes that can reach marketplace write endpoints are treated as safety-sensitive.
 
-## Good first contribution
+## First contribution
 
-If you want a bounded first PR, start with [#42 — sanitized storefront parser regression fixtures](https://github.com/Urushihara24/monitoring-bot/issues/42).
+Before starting work, check the issue assignees and latest comments so two contributors do not duplicate the same task.
 
-That task is intentionally designed for external contributors:
+[#42 — sanitized storefront parser regression fixtures](https://github.com/Urushihara24/monitoring-bot/issues/42) is an example of a bounded contributor task, but it is currently assigned and in progress. If no unclaimed issue fits, open a focused issue or proposal first and keep the scope small enough for one reviewable PR.
 
-- no seller credentials are required;
-- tests stay offline;
-- no marketplace writes are performed;
-- the scope is limited to sanitized HTML fixtures and focused parser regression coverage;
-- acceptance criteria are documented in the issue.
+Good first contributions should normally be:
+
+- credential-free;
+- testable offline where possible;
+- isolated from marketplace writes;
+- narrow enough to review independently;
+- explicit about acceptance criteria and runtime risk.
 
 Before starting another substantial refactor, open or reference an issue first. The post-v1 modularization is complete, so maintenance work should improve the active modular boundaries rather than reopen legacy decomposition work.
 

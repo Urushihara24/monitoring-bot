@@ -20,7 +20,7 @@ The project is used as a real marketplace automation runtime: it monitors compet
 
 </div>
 
-> 👋 **Looking for a first contribution?** Start with [#42 — sanitized storefront parser regression fixtures](https://github.com/Urushihara24/monitoring-bot/issues/42). It is intentionally offline, credential-free and scoped for a focused external PR.
+> 👋 **Contributions are welcome.** Check open issues and assignees before starting so work is not duplicated. [#42 — sanitized storefront parser regression fixtures](https://github.com/Urushihara24/monitoring-bot/issues/42) is currently claimed by an external contributor and serves as an example of a focused, credential-free contribution.
 
 ---
 
@@ -312,6 +312,6 @@ The post-v1 modularization tracked in #24 is complete. The active runtime uses e
 
 If you work with GGSEL, DigiSeller or marketplace automation, real-world edge cases are useful: bug reports, parser failures, API behavior differences and focused pull requests are welcome.
 
-For a bounded first contribution, take [#42 — sanitized storefront parser regression fixtures](https://github.com/Urushihara24/monitoring-bot/issues/42). It requires no seller credentials and is designed to stay fully offline. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and verification.
+[#42 — sanitized storefront parser regression fixtures](https://github.com/Urushihara24/monitoring-bot/issues/42) is currently in progress by an external contributor, so please do not duplicate that work. Check current open issues first; if none fits, open a focused proposal before starting. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and verification.
 
 If this project is useful to you, starring the repository helps other marketplace-automation developers discover it.
