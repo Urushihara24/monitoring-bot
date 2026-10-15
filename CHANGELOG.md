@@ -1,8 +1,26 @@
 # Changelog
 
-Notable user-facing and operational changes are recorded here. The project follows a lightweight Keep a Changelog style; version tags will be introduced when the runtime/deployment contract is stable enough for releases.
+Notable user-facing and operational changes are recorded here. The project follows a lightweight Keep a Changelog style and uses tagged GitHub releases for stable versions.
 
 ## Unreleased
+
+## [1.0.1] - 2026-10-15
+
+### Changed
+
+- Upgraded `actions/setup-python` from 6 to 7 and `actions/checkout` from 5 to 7 after full repository verification.
+- Upgraded `python-telegram-bot` from 22.7 to 22.8.
+- Upgraded `pytest-asyncio` from 1.2.0 to 1.4.0 while retaining `pytest==8.4.2`.
+- Upgraded `beautifulsoup4` from 4.12.3 to 4.15.0 with parser/regression coverage passing on Python 3.11 and 3.12.
+- Upgraded Ruff from 0.14.0 to 0.17.0; CI continues to use the explicit critical `F,E9` rule selection.
+- Dependabot now groups lower-risk development and GitHub Actions minor/patch updates while keeping production/runtime Python dependencies isolated.
+
+### Validation
+
+- Runtime-sensitive dependency updates were merged only after CI, Security and credential-free Demo runtime checks passed.
+- Pricing formulas, marketplace write semantics, `DRY_RUN`, persisted-state meaning and deployment defaults are unchanged from v1.0.0.
+
+## [1.0.0] - 2026-10-15
 
 ### Added
 
@@ -37,3 +55,6 @@ Notable user-facing and operational changes are recorded here. The project follo
 - Runtime dependencies identified by `pip-audit` were upgraded to patched versions.
 - Issued access tokens are stored in a mode-`0600` ignored file instead of being printed to stdout.
 - Logging now redacts configured seller/Telegram secrets and structurally recognizable bearer/query/payload tokens before handlers emit them.
+
+[1.0.1]: https://github.com/Urushihara24/monitoring-bot/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/Urushihara24/monitoring-bot/releases/tag/v1.0.0
