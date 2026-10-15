@@ -13,6 +13,7 @@ The project is used as a real marketplace automation runtime: it monitors compet
 [![pytest](https://img.shields.io/badge/pytest-Tested-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white)](https://pytest.org/)
 [![CI](https://img.shields.io/github/actions/workflow/status/Urushihara24/monitoring-bot/ci.yml?branch=main&style=for-the-badge&label=CI)](https://github.com/Urushihara24/monitoring-bot/actions/workflows/ci.yml)
 [![Security](https://img.shields.io/github/actions/workflow/status/Urushihara24/monitoring-bot/security.yml?branch=main&style=for-the-badge&label=Security)](https://github.com/Urushihara24/monitoring-bot/actions/workflows/security.yml)
+[![Release](https://img.shields.io/github/v/release/Urushihara24/monitoring-bot?style=for-the-badge&label=Release)](https://github.com/Urushihara24/monitoring-bot/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 
 **GGSEL · DigiSeller · Telegram Bot API · REST APIs · Python · SQLite · Docker · GitHub Actions · pytest**
