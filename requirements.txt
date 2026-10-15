@@ -8,7 +8,7 @@ requests==2.33.0
 
 # HTML parsing
 beautifulsoup4==4.15.0
-stealth-requests==2.0.5
+stealth-requests==2.0.6
 
 # Utilities
 python-dotenv==1.2.4
