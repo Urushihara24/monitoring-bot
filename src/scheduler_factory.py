@@ -1,8 +1,9 @@
 """Scheduler construction with a fail-safe dry-run mode.
 
-The production scheduler remains unchanged. When ``DRY_RUN=true`` a subclass
-intercepts marketplace write boundaries while keeping the normal parsing and
-pricing decision path intact.
+Runtime construction uses the modular scheduler facade so post-v1 components
+can be extracted in behaviour-preserving slices. When ``DRY_RUN=true`` a
+subclass intercepts marketplace write boundaries while keeping the normal
+parsing and pricing decision path intact.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from .scheduler import Scheduler as BaseScheduler
+from .modular_scheduler import ModularScheduler as BaseScheduler
 from .write_safety import dry_run_enabled
 
 logger = logging.getLogger(__name__)
