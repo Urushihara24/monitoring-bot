@@ -257,18 +257,30 @@ Write-capable smoke probes are deliberately blocked while `DRY_RUN=true`.
 ## Repository map
 
 ```text
-src/main.py               startup / orchestration
-src/scheduler.py          pricing-cycle and chat orchestration
-src/scheduler_factory.py  DRY_RUN scheduler boundary
-src/logic.py              pricing rules
-src/marketplace.py        marketplace protocol + in-memory fake client
-src/rsc_parser.py         competitor parser
-src/api_client.py         GGSEL seller API
-src/digiseller_client.py  DigiSeller API
-src/telegram_bot.py       Telegram control plane
-src/storage.py            SQLite runtime state/history
-scripts/                  smoke, demo and operational tooling
-docs/                     architecture, dry-run and release documentation
+src/main.py                         startup, lifecycle and profile wiring
+src/scheduler_factory.py            DRY_RUN scheduler selection and write boundary
+src/modular_scheduler.py            active scheduler facade
+src/scheduler_runtime_host.py       low-level compatibility host with fail-closed extracted methods
+src/parser_coordinator.py           competitor parser coordination
+src/pricing_cycle_coordinator.py    pricing-cycle orchestration and write-result handling
+src/notification_policy.py          notification/throttling policy
+src/chat_autoreply_coordinator.py   marketplace chat auto-reply orchestration
+src/logic.py                        pricing rules
+src/marketplace.py                  marketplace protocol + in-memory fake client
+src/rsc_parser.py                   competitor parser
+src/api_client.py                   GGSEL seller API
+src/digiseller_client.py            DigiSeller API
+src/modular_telegram_routed_bot.py  active Telegram runtime facade
+src/telegram_router.py              command/message/callback/error routing
+src/telegram_settings_flow.py       Telegram settings mutations and validation
+src/telegram_views.py               keyboard/inline markup builders
+src/telegram_rendering.py           status/diagnostics rendering
+src/storage_repositories.py         focused active persistence boundaries
+src/storage.py                      SQLite bootstrap/migrations compatibility facade
+src/scheduler.py                    frozen legacy scheduler compatibility/reference surface
+src/telegram_bot.py                 legacy Telegram compatibility surface
+scripts/                            smoke, demo and operational tooling
+docs/                               architecture, dry-run and release documentation
 ```
 
 ---
@@ -290,7 +302,7 @@ docs/                     architecture, dry-run and release documentation
 
 This is a working marketplace automation project, not a tutorial repository. The public codebase is structured so production-sensitive credentials and account data stay outside Git while the runtime, safety mechanisms, tests and operational tooling remain reviewable.
 
-Current post-v1 maintainability work is tracked separately from the stable runtime and focuses on further modularization of the largest orchestration modules.
+The post-v1 modularization tracked in #24 is complete. The active runtime uses explicit scheduler, Telegram and persistence boundaries; the historical monolithic modules remain only where compatibility and regression coverage still require them. Further feature work should target the modular runtime surfaces rather than extend the legacy orchestration classes.
 
 ---
 

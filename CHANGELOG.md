@@ -4,6 +4,21 @@ Notable user-facing and operational changes are recorded here. The project follo
 
 ## Unreleased
 
+### Changed
+
+- Completed the post-v1 runtime modularization tracked in #24: parser coordination, notification policy, marketplace chat auto-reply orchestration and pricing-cycle control now run through dedicated scheduler components.
+- Retired legacy scheduler orchestration fallbacks from the active runtime path. `SchedulerRuntimeHost` retains low-level compatibility helpers but fails closed for responsibilities owned by extracted components.
+- Split the active Telegram runtime into command routing, keyboard/view builders, settings mutation flow and status/diagnostics rendering while preserving the legacy compatibility surface for staged migration and regression coverage.
+- Split active persistence behind focused pricing-state, runtime-settings, chat-metadata and history repositories while keeping `Storage` as the SQLite bootstrap/migration compatibility facade.
+- Upgraded `stealth-requests` from 2.0.5 to 2.0.6 and `requests` from 2.33.0 to 2.34.2 after re-testing the combined runtime dependency set.
+- Upgraded the development test runner from `pytest` 8.4.2 to 9.1.1 after verifying compatibility with the final runtime dependency set on Python 3.11 and 3.12.
+
+### Validation
+
+- Added true Docker Compose SIGTERM lifecycle verification using the production runtime image and real `src.main` shutdown primitives.
+- Post-v1 extraction and dependency maintenance changes were merged only after Python 3.11/3.12 regression tests, Ruff/compile checks, Security, credential-free Demo runtime, container verification and Compose SIGTERM checks passed.
+- Pricing formulas, marketplace write semantics, `DRY_RUN` guarantees and persisted-state meaning remain unchanged by the modularization work.
+
 ## [1.0.1] - 2026-10-15
 
 ### Changed
