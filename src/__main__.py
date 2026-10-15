@@ -21,6 +21,14 @@ def _print_write_safety_banner() -> None:
     )
 
 
+def _install_runtime_overrides(app_main):
+    """Install staged modular runtime facades after startup preflight."""
+    from .modular_telegram_bot import ModularTelegramBot
+
+    app_main.TelegramBot = ModularTelegramBot
+    return app_main
+
+
 def _bootstrap() -> None:
     try:
         validate_startup_environment()
@@ -32,9 +40,9 @@ def _bootstrap() -> None:
 
     # Import only after preflight so invalid .env values do not fail inside
     # src.config with an opaque import-time ValueError.
-    from .main import run
+    from . import main as app_main
 
-    run()
+    _install_runtime_overrides(app_main).run()
 
 
 if __name__ == '__main__':
