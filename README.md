@@ -291,3 +291,11 @@ docs/                     architecture, dry-run and release documentation
 This is a working marketplace automation project, not a tutorial repository. The public codebase is structured so production-sensitive credentials and account data stay outside Git while the runtime, safety mechanisms, tests and operational tooling remain reviewable.
 
 Current post-v1 maintainability work is tracked separately from the stable runtime and focuses on further modularization of the largest orchestration modules.
+
+---
+
+## Feedback & contributions
+
+If you work with GGSEL, DigiSeller or marketplace automation, real-world edge cases are useful: bug reports, parser failures, API behavior differences and focused pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md) or open an issue with sanitized reproduction details.
+
+If this project is useful to you, starring the repository helps other marketplace-automation developers discover it.
