@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .modular_telegram_views_bot import ModularTelegramViewsBot
+from .storage_repositories import telegram_settings_storage
 from .telegram_settings_flow import TelegramSettingsFlow
 
 
@@ -13,7 +14,10 @@ class ModularTelegramSettingsBot(ModularTelegramViewsBot):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self._settings_flow = TelegramSettingsFlow(self)
+        self._settings_flow = TelegramSettingsFlow(
+            self,
+            runtime_storage=telegram_settings_storage,
+        )
 
     async def set_auto_enabled(self, update, *, enabled: bool):
         return await self._settings_flow.set_auto_enabled(
