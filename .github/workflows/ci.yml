@@ -62,6 +62,7 @@ jobs:
         run: |
           docker compose -f docker-compose.yml config --quiet
           docker compose -f docker-compose.secure.yml config --quiet
+          docker compose -f docker-compose.sigterm.yml config --quiet
 
       - name: Build backward-compatible runtime image
         run: docker build --target runtime -t monitoring-bot:ci-runtime .
@@ -98,8 +99,39 @@ jobs:
             monitoring-bot:ci-nonroot \
             -c 'touch /app/data/volume-write-test /app/logs/volume-write-test'
 
-      - name: Cleanup container test volumes
+      - name: Verify Compose SIGTERM lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          compose=(docker compose -f docker-compose.sigterm.yml)
+          "${compose[@]}" up -d --build sigterm-probe
+
+          ready=0
+          for _ in $(seq 1 30); do
+            if "${compose[@]}" logs --no-color sigterm-probe | grep -q 'SIGTERM_PROBE_READY'; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = "1"
+
+          started_at=$(date +%s)
+          "${compose[@]}" stop -t 20 sigterm-probe
+          elapsed=$(( $(date +%s) - started_at ))
+
+          logs=$("${compose[@]}" logs --no-color sigterm-probe)
+          printf '%s\n' "$logs"
+          printf '%s\n' "$logs" | grep -q 'SIGTERM_PROBE_STOPPED'
+          test "$elapsed" -lt 20
+
+          container_id=$("${compose[@]}" ps -aq sigterm-probe)
+          test -n "$container_id"
+          test "$(docker inspect --format '{{.State.ExitCode}}' "$container_id")" = "0"
+
+      - name: Cleanup container tests
         if: always()
         run: |
+          docker compose -f docker-compose.sigterm.yml down --remove-orphans >/dev/null 2>&1 || true
           docker volume rm -f monitoring-bot-ci-data >/dev/null 2>&1 || true
           docker volume rm -f monitoring-bot-ci-logs >/dev/null 2>&1 || true
