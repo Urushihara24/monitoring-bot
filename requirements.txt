@@ -1,7 +1,7 @@
 # Auto-Pricing Bot dependencies
 
 # Telegram
-python-telegram-bot==22.7
+python-telegram-bot==22.8
 
 # HTTP requests
 requests==2.33.0
