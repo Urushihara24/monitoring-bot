@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.modular_scheduler import ModularScheduler
 from src.scheduler import Scheduler
 from src.scheduler_factory import (
     DryRunScheduler,
@@ -52,14 +53,17 @@ def test_factory_uses_dry_run_scheduler_when_enabled(monkeypatch):
     scheduler = create_scheduler(**_scheduler_kwargs())
 
     assert isinstance(scheduler, DryRunScheduler)
+    assert isinstance(scheduler, ModularScheduler)
+    assert isinstance(scheduler, Scheduler)
 
 
-def test_factory_keeps_production_scheduler_by_default(monkeypatch):
+def test_factory_uses_modular_production_scheduler_by_default(monkeypatch):
     monkeypatch.delenv('DRY_RUN', raising=False)
 
     scheduler = create_scheduler(**_scheduler_kwargs())
 
-    assert type(scheduler) is Scheduler
+    assert type(scheduler) is ModularScheduler
+    assert isinstance(scheduler, Scheduler)
 
 
 @pytest.mark.asyncio
