@@ -23,9 +23,9 @@ def _print_write_safety_banner() -> None:
 
 def _install_runtime_overrides(app_main):
     """Install staged modular runtime facades after startup preflight."""
-    from .modular_telegram_settings_bot import ModularTelegramSettingsBot
+    from .modular_telegram_routed_bot import ModularTelegramRoutedBot
 
-    app_main.TelegramBot = ModularTelegramSettingsBot
+    app_main.TelegramBot = ModularTelegramRoutedBot
     return app_main
 
 

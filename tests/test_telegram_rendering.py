@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from src.__main__ import _install_runtime_overrides
 from src.modular_telegram_bot import ModularTelegramBot
+from src.modular_telegram_routed_bot import ModularTelegramRoutedBot
 from src.modular_telegram_settings_bot import ModularTelegramSettingsBot
 from src.modular_telegram_views_bot import ModularTelegramViewsBot
 from src.telegram_bot import TelegramBot
@@ -90,9 +91,10 @@ def test_production_bootstrap_installs_latest_modular_telegram_facade():
     result = _install_runtime_overrides(app_main)
 
     assert result is app_main
-    assert app_main.TelegramBot is ModularTelegramSettingsBot
+    assert app_main.TelegramBot is ModularTelegramRoutedBot
+    assert issubclass(ModularTelegramRoutedBot, ModularTelegramSettingsBot)
     assert issubclass(ModularTelegramSettingsBot, ModularTelegramViewsBot)
     assert issubclass(ModularTelegramViewsBot, ModularTelegramBot)
-    assert issubclass(ModularTelegramSettingsBot, TelegramBot)
+    assert issubclass(ModularTelegramRoutedBot, TelegramBot)
     assert ModularTelegramBot.send_status is not TelegramBot.send_status
     assert ModularTelegramBot.send_diagnostics is not TelegramBot.send_diagnostics
