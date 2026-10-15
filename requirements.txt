@@ -4,7 +4,7 @@
 python-telegram-bot==22.8
 
 # HTTP requests
-requests==2.33.0
+requests==2.34.2
 
 # HTML parsing
 beautifulsoup4==4.15.0
